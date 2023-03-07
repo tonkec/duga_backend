@@ -30,7 +30,7 @@ const verificationToken = (req) =>
     },
   });
 
-const verifyUser = (user) => {
+const verifyUser = (res, user) => {
   return user
     .update({ isVerified: true })
     .then(() => {
@@ -49,7 +49,7 @@ const findVerificationToken = (req, res, user) => {
   return verificationToken(req)
     .then((foundToken) => {
       if (foundToken) {
-        verifyUser(user);
+        verifyUser(res, user);
       } else {
         tokenHasExpired(res);
       }
