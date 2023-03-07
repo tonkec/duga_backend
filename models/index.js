@@ -11,6 +11,16 @@ const db = {};
 
 console.log(config);
 
+const sslOptions =
+  process.env.NODE_ENV === 'development'
+    ? {}
+    : {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      };
+
 const sequelize = new Sequelize({
   database: config.database,
   username: config.username,
@@ -18,12 +28,7 @@ const sequelize = new Sequelize({
   host: config.host,
   port: 5432,
   dialect: 'postgres',
-  dialectOptions: {
-    ssl: {
-      require: true,
-      rejectUnauthorized: false,
-    },
-  },
+  dialectOptions: sslOptions,
 });
 
 fs.readdirSync(__dirname)
