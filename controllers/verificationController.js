@@ -50,8 +50,9 @@ const findVerificationToken = (req, res, user) => {
     .then((foundToken) => {
       if (foundToken) {
         verifyUser(user);
+      } else {
+        tokenHasExpired(res);
       }
-      tokenHasExpired(res);
     })
     .catch(() => {
       return res.status(404).json(TOKEN_EXPIRED);
@@ -64,8 +65,9 @@ exports.verify = (req, res) => {
     .then((user) => {
       if (isUserVerified(user)) {
         return res.status(202).json(EMAIL_ALREADY_VERIFIED);
+      } else {
+        findVerificationToken(req, res, user);
       }
-      findVerificationToken(req, res, user);
     })
     .catch((reason) => {
       console.log(reason);
