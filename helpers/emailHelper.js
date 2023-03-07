@@ -3,7 +3,7 @@ const sgMail = require('@sendgrid/mail');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 exports.sendVerificationEmail = (toUser, token) => {
-  const hostUrl = `${process.env.APP_URL}:${process.env.APP_PORT}`;
+  const hostUrl = `${process.env.APP_URL}`;
   const msg = {
     to: toUser,
     from: 'admin@duga.app', // Use the email address or domain you verified above
