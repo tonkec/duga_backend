@@ -35,7 +35,6 @@ exports.login = async (req, res) => {
 
 exports.forgotPassword = async (req, res) => {
   const email = req.body.email;
-
   try {
     const user = await User.findOne({
       where: {
@@ -43,9 +42,10 @@ exports.forgotPassword = async (req, res) => {
       },
     });
     if (!user) return res.status(404).json({ message: 'User not found' });
-    sendResetPasswordEmail(user, user.token);
+    sendResetPasswordEmail(user.email);
+    return res.send(user);
   } catch (e) {
-    console.log(e);
+    return res.status(500).json({ e: e.message });
   }
 };
 

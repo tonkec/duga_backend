@@ -15,7 +15,7 @@ const {
 router.post('/login', [loginRules(), validate], login);
 router.post('/register', [registrationRules(), validate], register);
 router.get('/verification', verify);
-router.get(
+router.post(
   '/forgot-password',
   [forgotPasswordRules(), validate],
   forgotPassword
