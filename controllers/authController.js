@@ -3,8 +3,12 @@ const VerificationToken = require('../models').VerificationToken;
 const bcrypt = require('bcrypt');
 const config = require('../config/app');
 const jwt = require('jsonwebtoken');
-const { sendVerificationEmail } = require('../helpers/sendVerificationEmail');
-const { sendResetPasswordEmail } = require('../helpers/sendResetPasswordEmail');
+const {
+  sendVerificationEmail,
+} = require('./../helpers/emailHelpers/sendVerificationEmail');
+const {
+  sendResetPasswordEmail,
+} = require('../helpers/emailHelpers/sendResetPasswordEmail');
 
 exports.login = async (req, res) => {
   const { password, email } = req.body;
