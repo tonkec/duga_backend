@@ -1,5 +1,5 @@
-const User = require("../models").User;
-const sequelize = require("sequelize");
+const User = require('../models').User;
+const sequelize = require('sequelize');
 exports.update = async (res, req) => {
   if (req.file) {
     req.body.avatar = req.file.filename;
@@ -30,10 +30,10 @@ exports.search = async (req, res) => {
         [sequelize.Op.or]: {
           namesConcated: sequelize.where(
             sequelize.fn(
-              "concat",
-              sequelize.col("firstName"),
-              " ",
-              sequelize.col("lastName")
+              'concat',
+              sequelize.col('firstName'),
+              ' ',
+              sequelize.col('lastName')
             ),
             {
               [sequelize.Op.iLike]: `%${req.query.term}%`,

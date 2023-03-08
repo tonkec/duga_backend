@@ -3,7 +3,8 @@ const VerificationToken = require('../models').VerificationToken;
 const bcrypt = require('bcrypt');
 const config = require('../config/app');
 const jwt = require('jsonwebtoken');
-const { sendVerificationEmail } = require('../helpers/emailHelper');
+const { sendVerificationEmail } = require('../helpers/sendVerificationEmail');
+const { sendResetPasswordEmail } = require('../helpers/sendResetPasswordEmail');
 
 exports.login = async (req, res) => {
   const { password, email } = req.body;
@@ -25,6 +26,22 @@ exports.login = async (req, res) => {
     return res.send(userWithToken);
   } catch (e) {
     return res.status(500).json({ message: e.message });
+  }
+};
+
+exports.forgotPassword = async (req, res) => {
+  const email = req.body.email;
+
+  try {
+    const user = await User.findOne({
+      where: {
+        email: email,
+      },
+    });
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    sendResetPasswordEmail(user, user.token);
+  } catch (e) {
+    console.log(e);
   }
 };
 
