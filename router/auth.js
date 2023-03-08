@@ -3,6 +3,7 @@ const {
   login,
   register,
   forgotPassword,
+  resetPassword,
 } = require('../controllers/authController');
 const { verify } = require('../controllers/verificationController');
 const { validate } = require('../validators/index');
@@ -20,5 +21,7 @@ router.post(
   [forgotPasswordRules(), validate],
   forgotPassword
 );
+
+router.post('/reset-password', resetPassword);
 
 module.exports = router;

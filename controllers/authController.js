@@ -49,6 +49,26 @@ exports.forgotPassword = async (req, res) => {
   }
 };
 
+exports.resetPassword = async (req, res) => {
+  const email = req.body.email;
+  const password = req.body.password;
+  try {
+    const [rows, result] = await User.update(req.body, {
+      where: {
+        email: email,
+      },
+      returning: true,
+      individualHooks: true,
+    });
+    const user = result[0].get({ raw: true });
+    delete user.password;
+    user.password = password;
+    return res.send(user);
+  } catch (e) {
+    return res.status(500).json({ e: e.message });
+  }
+};
+
 exports.register = async (req, res) => {
   try {
     const user = await User.create(req.body);
