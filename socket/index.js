@@ -3,6 +3,7 @@ const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
+const allOnlineUsers = [];
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -40,6 +41,24 @@ const SocketServer = (server) => {
           io.to(socket).emit('friends', onlineFriends);
         } catch (e) {}
       });
+    });
+
+    socket.on('login', async (newUser) => {
+      if (newUser) {
+        if (
+          !allOnlineUsers.some((user) => {
+            if (newUser.id === user.user.id) {
+              return true;
+            }
+          })
+        ) {
+          allOnlineUsers.push({ user: newUser, socketId: socket.id });
+        }
+
+        io.emit('get-users', allOnlineUsers);
+      } else {
+        console.log('no user');
+      }
     });
 
     socket.on('message', async (message) => {
