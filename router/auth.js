@@ -5,7 +5,10 @@ const {
   forgotPassword,
   resetPassword,
 } = require('../controllers/authController');
-const { verify } = require('../controllers/verificationController');
+const {
+  verify,
+  getVerificationToken,
+} = require('../controllers/verificationController');
 const { validate } = require('../validators/index');
 const { rules: registrationRules } = require('../validators/auth/register');
 const { rules: loginRules } = require('../validators/auth/login');
@@ -23,5 +26,6 @@ router.post(
 );
 
 router.post('/reset-password', resetPassword);
+router.post('/verification-token', getVerificationToken);
 
 module.exports = router;
