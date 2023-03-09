@@ -42,8 +42,8 @@ exports.forgotPassword = async (req, res) => {
       },
     });
     if (!user) return res.status(404).json({ message: 'User not found' });
-    sendResetPasswordEmail(user.email);
-    return res.send(user);
+    const emailType = 'reset';
+    createVerificationToken(user, emailType, res);
   } catch (e) {
     return res.status(500).json({ e: e.message });
   }
@@ -73,13 +73,8 @@ exports.register = async (req, res) => {
   try {
     const user = await User.create(req.body);
     const userWithToken = generateToken(user.get({ raw: true }));
-    VerificationToken.create({
-      userId: user.id,
-      token: require('crypto').randomBytes(64).toString('hex'),
-    }).then((result) => {
-      sendVerificationEmail(user.email, result.token);
-      return res.send(userWithToken);
-    });
+    const emailType = 'verification';
+    createVerificationToken(userWithToken, emailType, res);
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
@@ -89,4 +84,24 @@ const generateToken = (user) => {
   //   delete user.password;
   const token = jwt.sign(user, config.appKey, { expiresIn: 86400000 });
   return { ...user, ...{ token } };
+};
+
+const generateEmailVerificationToken = () => {
+  return require('crypto').randomBytes(64).toString('hex');
+};
+
+const createVerificationToken = (user, type, res) => {
+  const isVerification = type === 'verification' ? true : false;
+  VerificationToken.create({
+    userId: user.id,
+    token: generateEmailVerificationToken(),
+  })
+    .then((result) => {
+      const emailVerificationToken = result.token;
+      isVerification
+        ? sendVerificationEmail(user.email, emailVerificationToken)
+        : sendResetPasswordEmail(user.email, emailVerificationToken);
+      return res.send(user);
+    })
+    .catch((e) => console.log(e.message));
 };
