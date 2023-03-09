@@ -81,3 +81,25 @@ exports.verify = (req, res) => {
       onEmailNotFound(res);
     });
 };
+
+exports.getVerificationToken = async (req, res) => {
+  try {
+    const token = await VerificationToken.findOne({
+      where: {
+        [Op.or]: [
+          {
+            token: req.body.token,
+          },
+        ],
+      },
+    });
+
+    if (token) {
+      return res.send(token);
+    }
+
+    return res.status(404).json({ message: 'Token not found' });
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};

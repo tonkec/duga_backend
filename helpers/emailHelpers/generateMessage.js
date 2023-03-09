@@ -5,7 +5,7 @@ exports.generateMessage = (token, toUser, subject, text, url, html, port) => {
     from: 'admin@duga.app',
     subject: subject,
     text: text,
-    html: `${html}: ${hostUrl}:${port}/${url}?${token}&email=${toUser}`,
+    html: `${html}: ${hostUrl}:${port}/${url}?token=${token}&email=${toUser}`,
   };
 
   return msg;
