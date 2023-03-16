@@ -1,5 +1,6 @@
 require('dotenv').config();
 const sgMail = require('@sendgrid/mail');
+const { generateMessage } = require('../emailHelpers/generateMessage');
 sgMail.setApiKey(process.env.SENDGRID_API_KEY);
 
 exports.sendVerificationEmail = (toUser, token) => {

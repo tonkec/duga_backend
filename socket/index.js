@@ -195,32 +195,33 @@ const SocketServer = (server) => {
     socket.on('disconnect', async () => {
       if (userSockets.has(socket.id)) {
         const user = users.get(userSockets.get(socket.id));
+        if (user) {
+          if (user.sockets.length > 1) {
+            user.sockets = user.sockets.filter((sock) => {
+              if (sock !== socket.id) return true;
+              userSockets.delete(sock);
+              return false;
+            });
 
-        if (user.sockets.length > 1) {
-          user.sockets = user.sockets.filter((sock) => {
-            if (sock !== socket.id) return true;
-            userSockets.delete(sock);
-            return false;
-          });
+            users.set(user.id, user);
+          } else {
+            const chatters = await getChatters(user.id);
 
-          users.set(user.id, user);
-        } else {
-          const chatters = await getChatters(user.id);
-
-          for (let i = 0; i < chatters.length; i++) {
-            if (users.has(chatters[i])) {
-              users.get(chatters[i]).sockets.forEach((socket) => {
-                try {
-                  io.to(socket).emit('offline', user);
-                } catch (e) {
-                  console.log(e);
-                }
-              });
+            for (let i = 0; i < chatters.length; i++) {
+              if (users.has(chatters[i])) {
+                users.get(chatters[i]).sockets.forEach((socket) => {
+                  try {
+                    io.to(socket).emit('offline', user);
+                  } catch (e) {
+                    console.log(e);
+                  }
+                });
+              }
             }
-          }
 
-          userSockets.delete(socket.id);
-          users.delete(user.id);
+            userSockets.delete(socket.id);
+            users.delete(user.id);
+          }
         }
       }
     });

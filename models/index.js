@@ -9,10 +9,8 @@ const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + './../config/database.js')[env];
 const db = {};
 
-console.log(config);
-
 const sslOptions =
-  process.env.NODE_ENV === 'development'
+  env === 'development'
     ? {}
     : {
         ssl: {
