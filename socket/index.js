@@ -3,7 +3,7 @@ const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
-const allOnlineUsers = [];
+let allOnlineUsers = [];
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -54,7 +54,6 @@ const SocketServer = (server) => {
         ) {
           allOnlineUsers.push({ user: newUser, socketId: socket.id });
         }
-
         io.emit('get-users', allOnlineUsers);
       } else {
         console.log('no user');
@@ -176,6 +175,25 @@ const SocketServer = (server) => {
           });
         }
       });
+    });
+
+    socket.on('set-user-offline', (user) => {
+      allOnlineUsers = allOnlineUsers.filter((userFromAllUsers) => {
+        return user.id !== userFromAllUsers.user.id;
+      });
+    });
+
+    socket.on('set-user-online', (user) => {
+      const shouldBeAddedToOnlineUsers = allOnlineUsers.filter(
+        (userFromAllOnlineUsers) => {
+          if (userFromAllOnlineUsers.user.id === user.id) {
+            return false;
+          }
+        }
+      );
+      if (shouldBeAddedToOnlineUsers.length > 0) {
+        allOnlineUsers.push({ user: newUser, socketId: socket.id });
+      }
     });
 
     socket.on('delete-chat', (data) => {
