@@ -54,6 +54,7 @@ const SocketServer = (server) => {
         ) {
           allOnlineUsers.push({ user: newUser, socketId: socket.id });
         }
+
         io.emit('get-users', allOnlineUsers);
       } else {
         console.log('no user');
@@ -181,6 +182,7 @@ const SocketServer = (server) => {
       allOnlineUsers = allOnlineUsers.filter((userFromAllUsers) => {
         return user.id !== userFromAllUsers.user.id;
       });
+      io.emit('get-users', allOnlineUsers);
     });
 
     socket.on('set-user-online', (user) => {
@@ -193,6 +195,7 @@ const SocketServer = (server) => {
       );
       if (shouldBeAddedToOnlineUsers.length > 0) {
         allOnlineUsers.push({ user: newUser, socketId: socket.id });
+        io.emit('get-users', allOnlineUsers);
       }
     });
 
@@ -208,6 +211,10 @@ const SocketServer = (server) => {
           });
         }
       });
+    });
+
+    socket.on('get-all-online-users', () => {
+      socket.emit('get-users', allOnlineUsers);
     });
 
     socket.on('disconnect', async () => {
