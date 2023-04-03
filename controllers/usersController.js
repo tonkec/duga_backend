@@ -23,6 +23,28 @@ exports.update = async (res, req) => {
   }
 };
 
+exports.getAllUsers = async (req, res) => {
+  try {
+    const users = await User.findAll();
+    return res.json(users);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+};
+
+exports.getUser = async (req, res) => {
+  try {
+    const user = await User.findOne({
+      where: {
+        id: req.params.id,
+      },
+    });
+    return res.send(user);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+};
+
 exports.search = async (req, res) => {
   try {
     const users = await User.findAll({
