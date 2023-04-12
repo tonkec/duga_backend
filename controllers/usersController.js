@@ -1,17 +1,27 @@
 const User = require('../models').User;
 const sequelize = require('sequelize');
-exports.update = async (res, req) => {
+exports.update = async (req, res) => {
   if (req.file) {
     req.body.avatar = req.file.filename;
   }
   try {
-    const [rows, result] = await User.update(req.body, {
-      where: {
-        id: req.user.id,
+    const [rows, result] = await User.update(
+      {
+        username: req.body.data.username,
+        bio: req.body.data.bio,
+        sexuality: req.body.data.sexuality,
+        gender: req.body.data.gender,
+        location: req.body.data.location,
+        age: req.body.data.age,
       },
-      returning: true,
-      individualHooks: true,
-    });
+      {
+        where: {
+          id: req.user.id,
+        },
+        returning: true,
+        individualHooks: true,
+      }
+    );
 
     const user = result[0].get({ raw: true });
     user.avatar = result[0].avatar;
