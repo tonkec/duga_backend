@@ -4,6 +4,7 @@ require('dotenv').config();
 const { S3Client, ListObjectsCommand } = require('@aws-sdk/client-s3');
 const multer = require('multer');
 const multerS3 = require('multer-s3');
+const path = require('path');
 
 let s3 = new S3Client({
   region: 'eu-north-1',
@@ -18,6 +19,13 @@ let s3 = new S3Client({
 
 const upload = multer({
   limits: { fileSize: 500000 },
+  fileFilter: function (req, file, callback) {
+    var ext = path.extname(file.originalname);
+    if (ext !== '.png' && ext !== '.jpg' && ext !== '.gif' && ext !== '.jpeg') {
+      return callback(new Error('Only images are allowed'));
+    }
+    callback(null, true);
+  },
   storage: multerS3({
     s3: s3,
     bucket: 'duga-user-photo',
