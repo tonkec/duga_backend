@@ -1,7 +1,7 @@
 const { auth } = require('../middleware/auth');
 const router = require('express').Router();
 require('dotenv').config();
-const { S3Client } = require('@aws-sdk/client-s3');
+const { S3Client, ListObjectsCommand } = require('@aws-sdk/client-s3');
 const multer = require('multer');
 const multerS3 = require('multer-s3');
 
@@ -27,9 +27,24 @@ const upload = multer({
     },
   }),
 });
+
+const getImages = async (req, res) => {
+  try {
+    const data = await s3.send(
+      new ListObjectsCommand({
+        Bucket: 'duga-user-photo',
+        Prefix: `user/${req.user.id}`,
+      })
+    );
+    return res.json(data);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
+  }
+};
+
 router.post(
   '/avatar',
-  [auth, upload.array('avatar', 3)],
+  [auth, upload.array('avatar', 1)],
   function (req, res, next) {
     try {
       return res.send('Successfully uploaded ' + req.files.length + ' files!');
@@ -38,5 +53,7 @@ router.post(
     }
   }
 );
+
+router.get('/avatar/:id', [auth], getImages);
 
 module.exports = router;
