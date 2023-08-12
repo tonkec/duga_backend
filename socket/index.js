@@ -41,6 +41,8 @@ const SocketServer = (server) => {
           io.to(socket).emit('friends', onlineFriends);
         } catch (e) {}
       });
+
+      io.emit('save-users-to-store', allOnlineFriends);
     });
 
     socket.on('has-gone-online', async (user) => {
@@ -48,12 +50,11 @@ const SocketServer = (server) => {
         (friend) => friend.id === user.id
       );
 
-      if (isAlreadyOnline.length > 0) {
-        return;
-      } else {
+      if (!isAlreadyOnline.length > 0) {
         allOnlineFriends.push(user);
       }
-      socket.emit('save-users-to-store', allOnlineFriends);
+
+      io.emit('save-users-to-store', allOnlineFriends);
     });
 
     socket.on('has-gone-offline', async (user) => {
@@ -61,7 +62,7 @@ const SocketServer = (server) => {
         (onlineFriend) => onlineFriend.id !== user.id
       );
 
-      socket.emit('save-users-to-store', allOnlineFriends);
+      io.emit('save-users-to-store', allOnlineFriends);
     });
 
     socket.on('message', async (message) => {
