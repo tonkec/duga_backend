@@ -3,7 +3,7 @@ const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
-let allOnlineUsers = [];
+let allOnlineFriends = [];
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -43,22 +43,25 @@ const SocketServer = (server) => {
       });
     });
 
-    socket.on('login', async (newUser) => {
-      if (newUser) {
-        if (
-          !allOnlineUsers.some((user) => {
-            if (newUser.id === user.user.id) {
-              return true;
-            }
-          })
-        ) {
-          allOnlineUsers.push({ user: newUser, socketId: socket.id });
-        }
+    socket.on('has-gone-online', async (user) => {
+      const isAlreadyOnline = allOnlineFriends.filter(
+        (friend) => friend.id === user.id
+      );
 
-        io.emit('get-users', allOnlineUsers);
+      if (isAlreadyOnline.length > 0) {
+        return;
       } else {
-        console.log('no user');
+        allOnlineFriends.push(user);
       }
+      socket.emit('save-users-to-store', allOnlineFriends);
+    });
+
+    socket.on('has-gone-offline', async (user) => {
+      allOnlineFriends = allOnlineFriends.filter(
+        (onlineFriend) => onlineFriend.id !== user.id
+      );
+
+      socket.emit('save-users-to-store', allOnlineFriends);
     });
 
     socket.on('message', async (message) => {
@@ -178,27 +181,6 @@ const SocketServer = (server) => {
       });
     });
 
-    socket.on('set-user-offline', (user) => {
-      allOnlineUsers = allOnlineUsers.filter((userFromAllUsers) => {
-        return user.id !== userFromAllUsers.user.id;
-      });
-      io.emit('get-users', allOnlineUsers);
-    });
-
-    socket.on('set-user-online', (user) => {
-      const shouldBeAddedToOnlineUsers = allOnlineUsers.filter(
-        (userFromAllOnlineUsers) => {
-          if (userFromAllOnlineUsers.user.id === user.id) {
-            return false;
-          }
-        }
-      );
-      if (shouldBeAddedToOnlineUsers.length > 0) {
-        allOnlineUsers.push({ user: newUser, socketId: socket.id });
-        io.emit('get-users', allOnlineUsers);
-      }
-    });
-
     socket.on('delete-chat', (data) => {
       const { chatId, notifyUsers } = data;
 
@@ -211,10 +193,6 @@ const SocketServer = (server) => {
           });
         }
       });
-    });
-
-    socket.on('get-all-online-users', () => {
-      socket.emit('get-users', allOnlineUsers);
     });
 
     socket.on('disconnect', async () => {
