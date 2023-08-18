@@ -1,7 +1,5 @@
 'use strict';
-const {
-  Model
-} = require('sequelize');
+const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
   class Upload extends Model {
     /**
@@ -13,13 +11,17 @@ module.exports = (sequelize, DataTypes) => {
       // define association here
     }
   }
-  Upload.init({
-    name: DataTypes.STRING,
-    url: DataTypes.STRING,
-    filetype: DataTypes.STRING
-  }, {
-    sequelize,
-    modelName: 'Upload',
-  });
+  Upload.init(
+    {
+      name: DataTypes.STRING,
+      url: DataTypes.STRING,
+      filetype: DataTypes.STRING,
+      description: DataTypes.STRING,
+    },
+    {
+      sequelize,
+      modelName: 'Upload',
+    }
+  );
   return Upload;
 };
