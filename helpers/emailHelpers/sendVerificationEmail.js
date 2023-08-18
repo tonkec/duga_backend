@@ -9,7 +9,7 @@ exports.sendVerificationEmail = (toUser, token) => {
   const url = 'verification';
   const html = 'Klikni ovaj link da potvrdiš svoj mail';
   const environment = process.env.NODE_ENV || 'development';
-  const port = environment === 'development' ? `${process.env.APP_PORT}` : '';
+  const port = environment === 'development' ? `${process.env.APP_PORT}:` : '';
   const msg = generateMessage(token, toUser, subject, text, url, html, port);
 
   sgMail.send(msg).then(
