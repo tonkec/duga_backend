@@ -21,7 +21,31 @@ exports.getAllUploads = async (req, res) => {
   }
 };
 
-exports.upload = (s3) => {
+exports.uploadSingle = (s3) => {
+  return multer({
+    storage: multerS3({
+      s3: s3,
+      bucket: 'duga-user-photo',
+      contentType: multerS3.AUTO_CONTENT_TYPE,
+      shouldTransform: function (req, file, cb) {
+        cb(null, /^image/i.test(file.mimetype));
+      },
+      transforms: [
+        {
+          id: 'original',
+          key: function (req, file, cb) {
+            cb(null, `user/${req.user.id}/profile-photo/${file.originalname}`);
+          },
+          transform: function (req, file, cb) {
+            cb(null, sharp().resize(200, 200));
+          },
+        },
+      ],
+    }),
+  });
+};
+
+exports.uploadMultiple = (s3) => {
   return multer({
     storage: multerS3({
       s3: s3,

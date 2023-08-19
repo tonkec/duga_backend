@@ -2,7 +2,9 @@ require('dotenv').config();
 const Upload = require('../models').Upload;
 const { auth } = require('../middleware/auth');
 const router = require('express').Router();
-const upload = require('../controllers/uploadsController').upload;
+const uploadMultiple =
+  require('../controllers/uploadsController').uploadMultiple;
+const uploadSingle = require('../controllers/uploadsController').uploadSingle;
 const getImages = require('../controllers/uploadsController').getImages;
 const AWS = require('aws-sdk');
 const MAX_NUMBER_OF_FILES = 5;
@@ -55,7 +57,6 @@ router.post('/delete-avatar/', [auth], async (req, res) => {
 
     await s3.deleteObjects(deleteParams).promise();
 
-    // remove image from Uploads table
     await Upload.destroy({
       where: {
         url: req.body.item.url,
@@ -71,7 +72,7 @@ router.post('/delete-avatar/', [auth], async (req, res) => {
 
 router.post(
   '/avatar',
-  [auth, upload(s3).array('avatar', MAX_NUMBER_OF_FILES)],
+  [auth, uploadMultiple(s3).array('avatar', MAX_NUMBER_OF_FILES)],
   async function (req, res, next) {
     const text = JSON.parse(req.body.text);
 
@@ -97,5 +98,73 @@ router.post(
 );
 
 router.get('/avatar/:id', [auth], getImages);
+
+router.post(
+  '/profile-photo',
+  [auth],
+  uploadSingle(s3).single('photo'),
+  async function (req, res, next) {
+    try {
+      const originalName = req.file.transforms[0].key.substring(
+        req.file.transforms[0].key.lastIndexOf('/') + 1
+      );
+
+      // Delete all other profile photos from database
+      await Upload.destroy({
+        where: {
+          isProfilePhoto: true,
+        },
+        except: {
+          where: {
+            url: req.file.transforms[0].key,
+          },
+        },
+      });
+
+      await Upload.create({
+        name: originalName,
+        url: req.file.transforms[0].key,
+        description: 'Profile photo',
+        isProfilePhoto: true,
+      });
+
+      //delete all other profile photos from s3
+      const params = {
+        Bucket: 'duga-user-photo',
+        Prefix: `user/${req.user.id}/profile-photo`,
+      };
+
+      const data = await s3.listObjectsV2(params).promise();
+      const contents = data.Contents;
+      // delete all images in the profile photo folder except the one just uploaded
+      const objects = contents.map((content) => {
+        return { Key: content.Key };
+      });
+
+      const filteredObjects = objects.filter((object) => {
+        if (object.Key === req.file.transforms[0].key) {
+          return false;
+        }
+
+        return true;
+      });
+
+      if (filteredObjects.length > 0) {
+        const deleteParams = {
+          Bucket: 'duga-user-photo',
+          Delete: {
+            Objects: filteredObjects,
+          },
+        };
+
+        await s3.deleteObjects(deleteParams).promise();
+      }
+
+      return res.status(200).json({ message: 'Upload successful' });
+    } catch (e) {
+      return res.status(500).json({ message: e.message });
+    }
+  }
+);
 
 module.exports = router;
