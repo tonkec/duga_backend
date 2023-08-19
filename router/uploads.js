@@ -29,16 +29,15 @@ router.post('/delete-avatar/', [auth], async (req, res) => {
     });
 
     const filteredObjects = objects.filter((object) => {
-      if (object.Key === req.body.item.Key) {
+      if (object.Key === req.body.item.url) {
         return true;
       }
-      const thumbnail = req.body.item.Key.substring(
-        0,
-        req.body.item.Key.lastIndexOf('/') + 1
-      ).concat(
-        'thumbnail-',
-        req.body.item.Key.substring(req.body.item.Key.lastIndexOf('/') + 1)
-      );
+      const thumbnail = req.body.item.url
+        .substring(0, req.body.item.url.lastIndexOf('/') + 1)
+        .concat(
+          'thumbnail-',
+          req.body.item.url.substring(req.body.item.url.lastIndexOf('/') + 1)
+        );
 
       if (object.Key === thumbnail) {
         return true;
@@ -55,6 +54,13 @@ router.post('/delete-avatar/', [auth], async (req, res) => {
     };
 
     await s3.deleteObjects(deleteParams).promise();
+
+    // remove image from Uploads table
+    await Upload.destroy({
+      where: {
+        url: req.body.item.url,
+      },
+    });
 
     return res.status(200).json({ message: 'Avatar deleted' });
   } catch (e) {

@@ -71,10 +71,22 @@ exports.getImages = async (req, res) => {
   };
 
   try {
+    const uploads = await Upload.findAll();
     const data = await s3.listObjectsV2(params).promise();
     const contents = data.Contents;
+    const filtered = uploads.filter((upload) => {
+      const found = contents.find((content) => {
+        return content.Key === upload.url;
+      });
 
-    return res.status(200).json(contents);
+      if (found) {
+        return true;
+      }
+
+      return false;
+    });
+
+    return res.status(200).json({ images: filtered });
   } catch (e) {
     return res.status(500).json({ message: e.message });
   }
