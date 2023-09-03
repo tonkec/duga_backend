@@ -33,7 +33,12 @@ exports.index = async (req, res) => {
       },
     ],
   });
-  return res.json(user.Chats);
+
+  if (user) {
+    return res.json(user.Chats);
+  }
+
+  return res.json([]);
 };
 
 exports.create = async (req, res) => {

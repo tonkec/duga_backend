@@ -75,7 +75,6 @@ router.post(
   [auth, uploadMultiple(s3).array('avatar', MAX_NUMBER_OF_FILES)],
   async function (req, res, next) {
     const text = JSON.parse(req.body.text);
-
     try {
       req.files.forEach(async (file, index) => {
         const originalName = file.transforms[1].key.substring(
@@ -87,6 +86,7 @@ router.post(
             name: originalName,
             url: file.transforms[1].key,
             description: text[index].description,
+            userId: req.body.userId,
           });
         }
       });
@@ -113,10 +113,12 @@ router.post(
       await Upload.destroy({
         where: {
           isProfilePhoto: true,
+          userId: req.body.userId,
         },
         except: {
           where: {
             url: req.file.transforms[0].key,
+            userId: req.body.userId,
           },
         },
       });
@@ -126,6 +128,7 @@ router.post(
         url: req.file.transforms[0].key,
         description: 'Profile photo',
         isProfilePhoto: true,
+        userId: req.body.userId,
       });
 
       //delete all other profile photos from s3
