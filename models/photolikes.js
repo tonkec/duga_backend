@@ -1,7 +1,7 @@
 'use strict';
 const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
-  class Upload extends Model {
+  class PhotoLikes extends Model {
     /**
      * Helper method for defining associations.
      * This method is not a part of Sequelize lifecycle.
@@ -14,21 +14,23 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'userId',
         foreignKeyConstraint: true,
       });
+      this.belongsTo(models.Upload, {
+        as: 'upload',
+        foreignKey: 'photoId',
+        foreignKeyConstraint: true,
+      });
     }
   }
-  Upload.init(
+  PhotoLikes.init(
     {
-      name: DataTypes.STRING,
-      url: DataTypes.STRING,
-      filetype: DataTypes.STRING,
-      description: DataTypes.STRING,
-      isProfilePhoto: DataTypes.BOOLEAN,
-      userId: DataTypes.INTEGER,
+      count: DataTypes.NUMBER,
+      userId: DataTypes.NUMBER,
+      photoId: DataTypes.NUMBER,
     },
     {
       sequelize,
-      modelName: 'Upload',
+      modelName: 'PhotoLikes',
     }
   );
-  return Upload;
+  return PhotoLikes;
 };
