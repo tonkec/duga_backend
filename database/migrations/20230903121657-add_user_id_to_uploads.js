@@ -9,7 +9,6 @@ module.exports = {
       onUpdate: 'cascade',
       onDelete: 'cascade',
       references: { model: 'Users', key: 'id' },
-      defaultValue: 1,
     });
   },
   async down(queryInterface, Sequelize) {
