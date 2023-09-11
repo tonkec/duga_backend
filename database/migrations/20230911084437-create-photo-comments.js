@@ -11,9 +11,15 @@ module.exports = {
       },
       userId: {
         type: Sequelize.STRING,
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+        allowNull: false,
       },
       uploadId: {
         type: Sequelize.STRING,
+        onDelete: 'CASCADE',
+        onUpdate: 'CASCADE',
+        allowNull: false,
       },
       comment: {
         type: Sequelize.TEXT,
