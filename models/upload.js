@@ -12,7 +12,6 @@ module.exports = (sequelize, DataTypes) => {
       this.belongsTo(models.User, {
         as: 'user',
         foreignKey: 'userId',
-        foreignKeyConstraint: true,
       });
     }
   }

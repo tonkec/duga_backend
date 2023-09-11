@@ -1,6 +1,6 @@
-"use strict";
-const { Model } = require("sequelize");
-const config = require("../config/app");
+'use strict';
+const { Model } = require('sequelize');
+const config = require('../config/app');
 module.exports = (sequelize, DataTypes) => {
   class Message extends Model {
     /**
@@ -10,8 +10,8 @@ module.exports = (sequelize, DataTypes) => {
      */
     static associate(models) {
       // define association here
-      this.belongsTo(models.Chat, { foreignKey: "chatId" });
-      this.belongsTo(models.User, { foreignKey: "fromUserId" });
+      this.belongsTo(models.Chat, { foreignKey: 'chatId' });
+      this.belongsTo(models.User, { foreignKey: 'fromUserId' });
     }
   }
   Message.init(
@@ -22,10 +22,10 @@ module.exports = (sequelize, DataTypes) => {
       message: {
         type: DataTypes.TEXT,
         get() {
-          const type = this.getDataValue("type");
-          const id = this.getDataValue("chatId");
-          const content = this.getDataValue("message");
-          return type === "text"
+          const type = this.getDataValue('type');
+          const id = this.getDataValue('chatId');
+          const content = this.getDataValue('message');
+          return type === 'text'
             ? content
             : `${config.appUrl}:${config.appPort}/chat/${id}/${content}`;
         },
@@ -33,7 +33,7 @@ module.exports = (sequelize, DataTypes) => {
     },
     {
       sequelize,
-      modelName: "Message",
+      modelName: 'Message',
     }
   );
   return Message;
