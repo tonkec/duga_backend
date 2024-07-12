@@ -26,9 +26,10 @@
     "multer-s3-transform": "^2.10.3",
     "pg": "^8.9.0",
     "sequelize": "^6.28.0",
-    "sequelize-cli": "^6.6.0",
+    "sequelize-cli": "^6.6.2",
     "sharp": "^0.32.4",
     "shortid": "^2.2.16",
     "socket.io": "^4.6.1"
   }
 }
+
