@@ -11,7 +11,9 @@ const db = {};
 
 const sslOptions =
   env === 'development'
-    ? {}
+    ? {
+      ssl: false,
+    }
     : {
         ssl: {
           require: true,

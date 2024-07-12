@@ -45,7 +45,6 @@ module.exports = (sequelize, DataTypes) => {
             return 'http://placekitten.com/200/300';
           }
 
-          const id = this.getDataValue('id');
           return `${url}/user/${avatar}`;
         },
       },
