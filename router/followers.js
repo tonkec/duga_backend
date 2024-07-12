@@ -2,8 +2,6 @@ const UserFollower = require('../models').UserFollower;
 const { auth } = require('../middleware/auth');
 const router = require('express').Router();
 
-// GET /api/followers
-// Get all followers for the logged in user
 router.get('/:id', auth, async (req, res) => {
   try {
     const followers = await UserFollower.findAll({
@@ -11,7 +9,6 @@ router.get('/:id', auth, async (req, res) => {
         followerId: req.params.id,
       },
     });
-
     res.status(200).json({ followers });
   } catch (error) {
     console.error(error);
@@ -46,7 +43,6 @@ router.post('/add', auth, async (req, res) => {
 });
 
 router.post('/remove', auth, async (req, res) => {
-  console.log(req.body);
   try {
     const follower = await UserFollower.findOne({
       where: {
@@ -61,7 +57,6 @@ router.post('/remove', auth, async (req, res) => {
 
     await follower.destroy();
 
-    // get updated followers
     const followers = await UserFollower.findAll({
       where: {
         followerId: req.body.followerId,

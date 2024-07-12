@@ -109,7 +109,6 @@ exports.getImages = async (req, res) => {
 
       return false;
     });
-
     return res.status(200).json({ images: filtered });
   } catch (e) {
     return res.status(500).json({ message: e.message });
