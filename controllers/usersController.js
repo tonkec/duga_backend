@@ -21,7 +21,8 @@ exports.update = async (req, res) => {
         tooOldFor: req.body.data.tooOldFor,
         makesMyDay: req.body.data.makesMyDay,
         favoriteSong: req.body.data.favoriteSong,
-        favoriteMovie: req.body.data.favoriteMovie
+        favoriteMovie: req.body.data.favoriteMovie,
+        interests: req.body.data.interests
       },
       {
         where: {
