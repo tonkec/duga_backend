@@ -22,7 +22,8 @@ exports.update = async (req, res) => {
         makesMyDay: req.body.data.makesMyDay,
         favoriteSong: req.body.data.favoriteSong,
         favoriteMovie: req.body.data.favoriteMovie,
-        interests: req.body.data.interests
+        interests: req.body.data.interests,
+        languages: req.body.data.languages
       },
       {
         where: {
