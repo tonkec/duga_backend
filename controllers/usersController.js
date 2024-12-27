@@ -52,6 +52,7 @@ exports.getUser = async (req, res) => {
   }
 };
 
+
 exports.search = async (req, res) => {
   try {
     const users = await User.findAll({
