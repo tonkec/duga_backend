@@ -43,7 +43,20 @@ module.exports = (sequelize, DataTypes) => {
           'separated',
           'open',
           'engaged'
-        ),        allowNull: true,  
+        ),
+        allowNull: true,  
+      },
+      cigarettes: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+      },
+      alcohol: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+      },
+      sport: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
       },
       lastName: DataTypes.STRING,
       email: DataTypes.STRING,
