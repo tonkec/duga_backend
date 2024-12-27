@@ -30,6 +30,21 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.ENUM('friendship', 'date', 'marriage', 'relationship', "partnership", "nothing", "idk"),
           allowNull: true,
       },
+      relationshipStatus: {
+        type: DataTypes.ENUM(
+          'single',
+          'relationship',
+          'marriage',
+          'partnership',
+          'inbetween',
+          'idk',
+          'divorced',
+          'widowed',
+          'separated',
+          'open',
+          'engaged'
+        ),        allowNull: true,  
+      },
       lastName: DataTypes.STRING,
       email: DataTypes.STRING,
       password: DataTypes.STRING,
