@@ -18,6 +18,7 @@ exports.update = async (req, res) => {
         favoriteDayOfWeek: req.body.data.favoriteDay,
         spirituality: req.body.data.spirituality,
         embarasement: req.body.data.embarasement,
+        tooOldFor: req.body.data.tooOldFor
       },
       {
         where: {
