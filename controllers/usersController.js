@@ -10,6 +10,7 @@ exports.update = async (req, res) => {
         gender: req.body.data.gender,
         location: req.body.data.location,
         age: req.body.data.age,
+        lookingFor: req.body.data.lookingFor
       },
       {
         where: {
