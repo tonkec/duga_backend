@@ -74,6 +74,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         allowNull: true, 
       },
+      makesMyDay: {
+        type: DataTypes.TEXT,
+        allowNull: true, 
+      },
       lastName: DataTypes.STRING,
       email: DataTypes.STRING,
       password: DataTypes.STRING,
