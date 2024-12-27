@@ -14,7 +14,8 @@ exports.update = async (req, res) => {
         relationshipStatus: req.body.data.relationshipStatus,
         cigarettes: req.body.data.cigarettes,
         alcohol: req.body.data.alcohol,
-        sport: req.body.data.sport
+        sport: req.body.data.sport,
+        favoriteDayOfWeek: req.body.data.favoriteDay
       },
       {
         where: {
