@@ -70,30 +70,46 @@ router.post('/delete-avatar/', [auth], async (req, res) => {
   }
 });
 
-router.post(
-  '/avatar',
-  [auth, uploadMultiple(s3).array('avatar', MAX_NUMBER_OF_FILES)],
-  async function (req, res, next) {
-    const text = JSON.parse(req.body.text);
-    try {
-      req.files.forEach(async (file, index) => {
-        const originalName = file.transforms[1].key.substring(
-          file.transforms[1].key.lastIndexOf('/') + 1
-        );
+router.delete('/delete-photo', async (req, res) => {
+  const { url } = req.body;
 
-        if (text[index].imageId === originalName) {
-          await Upload.create({
-            name: originalName,
-            url: file.transforms[1].key,
-            description: text[index].description,
-            userId: req.body.userId,
-          });
-        }
-      });
-      return res.status(200).json({ message: 'Upload successful' });
-    } catch (e) {
-      return res.status(500).json({ message: e.message });
+  if (!url) {
+    return res.status(400).json({ error: 'Photo URL is required.' });
+  }
+
+  try {
+    // Extract S3 Bucket Key from URL
+    const bucketKey = url; // `url` contains the S3 key, e.g., "user/4/profile-photo/filename.jpg"
+
+    // Delete photo from S3
+    const params = {
+      Bucket: 'duga-user-photo',
+      Key: bucketKey, // The key extracted from `url`
+    };
+
+    await s3.deleteObject(params).promise();
+
+    // Optionally, delete the photo record from the database
+    const deletedPhoto = await Upload.destroy({
+      where: { url },
+    });
+
+    if (!deletedPhoto) {
+      return res.status(404).json({ error: 'Photo not found in the database.' });
     }
+
+    res.status(200).json({ message: 'Photo deleted successfully.' });
+  } catch (error) {
+    console.error('Error deleting photo:', error);
+    res.status(500).json({ error });
+  }
+});
+
+router.post(
+  '/photos',
+  [auth, uploadSingle(s3).single('avatar')],
+  async function (req, res, next) {
+    console.log(req.file, "FILES");
   }
 );
 
