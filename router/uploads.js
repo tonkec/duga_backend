@@ -105,11 +105,32 @@ router.delete('/delete-photo', async (req, res) => {
   }
 });
 
+const removeSpacesAndDashes = (str) => {
+  return str.replace(/[\s-]/g, '');
+};
+
 router.post(
   '/photos',
-  [auth, uploadSingle(s3).single('avatar')],
+  [auth, uploadMultiple(s3).array('avatars', MAX_NUMBER_OF_FILES)],
   async function (req, res, next) {
-    console.log(req.file, "FILES");
+    const descriptions = JSON.parse(req.body.text);
+    try {
+      req.files.forEach(async (file) => {
+        const findImageByDescription = descriptions.find(
+          (description) => description.imageId === removeSpacesAndDashes(file.originalname)
+        )?.description;
+        await Upload.create({
+          name: file.originalname,
+          url: file.transforms[1].key,
+          description: findImageByDescription || null,
+          userId: req.body.userId,
+        });
+      });
+
+      return res.status(200).json({ message: 'Upload successful' });
+    } catch (e) {
+      return res.status(500).json({ message: e.message });
+    }
   }
 );
 

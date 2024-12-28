@@ -46,21 +46,19 @@ exports.uploadSingle = (s3) => {
 };
 
 exports.uploadMultiple = (s3) => {
-  console.log("HERE")
   return multer({
     storage: multerS3({
       s3: s3,
       bucket: 'duga-user-photo',
       contentType: multerS3.AUTO_CONTENT_TYPE,
       shouldTransform: function (req, file, cb) {
-        console.log(file, "FILEEE");
+    
         cb(null, /^image/i.test(file.mimetype));
       },
       transforms: [
         {
           id: 'original',
           key: function (req, file, cb) {
-            console.log(file, "FILEEE");
             cb(
               null,
               `user/${req.user.id}/${Date.now().toString()}/${
@@ -69,7 +67,6 @@ exports.uploadMultiple = (s3) => {
             );
           },
           transform: function (req, file, cb) {
-            console.log(file, "FILEEE");
             cb(null, sharp().resize(600, 600));
           },
         },
