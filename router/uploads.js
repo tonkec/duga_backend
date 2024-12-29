@@ -130,10 +130,11 @@ router.post(
       } else {
         descriptions.forEach(async (description) => {
           const [rowsUpdated] = await Upload.update(
-            { description: description.description},
+            { description: description.description, isProfilePhoto: description.isProfilePhoto },
             { where: { name: removeSpacesAndDashes(description.imageId) }, userId: req.body.userId }
           );
           
+          console.log(rowsUpdated);
           if (rowsUpdated === 0) {
             console.log('No records updated. Check your where clause.');
           } else {
