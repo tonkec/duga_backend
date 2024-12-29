@@ -115,18 +115,33 @@ router.post(
   async function (req, res, next) {
     const descriptions = JSON.parse(req.body.text);
     try {
-      req.files.forEach(async (file) => {
-        const findImageByDescription = descriptions.find(
-          (description) => description.imageId === removeSpacesAndDashes(file.originalname)
-        )?.description;
-        await Upload.create({
-          name: file.originalname,
-          url: file.transforms[1].key,
-          description: findImageByDescription || null,
-          userId: req.body.userId,
+      if (req.files.length) {
+        req.files.forEach(async (file) => {
+          const findImageByDescription = descriptions.find(
+            (description) => description.imageId === removeSpacesAndDashes(file.originalname)
+          )?.description;
+          await Upload.create({
+            name: removeSpacesAndDashes(file.originalname),
+            url: file.transforms[1].key,
+            description: findImageByDescription || null,
+            userId: req.body.userId,
+          });
         });
-      });
-
+      } else {
+        descriptions.forEach(async (description) => {
+          const [rowsUpdated] = await Upload.update(
+            { description: description.description},
+            { where: { name: removeSpacesAndDashes(description.imageId) }, userId: req.body.userId }
+          );
+          
+          if (rowsUpdated === 0) {
+            console.log('No records updated. Check your where clause.');
+          } else {
+            console.log(`Successfully updated ${rowsUpdated} record(s).`);
+          }
+        });
+      }
+     
       return res.status(200).json({ message: 'Upload successful' });
     } catch (e) {
       return res.status(500).json({ message: e.message });
