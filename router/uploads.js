@@ -119,22 +119,31 @@ router.post(
         req.files.forEach(async (file) => {
           const findImageByDescription = descriptions.find(
             (description) => description.imageId === removeSpacesAndDashes(file.originalname)
-          )?.description;
+          )
           await Upload.create({
             name: removeSpacesAndDashes(file.originalname),
             url: file.transforms[1].key,
-            description: findImageByDescription || null,
+            description: findImageByDescription?.description || null,
             userId: req.body.userId,
-          });
+          });        
         });
       } else {
         descriptions.forEach(async (description) => {
+          await Upload.update(
+            { isProfilePhoto: false },
+            { where: { userId: req.body.userId } }
+          );
+
           const [rowsUpdated] = await Upload.update(
             { description: description.description, isProfilePhoto: description.isProfilePhoto },
-            { where: { name: removeSpacesAndDashes(description.imageId) }, userId: req.body.userId }
-          );
-          
-          console.log(rowsUpdated);
+            { 
+              where: { 
+                name: removeSpacesAndDashes(description.imageId),
+                userId: req.body.userId 
+              } 
+            }
+  );
+        
           if (rowsUpdated === 0) {
             console.log('No records updated. Check your where clause.');
           } else {
