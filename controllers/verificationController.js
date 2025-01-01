@@ -49,7 +49,7 @@ const onTokenHasExpired = (res) => {
 
 const findVerificationToken = (req, res, user) => {
   return verificationToken(req)
-    .then((foundToken) => {
+    .then((foundToken) => {  
       if (foundToken) {
         verifyUser(res, user);
       } else {
@@ -57,6 +57,7 @@ const findVerificationToken = (req, res, user) => {
       }
     })
     .catch((e, res) => {
+      console.log(e);
       onError(e, res);
     });
 };
