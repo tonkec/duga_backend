@@ -19,6 +19,8 @@ exports.login = async (req, res) => {
       },
     });
 
+    console.log('User Found:', user); // Debugging log
+
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     if (!bcrypt.compareSync(password, user.password))
@@ -28,6 +30,7 @@ exports.login = async (req, res) => {
     userWithToken.avatar = user.avatar;
     return res.send(userWithToken);
   } catch (e) {
+    console.log(e);
     return res.status(500).json({ message: e.message });
   }
 };
