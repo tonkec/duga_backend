@@ -1,8 +1,10 @@
 const router = require('express').Router();
+const env = process.env.NODE_ENV || 'development';
+const config = require(__dirname + './../config/database.js')[env];
 const { sequelize } = require('../models');
-router.get('/', async (req, res) => {
-    console.log('DATABASE_URL:', process.env.DATABASE_URL);
 
+console.log('config', config);
+router.get('/', async (req, res) => {
     try {
         await sequelize.authenticate();
         return res.status(200).json({ message: 'Database connected' });

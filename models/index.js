@@ -21,7 +21,6 @@ const sslOptions =
         },
       };
 
-      console.log(config);
 const sequelize = new Sequelize({
   database: config.database,
   username: config.username,
