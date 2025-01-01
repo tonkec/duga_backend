@@ -12,12 +12,15 @@ const {
 
 exports.login = async (req, res) => {
   const { password, email } = req.body;
+  console.log(req.body);
   try {
     const user = await User.findOne({
       where: {
         email: email,
       },
     });
+
+    console.log(user);
 
     if (!user) return res.status(404).json({ message: 'User not found' });
 
