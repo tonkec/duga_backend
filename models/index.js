@@ -21,12 +21,13 @@ const sslOptions =
         },
       };
 
+      console.log(config.port);
 const sequelize = new Sequelize({
   database: config.database,
   username: config.username,
   password: config.password,
   host: config.host,
-  port: 5432,
+  port: config.port,
   dialect: 'postgres',
   dialectOptions: sslOptions,
 });
