@@ -18,6 +18,7 @@ module.exports = {
   production: {
     use_env_variable: 'DATABASE_URL', // Use DATABASE_URL from the environment
     dialect: 'postgres',
+    port: process.env.APP_PORT,
     dialectOptions: {
       ssl: {
         require: true, // Ensure SSL is used
