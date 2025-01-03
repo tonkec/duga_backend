@@ -19,8 +19,6 @@ exports.login = async (req, res) => {
       },
     });
 
-    console.log('User Found:', user); // Debugging log
-
     if (!user) return res.status(404).json({ message: 'User not found' });
 
     if (!bcrypt.compareSync(password, user.password))

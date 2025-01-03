@@ -161,6 +161,29 @@ router.post(
 
 router.get('/avatar/:id', [auth], getImages);
 
+router.get("/photo/:id", [auth], async (req, res) => { 
+  try {
+    const upload = await Upload.findOne({
+      where: {
+        id: req.params.id,
+      },
+    });
+
+    if (!upload) {
+      return res.status(404).send({
+        message: 'Upload not found',
+      });
+    }
+
+    return res.status(200).send(upload);
+  } catch (error) {
+    return res.status(500).send({
+      message: 'Error occurred while fetching photo',
+    });
+  }
+});
+
+  
 router.post(
   '/profile-photo',
   [auth],

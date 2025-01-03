@@ -3,7 +3,6 @@ const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + './../config/database.js')[env];
 const { sequelize } = require('../models');
 
-console.log('config', config);
 router.get('/', async (req, res) => {
     try {
         await sequelize.authenticate();
