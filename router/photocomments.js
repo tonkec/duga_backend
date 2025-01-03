@@ -25,6 +25,7 @@ router.post('/add-comment', [auth], async (req, res) => {
 
     return res.status(201).send(photoComment);
   } catch (error) {
+    console.log(error);
     return res.status(500).send({
       message: 'Error occurred while adding comment',
     });

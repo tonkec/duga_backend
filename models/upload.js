@@ -14,6 +14,11 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'userId',
         foreignKeyConstraint: true,
       });
+      this.hasMany(models.PhotoComment, {
+        as: 'photoComments',
+        foreignKey: 'uploadId',
+        foreignKeyConstraint: true,
+      });
     }
   }
   Upload.init(

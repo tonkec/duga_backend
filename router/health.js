@@ -1,6 +1,4 @@
 const router = require('express').Router();
-const env = process.env.NODE_ENV || 'development';
-const config = require(__dirname + './../config/database.js')[env];
 const { sequelize } = require('../models');
 
 router.get('/', async (req, res) => {
