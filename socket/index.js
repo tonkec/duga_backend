@@ -20,8 +20,12 @@ const SocketServer = (server) => {
     });
 
     socket.on("send-comment", async (data) => {
-      console.log(data);
       io.emit("receive-comment", data);
+    });
+
+    socket.on("delete-comment", async (data) => {
+      console.log("delete-comment", data);
+      io.emit("remove-comment", data);
     });
 
     socket.on('message', async (message) => {

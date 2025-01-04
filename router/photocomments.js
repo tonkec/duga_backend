@@ -92,6 +92,7 @@ router.delete('/delete-comment/:id', [auth], async (req, res) => {
     await photoComment.destroy();
 
     return res.status(200).send({
+      commentId: req.params.id,
       message: 'Comment deleted successfully',
     });
   } catch (error) {
