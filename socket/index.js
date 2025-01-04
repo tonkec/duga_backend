@@ -7,7 +7,7 @@ let allOnlineFriends = [];
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
-      origin: '*',
+      origin: 'http://localhost:5173',
       methods: 'GET, HEAD, PUT, PATCH, POST, DELETE',
       preflightContinue: false,
       optionsSuccessStatus: 204,
@@ -16,53 +16,12 @@ const SocketServer = (server) => {
 
   io.on('connection', (socket) => {
     socket.on('join', async (user) => {
-      let sockets = setUsers(user, socket);
-
-      const onlineFriends = []; // ids
-
-      const chatters = await getChatters(user.id); // query
-
-      // notify his friends that user is now online
-      for (let i = 0; i < chatters.length; i++) {
-        if (users.has(chatters[i])) {
-          const chatter = users.get(chatters[i]);
-          chatter.sockets.forEach((socket) => {
-            try {
-              io.to(socket).emit('online', user);
-            } catch (e) {}
-          });
-          onlineFriends.push(chatter.id);
-        }
-      }
-
-      // send to user sockets which of his friends are online
-      sockets.forEach((socket) => {
-        try {
-          io.to(socket).emit('friends', onlineFriends);
-        } catch (e) {}
-      });
-
-      io.emit('save-users-to-store', allOnlineFriends);
+      console.log('user connected', user);
     });
 
-    socket.on('has-gone-online', async (user) => {
-      const isAlreadyOnline = allOnlineFriends.filter(
-        (friend) => friend.id === user.id
-      );
-
-      if (!isAlreadyOnline.length > 0) {
-        allOnlineFriends.push(user);
-      }
-
-      io.emit('save-users-to-store', allOnlineFriends);
-    });
-
-    socket.on('has-gone-offline', async (user) => {
-      allOnlineFriends = allOnlineFriends.filter(
-        (onlineFriend) => onlineFriend.id !== user.id
-      );
-
-      io.emit('save-users-to-store', allOnlineFriends);
+    socket.on("send-comment", async (data) => {
+      console.log(data);
+      io.emit("receive-comment", data);
     });
 
     socket.on('message', async (message) => {
