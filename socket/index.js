@@ -28,6 +28,14 @@ const SocketServer = (server) => {
       io.emit("remove-comment", data);
     });
 
+    socket.on("upvote-upload", async (data) => {
+      io.emit("upvote-upload", data);
+    })
+
+    socket.on("downvote-upload", async (data) => {
+      io.emit("downvote-upload", data);
+    })
+
     socket.on('message', async (message) => {
       let sockets = setUsers(message.fromUser, socket);
 
