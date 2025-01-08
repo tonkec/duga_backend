@@ -7,12 +7,14 @@ const {
   imageUpload,
   addUserToGroup,
   leaveCurrentChat,
+  getCurrentChat,
 } = require('../controllers/chatController');
 const { validate } = require('../validators');
 const { auth } = require('../middleware/auth');
 const { chatFile } = require('../middleware/fileUpload');
 
 router.get('/', [auth], index);
+router.get("/current-chat/:id", [auth], getCurrentChat);
 router.get('/messages', [auth], messages);
 router.post('/create', [auth], create);
 router.post('/upload-image', [auth, chatFile], imageUpload);

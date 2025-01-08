@@ -6,6 +6,25 @@ const Message = models.Message;
 const { Op } = require('sequelize');
 const { sequelize } = require('../models');
 
+exports.getCurrentChat = async (req, res) => {
+  const { id } = req.params;
+
+  const chatUsers = await ChatUser.findAll({
+    where: {
+      chatId: id,
+    },
+  });
+
+  if (!chatUsers) {
+    return res.status(404).json({
+      status: 'Error',
+      message: 'Chat not found!',
+    });
+  }
+  
+  return res.json(chatUsers);
+};
+
 exports.index = async (req, res) => {
   const user = await User.findOne({
     where: {
@@ -147,7 +166,7 @@ exports.create = async (req, res) => {
 
 exports.messages = async (req, res) => {
   const limit = 10;
-  const page = req.query.page || 1;
+  const page = Number(req.query.page) || 1;
   const offset = page > 1 ? page * limit : 0;
   const messages = await Message.findAndCountAll({
     where: {

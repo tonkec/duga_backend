@@ -1,5 +1,6 @@
 const socketIo = require('socket.io');
 const { sequelize } = require('../models');
+const { all } = require('../router');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
@@ -9,8 +10,7 @@ const SocketServer = (server) => {
     cors: {
       origin: 'http://localhost:5173',
       methods: 'GET, HEAD, PUT, PATCH, POST, DELETE',
-      preflightContinue: false,
-      optionsSuccessStatus: 204,
+      allowedHeaders: ['Content-Type'],
     },
   });
 
@@ -64,15 +64,15 @@ const SocketServer = (server) => {
         };
 
         const savedMessage = await Message.create(msg);
-
-        message.User = message.dataValues.fromUser;
-        message.fromUserId = message.dataValues.fromUser.id;
-        message.id = savedMessage.dataValues.id;
-        message.message = savedMessage.dataValues.message;
-        delete message.dataValues.fromUser;
-        sockets.forEach((socket) => {
-          io.to(socket).emit('received', message);
-        });
+        message.User = message.fromUser;
+        message.fromUserId = message.fromUser.id;
+        message.id = savedMessage.id;
+        message.message = savedMessage.message;
+        delete message.fromUser;
+        io.emit('received', message);
+        // sockets.forEach((socket) => {
+        //   io.to(socket).emit('received', message);
+        // });
       } catch (e) {
         console.log(e);
       }
@@ -233,29 +233,20 @@ const getChatters = async (userId) => {
 
 const setUsers = (user, socket) => {
   let sockets = [];
-  if (users.length > 0) {
-    if (users.has(user.id)) {
-      const existingUser = users.get(user.id);
-      existingUser.sockets = [...[socket.id]];
-      users.set(user.id, existingUser);
-      sockets = [...existingUser.sockets];
-      userSockets.set(socket.id, user.id);
-      return sockets;
-    } else {
-      users.set(user.id, { id: user.id, sockets: [socket.id] });
-      sockets.push(socket.id);
-      userSockets.set(socket.id, user.id);
-      return sockets;
-    }
+  if (users.has(user.id)) {
+    const existingUser = users.get(user.id);
+    existingUser.sockets = [...[socket.id]];
+    users.set(user.id, existingUser);
+    sockets = [...existingUser.sockets];
+    userSockets.set(socket.id, user.id);
+    return sockets;
   } else {
-
     users.set(user.id, { id: user.id, sockets: [socket.id] });
     sockets.push(socket.id);
     userSockets.set(socket.id, user.id);
     return sockets;
   }
-
-  
 };
+
 
 module.exports = SocketServer;
