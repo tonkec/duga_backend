@@ -62,7 +62,6 @@ exports.index = async (req, res) => {
 
 exports.create = async (req, res) => {
   const { partnerId } = req.body;
-
   const t = await sequelize.transaction();
 
   try {
