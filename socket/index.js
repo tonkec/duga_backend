@@ -4,7 +4,6 @@ const { all } = require('../router');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
-let allOnlineFriends = [];
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -15,8 +14,9 @@ const SocketServer = (server) => {
   });
 
   io.on('connection', (socket) => {
+    console.log('New client connected');
     socket.on('join', async (user) => {
-      console.log('user connected', user);
+       setUsers(user, socket);      
     });
 
     socket.on("send-comment", async (data) => {
@@ -70,22 +70,24 @@ const SocketServer = (server) => {
         message.message = savedMessage.message;
         message.createdAt = savedMessage.createdAt;
         delete message.fromUser;
-        io.emit('received', message);
-        // sockets.forEach((socket) => {
-        //   io.to(socket).emit('received', message);
-        // });
+        sockets.forEach((socket) => {
+          io.to(socket).emit('received', message);
+        });
       } catch (e) {
         console.log(e);
       }
     });
 
-    socket.on('typing', (message) => {
-      message.toUserId.forEach((id) => {
+    socket.on('typing', (data) => {
+      console.log(data)
+      console.log(users, 'users')
+      data.toUserId.forEach((id) => {
         if (users.has(id)) {
           users.get(id).sockets.forEach((socket) => {
-            io.to(socket).emit('typing', message);
+            io.to(socket).emit('typing', data);
           });
         }
+
       });
     });
 
@@ -236,17 +238,16 @@ const setUsers = (user, socket) => {
   let sockets = [];
   if (users.has(user.id)) {
     const existingUser = users.get(user.id);
-    existingUser.sockets = [...[socket.id]];
+    // Avoid duplicate socket IDs
+    existingUser.sockets = Array.from(new Set([...existingUser.sockets, socket.id]));
     users.set(user.id, existingUser);
-    sockets = [...existingUser.sockets];
-    userSockets.set(socket.id, user.id);
-    return sockets;
+    sockets = existingUser.sockets;
   } else {
     users.set(user.id, { id: user.id, sockets: [socket.id] });
-    sockets.push(socket.id);
-    userSockets.set(socket.id, user.id);
-    return sockets;
+    sockets = [socket.id];
   }
+  userSockets.set(socket.id, user.id);
+  return sockets;
 };
 
 
