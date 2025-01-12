@@ -255,4 +255,17 @@ router.post(
   }
 );
 
+router.get("/latest", async (req, res) => {
+  try {
+    const uploads = await Upload.findAll({
+      limit: 3,
+      order: [['createdAt', 'DESC']],
+    });
+
+    return res.status(200).json(uploads);
+  } catch (error) {
+    return res.status(500).json({ message: error.message });
+  }
+});
+
 module.exports = router;
