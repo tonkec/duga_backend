@@ -75,6 +75,21 @@ router.put('/update-comment/:id', [auth], async (req, res) => {
   }
 });
 
+router.get("/latest", async (req, res) => {
+  try {
+    const photoComments = await PhotoComment.findAll({
+      limit: 5,
+      order: [['createdAt', 'DESC']],
+    });
+
+    return res.status(200).send(photoComments);
+  } catch (error) {
+    return res.status(500).send({
+      message: 'Error occurred while fetching comments',
+    });
+  }
+} );
+
 router.delete('/delete-comment/:id', [auth], async (req, res) => {
   try {
     const photoComment = await PhotoComment.findOne({
