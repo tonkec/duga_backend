@@ -16,7 +16,7 @@ const SocketServer = (server) => {
   io.on('connection', (socket) => {
     console.log('New client connected');
     socket.on('join', async (user) => {
-       setUsers(user, socket);      
+      setUsers(user, socket);
     });
 
     socket.on("send-comment", async (data) => {
@@ -79,8 +79,6 @@ const SocketServer = (server) => {
     });
 
     socket.on('typing', (data) => {
-      console.log(data)
-      console.log(users, 'users')
       data.toUserId.forEach((id) => {
         if (users.has(id)) {
           users.get(id).sockets.forEach((socket) => {
@@ -90,6 +88,17 @@ const SocketServer = (server) => {
 
       });
     });
+
+    socket.on('stop-typing', (data) => {
+      console.log(data);
+      data.toUserId.forEach((id) => {
+        if (users.has(id)) {
+          users.get(id).sockets.forEach((socket) => {
+            io.to(socket).emit('stop-typing', data);
+          });
+        }
+      });
+    } );
 
     socket.on('add-friend', (chats) => {
       try {
