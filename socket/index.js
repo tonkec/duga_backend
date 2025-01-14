@@ -7,7 +7,7 @@ const userSockets = new Map();
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
-      origin: 'http://localhost:5173',
+      origin: '*',
       methods: 'GET, HEAD, PUT, PATCH, POST, DELETE',
       allowedHeaders: ['Content-Type'],
     },
