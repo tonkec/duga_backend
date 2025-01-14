@@ -21,10 +21,10 @@ module.exports = {
     
   },
   production: {
-    username: DB_USERNAME_PROD,
-    password: DB_PASSWORD_PROD,
-    database: DB_NAME_PROD,
-    host: DB_HOST_PROD,
+    username: process.env.DB_USERNAME_PROD,
+    password: process.env.DB_PASSWORD_PROD,
+    database: process.env.DB_NAME_PROD,
+    host: process.env.DB_HOST_PROD,
     dialect: 'postgres',
   }
 };
