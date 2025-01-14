@@ -3,7 +3,6 @@ const { auth } = require('../middleware/auth');
 const router = require('express').Router();
 
 router.post('/read-message', [auth], async (req, res) => {
-    console.log(req.body, "BODYYY");
   try {
       const message = await Message.findOne({
             where: {
@@ -28,7 +27,6 @@ router.post('/read-message', [auth], async (req, res) => {
 });
 
 router.get("/is-read", [auth], async (req, res) => {
-    console.log(req.query);
     try {
         if (!req.query.id) {
             return res.status(400).json({ message: "Message ID is required" });
@@ -38,10 +36,9 @@ router.get("/is-read", [auth], async (req, res) => {
             id: Number(req.query.id),
         },
         });
-
     
         if (!message) {
-        return res.status(404).json({ message: "Message not found" });
+            return res.status(404).json({ message: "Message not found" });
         }
     
         return res.status(200).json({ is_read: message.is_read });
