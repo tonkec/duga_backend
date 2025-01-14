@@ -90,7 +90,6 @@ const SocketServer = (server) => {
     });
 
     socket.on('stop-typing', (data) => {
-      console.log(data);
       data.toUserId.forEach((id) => {
         if (users.has(id)) {
           users.get(id).sockets.forEach((socket) => {
@@ -247,7 +246,6 @@ const setUsers = (user, socket) => {
   let sockets = [];
   if (users.has(user.id)) {
     const existingUser = users.get(user.id);
-    // Avoid duplicate socket IDs
     existingUser.sockets = Array.from(new Set([...existingUser.sockets, socket.id]));
     users.set(user.id, existingUser);
     sockets = existingUser.sockets;

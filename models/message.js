@@ -19,6 +19,11 @@ module.exports = (sequelize, DataTypes) => {
       chatId: DataTypes.INTEGER,
       fromUserId: DataTypes.INTEGER,
       type: DataTypes.STRING,
+      is_read: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+        allowNull: false,
+      },
       message: {
         type: DataTypes.TEXT,
         get() {
