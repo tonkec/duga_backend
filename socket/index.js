@@ -1,6 +1,5 @@
 const socketIo = require('socket.io');
 const { sequelize } = require('../models');
-const { all } = require('../router');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
