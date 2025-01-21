@@ -21,7 +21,7 @@ exports.getAllUploads = async (req, res) => {
   }
 };
 
-exports.uploadSingle = (s3) => {
+exports.uploadMessageImage = s3 => {
   return multer({
     storage: multerS3({
       s3: s3,
@@ -34,16 +34,37 @@ exports.uploadSingle = (s3) => {
         {
           id: 'original',
           key: function (req, file, cb) {
-            cb(null, `user/${req.user.id}/profile-photo/${file.originalname}`);
+            console.log(req.body, "BODYY")
+            cb(
+              null,
+              `chat/${req.body.chatId}/${Date.now().toString()}/${
+                file.originalname
+              }`
+            );
           },
           transform: function (req, file, cb) {
-            cb(null, sharp().resize(200, 200));
+            cb(null, sharp().resize(600, 600));
+          },
+        },
+        {
+          id: 'thumbnail',
+          key: function (req, file, cb) {
+            cb(
+              null,
+              `chat/${
+                req.body.chatId
+              }/${Date.now().toString()}/${`thumbnail-${file.originalname}`}`
+            );
+          },
+          transform: function (req, file, cb) {
+            cb(null, sharp().resize(100, 100));
           },
         },
       ],
     }),
-  });
-};
+  });  
+ 
+}
 
 exports.uploadMultiple = (s3) => {
   return multer({

@@ -27,13 +27,13 @@ module.exports = (sequelize, DataTypes) => {
       message: {
         type: DataTypes.TEXT,
         get() {
-          const type = this.getDataValue('type');
-          const id = this.getDataValue('chatId');
           const content = this.getDataValue('message');
-          return type === 'text'
-            ? content
-            : `${config.appUrl}:${config.appPort}/chat/${id}/${content}`;
+          return content
         },
+      },
+      messagePhotoUrl: {
+        type: DataTypes.STRING,
+        allowNull: true,
       },
     },
     {

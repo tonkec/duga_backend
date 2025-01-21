@@ -32,9 +32,9 @@ router.get("/is-read", [auth], async (req, res) => {
             return res.status(400).json({ message: "Message ID is required" });
         }
         const message = await Message.findOne({
-        where: {
-            id: Number(req.query.id),
-        },
+            where: {
+                id: Number(req.query.id),
+            },
         });
     
         if (!message) {
