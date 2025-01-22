@@ -59,6 +59,7 @@ const SocketServer = (server) => {
           fromUserId: message.fromUser.id,
           chatId: message.chatId,
           message: message.message,
+          messagePhotoUrl: message.messagePhotoUrl,
         };
 
         const savedMessage = await Message.create(msg);
@@ -68,6 +69,7 @@ const SocketServer = (server) => {
         message.message = savedMessage.message;
         message.createdAt = savedMessage.createdAt;
         message.type = savedMessage.type;
+        message.messagePhotoUrl = savedMessage.messagePhotoUrl;
         delete message.fromUser;
         sockets.forEach((socket) => {
           io.to(socket).emit('received', message);

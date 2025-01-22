@@ -56,47 +56,8 @@ const removeSpacesAndDashes = (str) => {
   return str.replace(/[\s-]/g, '');
 };
 
-router.post("/message-photos", [auth, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)], async (req, res) => {
-  try {
-    let message;
-    req.files.forEach(async (file) => {
-      const chat = await Chat.findOne({
-        where: {
-          id: req.body.chatId
-        },
-      });
-
-      if (!chat) {
-        return res.status(404).send({
-          message: 'Chat not found',
-        });
-      }
-
-     message = await Message.create({
-        chatId: chat.id,
-        messagePhotoUrl: file.transforms[1].key,
-        fromUserId: req.body.fromUserId,
-        type: "file",
-        message: null,
-      });
-
-      if (!message) {
-        return res.status(404).send({
-          message: 'Message not found',
-        });
-      }
-
-      const url = file.transforms[1].key;
-  
-      message.messagePhotoUrl = url;
-      await message.save();
-    });
-
-    return res.status(200).send(message);
-  }
-  catch (error) {
-    return res.status(500).json({ message: error.message });
-  }
+router.post("/message-photos", [auth, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)], async (req, res) => {  
+  return res.status(200).json({ message: 'Upload successful' });
 }
 );
 

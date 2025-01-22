@@ -34,10 +34,9 @@ exports.uploadMessageImage = s3 => {
         {
           id: 'original',
           key: function (req, file, cb) {
-            console.log(req.body, "BODYY")
             cb(
               null,
-              `chat/${req.body.chatId}/${Date.now().toString()}/${
+              `chat/${req.body.chatId}/${req.body.timestamp}/${
                 file.originalname
               }`
             );
@@ -53,7 +52,7 @@ exports.uploadMessageImage = s3 => {
               null,
               `chat/${
                 req.body.chatId
-              }/${Date.now().toString()}/${`thumbnail-${file.originalname}`}`
+              }/${req.body.timestamp}/${`thumbnail-${file.originalname}`}`
             );
           },
           transform: function (req, file, cb) {
