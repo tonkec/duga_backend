@@ -34,9 +34,10 @@ exports.uploadMessageImage = s3 => {
         {
           id: 'original',
           key: function (req, file, cb) {
+            const body = JSON.parse(JSON.stringify(req.body));
             cb(
               null,
-              `chat/${req.body.chatId}/${req.body.timestamp}/${
+              `chat/${body.chatId}/${body.timestamp}/${
                 file.originalname
               }`
             );
@@ -48,11 +49,12 @@ exports.uploadMessageImage = s3 => {
         {
           id: 'thumbnail',
           key: function (req, file, cb) {
+            const body = JSON.parse(JSON.stringify(req.body));
             cb(
               null,
               `chat/${
-                req.body.chatId
-              }/${req.body.timestamp}/${`thumbnail-${file.originalname}`}`
+                body.chatId
+              }/${body.timestamp}/${`thumbnail-${file.originalname}`}`
             );
           },
           transform: function (req, file, cb) {
@@ -62,7 +64,6 @@ exports.uploadMessageImage = s3 => {
       ],
     }),
   });  
- 
 }
 
 exports.uploadMultiple = (s3) => {
@@ -72,7 +73,6 @@ exports.uploadMultiple = (s3) => {
       bucket: 'duga-user-photo',
       contentType: multerS3.AUTO_CONTENT_TYPE,
       shouldTransform: function (req, file, cb) {
-    
         cb(null, /^image/i.test(file.mimetype));
       },
       transforms: [

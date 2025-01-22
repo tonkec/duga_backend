@@ -1,7 +1,5 @@
 require('dotenv').config();
 const Upload = require('../models').Upload;
-const Message = require('../models').Message;
-const Chat = require('../models').Chat;
 const { auth } = require('../middleware/auth');
 const router = require('express').Router();
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
