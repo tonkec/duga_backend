@@ -1,9 +1,9 @@
 const Upload = require('../models').Upload;
 const PhotoComment = require('../models').PhotoComment;
-const { auth } = require('../middleware/auth');
+const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
 
-router.post('/add-comment', [auth], async (req, res) => {
+router.post('/add-comment', [checkJwt], async (req, res) => {
   try {
     const upload = await Upload.findOne({
       where: {
@@ -32,7 +32,7 @@ router.post('/add-comment', [auth], async (req, res) => {
   }
 });
 
-router.get('/get-comments/:uploadId', async (req, res) => {
+router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
       where: {
@@ -49,7 +49,7 @@ router.get('/get-comments/:uploadId', async (req, res) => {
   }
 });
 
-router.put('/update-comment/:id', [auth], async (req, res) => {
+router.put('/update-comment/:id', [checkJwt], async (req, res) => {
   try {
     const photoComment = await PhotoComment.findOne({
       where: {
@@ -75,7 +75,7 @@ router.put('/update-comment/:id', [auth], async (req, res) => {
   }
 });
 
-router.get("/latest", async (req, res) => {
+router.get("/latest", [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
       limit: 5,
@@ -90,7 +90,7 @@ router.get("/latest", async (req, res) => {
   }
 } );
 
-router.delete('/delete-comment/:id', [auth], async (req, res) => {
+router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
   try {
     const photoComment = await PhotoComment.findOne({
       where: {

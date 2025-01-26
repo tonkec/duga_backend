@@ -70,13 +70,21 @@ exports.resetPassword = async (req, res) => {
 };
 
 exports.register = async (req, res) => {
+  const {  email} = req.body;
+  console.log(req.body, "BODYYY");
+
   try {
-    const user = await User.create(req.body);
-    const userWithToken = generateToken(user.get({ raw: true }));
-    const emailType = 'verification';
-    createVerificationToken(userWithToken, emailType, res);
-  } catch (e) {
-    return res.status(500).json({ message: e.message });
+    let user = await User.findOne({ where: { email } });
+
+    if (!user) {
+      user = await User.create({  email });
+      res.status(201).json({ message: 'User created', user });
+    } else {
+      res.status(200).json({ message: 'User already exists', user });
+    }
+  } catch (error) {
+    console.error('Error creating user:', error);
+    res.status(500).json({ message: 'Error creating user' });
   }
 };
 

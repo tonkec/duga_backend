@@ -1,9 +1,9 @@
 const Upload = require('../models').Upload;
-const { auth } = require('../middleware/auth');
+const { checkJwt } = require('../middleware/auth');
 const PhotoLikes = require('../models').PhotoLikes;
 const router = require('express').Router();
 
-router.post('/upvote', [auth], async (req, res) => {
+router.post('/upvote', [checkJwt], async (req, res) => {
   try {
     const upload = await Upload.findOne({
       where: {
@@ -49,7 +49,7 @@ router.post('/upvote', [auth], async (req, res) => {
   }
 });
 
-router.post('/downvote', [auth], async (req, res) => {
+router.post('/downvote', [checkJwt], async (req, res) => {
   try {
     const upload = await Upload.findOne({
       where: {
@@ -93,7 +93,7 @@ router.post('/downvote', [auth], async (req, res) => {
   }
 });
 
-router.get('/all-likes/:photoId', [auth], async (req, res) => {
+router.get('/all-likes/:photoId', [checkJwt], async (req, res) => {
   try {
     const photoLikes = await PhotoLikes.findAll({
       where: {

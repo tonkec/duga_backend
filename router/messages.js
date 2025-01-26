@@ -1,8 +1,8 @@
 const Message = require('../models').Message;
-const { auth } = require('../middleware/auth');
+const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
 
-router.post('/read-message', [auth], async (req, res) => {
+router.post('/read-message', [checkJwt], async (req, res) => {
   try {
       const message = await Message.findOne({
             where: {
@@ -26,7 +26,7 @@ router.post('/read-message', [auth], async (req, res) => {
   }
 });
 
-router.get("/is-read", [auth], async (req, res) => {
+router.get("/is-read", [checkJwt], async (req, res) => {
     try {
         if (!req.query.id) {
             return res.status(400).json({ message: "Message ID is required" });

@@ -26,6 +26,12 @@ exports.getCurrentChat = async (req, res) => {
 };
 
 exports.index = async (req, res) => {
+  if (!req.user) {
+    return res.status(403).json({
+      status: 'Error',
+      message: 'Missing params in request!',
+    });
+  }
   const user = await User.findOne({
     where: {
       id: req.user.id,
@@ -176,6 +182,13 @@ exports.messages = async (req, res) => {
     offset,
     order: [['id', 'DESC']],
   });
+
+  if (!messages) {
+    return res.status(404).json({
+      status: 'Error',
+      message: 'Messages not found!',
+    });
+  }
 
   const totalPages = Math.ceil(messages.count / limit);
 

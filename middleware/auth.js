@@ -1,20 +1,14 @@
-const jwt = require("jsonwebtoken");
-const config = require("../config/app");
+import { expressjwt } from 'express-jwt';
+import jwksRsa from 'jwks-rsa';
 
-exports.auth = (req, res, next) => {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
-  if (!token) {
-    return res.status(401).json({ message: "Missing token" });
-  }
+export const checkJwt = expressjwt({
+  secret: jwksRsa.expressJwtSecret({
+    cache: true,
+    rateLimit: true,
+    jwksUri: `https://${process.env.AUTH0_DOMAIN}/.well-known/jwks.json`,
+  }),
 
-  jwt.verify(token, config.appKey, (err, user) => {
-    if (err) {
-      return res.status(401).json({ err });
-    }
-
-    req.user = user;
-  });
-
-  next();
-};
+  audience: process.env.AUTH0_AUDIENCE,
+  issuer: `https://${process.env.AUTH0_DOMAIN}/`,
+  algorithms: ['RS256'],
+});

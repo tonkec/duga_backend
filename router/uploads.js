@@ -1,6 +1,6 @@
 require('dotenv').config();
 const Upload = require('../models').Upload;
-const { auth } = require('../middleware/auth');
+const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
 const uploadMessageImage = require('../controllers/uploadsController').uploadMessageImage;
@@ -54,14 +54,14 @@ const removeSpacesAndDashes = (str) => {
   return str.replace(/[\s-]/g, '');
 };
 
-router.post("/message-photos", [auth, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)], async (req, res) => {  
+router.post("/message-photos", [checkJwt, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)], async (req, res) => {  
   return res.status(200).json({ message: 'Upload successful' });
 }
 );
 
 router.post(
   '/photos',
-  [auth, uploadMultiple(s3).array('avatars', MAX_NUMBER_OF_FILES)],
+  [checkJwt, uploadMultiple(s3).array('avatars', MAX_NUMBER_OF_FILES)],
   async function (req, res, next) {
     const descriptions = JSON.parse(req.body.text);
     try {
@@ -109,9 +109,9 @@ router.post(
   }
 );
 
-router.get('/avatar/:id', [auth], getImages);
+router.get('/avatar/:id', [checkJwt], getImages);
 
-router.get("/photo/:id", [auth], async (req, res) => { 
+router.get("/photo/:id", [checkJwt], async (req, res) => { 
   try {
     const upload = await Upload.findOne({
       where: {
