@@ -26,15 +26,15 @@ exports.getCurrentChat = async (req, res) => {
 };
 
 exports.index = async (req, res) => {
-  if (!req.user) {
-    return res.status(403).json({
-      status: 'Error',
-      message: 'Missing params in request!',
-    });
+  const userId = req.query.user?.id;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
   }
+
   const user = await User.findOne({
     where: {
-      id: req.user.id,
+      id: userId
     },
     include: [
       {
@@ -44,7 +44,7 @@ exports.index = async (req, res) => {
             model: User,
             where: {
               [Op.not]: {
-                id: req.user.id,
+                id: userId
               },
             },
           },

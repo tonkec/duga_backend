@@ -1,5 +1,4 @@
 const User = require('../models').User;
-const sequelize = require('sequelize');
 exports.update = async (req, res) => {
   try {
     const [rows, result] = await User.update(
@@ -28,7 +27,7 @@ exports.update = async (req, res) => {
       },
       {
         where: {
-          id: req.user.id,
+          id: req.query.userId,
         },
         returning: true,
         individualHooks: true,
@@ -57,6 +56,7 @@ exports.getAllUsers = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
+  
     const user = await User.findByPk(req.params.id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
@@ -68,35 +68,3 @@ exports.getUser = async (req, res) => {
 };
 
 
-exports.search = async (req, res) => {
-  try {
-    const users = await User.findAll({
-      where: {
-        [sequelize.Op.or]: {
-          namesConcated: sequelize.where(
-            sequelize.fn(
-              'concat',
-              sequelize.col('firstName'),
-              ' ',
-              sequelize.col('lastName')
-            ),
-            {
-              [sequelize.Op.iLike]: `%${req.query.term}%`,
-            }
-          ),
-          email: {
-            [sequelize.Op.iLike]: `%${req.query.term}%`,
-          },
-        },
-        [sequelize.Op.not]: {
-          id: req.user.id,
-        },
-      },
-      limit: 10,
-    });
-
-    return res.json(users);
-  } catch (e) {
-    return res.status(500).json({ error: e.message });
-  }
-};
