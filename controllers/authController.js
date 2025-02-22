@@ -70,8 +70,7 @@ exports.resetPassword = async (req, res) => {
 };
 
 exports.register = async (req, res) => {
-  const {  email} = req.body;
-  console.log(req.body, "BODYYY");
+  const { email} = req.body;
 
   try {
     let user = await User.findOne({ where: { email } });
