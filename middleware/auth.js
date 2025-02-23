@@ -1,7 +1,7 @@
-import { expressjwt } from 'express-jwt';
-import jwksRsa from 'jwks-rsa';
+const { expressjwt } = require('express-jwt');
+const jwksRsa = require('jwks-rsa');
 
-export const checkJwt = expressjwt({
+const checkJwt = expressjwt({
   secret: jwksRsa.expressJwtSecret({
     cache: true,
     rateLimit: true,
@@ -12,3 +12,5 @@ export const checkJwt = expressjwt({
   issuer: `https://${process.env.AUTH0_DOMAIN}/`,
   algorithms: ['RS256'],
 });
+
+module.exports = { checkJwt };
