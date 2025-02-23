@@ -3,6 +3,8 @@ exports.update = async (req, res) => {
   try {
     const [rows, result] = await User.update(
       {
+        firstName: req.body.data.firstName ? req.body.data.firstName : null,
+        lastName: req.body.data.lastName ? req.body.data.lastName : null,
         username: req.body.data.username ? req.body.data.username : null,
         bio: req.body.data.bio ? req.body.data.bio : null,
         sexuality: req.body.data.sexuality ? req.body.data.sexuality : null,
