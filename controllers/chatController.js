@@ -67,13 +67,14 @@ exports.index = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
-  const { partnerId } = req.body;
+  const { partnerId, user } = req.body;
+  const id = user.id;
   const t = await sequelize.transaction();
 
   try {
     const user = await User.findOne({
       where: {
-        id: req.user.id,
+        id: id
       },
       include: [
         {
@@ -105,7 +106,7 @@ exports.create = async (req, res) => {
       [
         {
           chatId: chat.id,
-          userId: req.user.id,
+          userId: id
         },
         {
           chatId: chat.id,
@@ -138,7 +139,7 @@ exports.create = async (req, res) => {
 
     const creator = await User.findOne({
       where: {
-        id: req.user.id,
+        id: id
       },
     });
 
@@ -165,6 +166,8 @@ exports.create = async (req, res) => {
     return res.json([forCreator, forReceiver]);
   } catch (e) {
     await t.rollback();
+    console.log(e)
+    console.log(id, partnerId)
     return res.status(500).json({ status: 'Error', message: e.message });
   }
 };
