@@ -70,13 +70,12 @@ exports.resetPassword = async (req, res) => {
 };
 
 exports.register = async (req, res) => {
-  const { email} = req.body;
-
+  const { email } = req.body;
   try {
     let user = await User.findOne({ where: { email } });
-
     if (!user) {
-      user = await User.create({  email });
+      user = await User.create(req.body);
+
       res.status(201).json({ message: 'User created', user });
     } else {
       res.status(200).json({ message: 'User already exists', user });
