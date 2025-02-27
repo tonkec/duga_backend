@@ -4,8 +4,5 @@ const {
 } = require('../controllers/authController');
 
 const { validate } = require('../validators/index');
-
 router.post('/register', [registrationRules(), validate], register);
-
-
 module.exports = router;
