@@ -11,7 +11,7 @@ module.exports = {
      */
     return Promise.all([
       queryInterface.addColumn('Users', 'bio', {
-        type: Sequelize.TEXT,
+        type: Sequelize.TEXT
       }),
       queryInterface.addColumn('Users', 'sexuality', {
         type: Sequelize.STRING,
