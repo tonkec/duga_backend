@@ -2,7 +2,6 @@ const Upload = require('../models').Upload;
 const AWS = require('aws-sdk');
 const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
-
 const sharp = require('sharp');
 
 AWS.config.update({
