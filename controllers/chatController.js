@@ -166,8 +166,6 @@ exports.create = async (req, res) => {
     return res.json([forCreator, forReceiver]);
   } catch (e) {
     await t.rollback();
-    console.log(e)
-    console.log(id, partnerId)
     return res.status(500).json({ status: 'Error', message: e.message });
   }
 };
