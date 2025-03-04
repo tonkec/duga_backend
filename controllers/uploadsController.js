@@ -81,7 +81,7 @@ exports.uploadMultiple = (s3) => {
           key: function (req, file, cb) {
             cb(
               null,
-              `user/${req.user.id}/${Date.now().toString()}/${
+              `user/${req.body.userId}/${Date.now().toString()}/${
                 file.originalname
               }`
             );
@@ -96,7 +96,7 @@ exports.uploadMultiple = (s3) => {
             cb(
               null,
               `user/${
-                req.user.id
+                req.body.userId
               }/${Date.now().toString()}/${`thumbnail-${file.originalname}`}`
             );
           },

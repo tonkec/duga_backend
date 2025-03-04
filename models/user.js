@@ -30,7 +30,10 @@ module.exports = (sequelize, DataTypes) => {
   }
   User.init(
     {
-      firstName: DataTypes.STRING,
+      firstName: {
+        type: DataTypes.STRING,
+        allowNull: true,  // Allows NULL values
+      },
       lookingFor: {
         type: DataTypes.ENUM('friendship', 'date', 'marriage', 'relationship', "partnership", "nothing", "idk"),
           allowNull: true,
@@ -103,9 +106,15 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING, 
         allowNull: true,
       },
-      lastName: DataTypes.STRING,
+      lastName: {
+        type: DataTypes.STRING,
+        allowNull: true,  
+      },
       email: DataTypes.STRING,
-      password: DataTypes.STRING,
+      password: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
       gender: DataTypes.STRING,
       isVerified: DataTypes.BOOLEAN,
       bio: DataTypes.TEXT,

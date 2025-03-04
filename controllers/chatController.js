@@ -26,9 +26,15 @@ exports.getCurrentChat = async (req, res) => {
 };
 
 exports.index = async (req, res) => {
+  const userId = req.query.user?.id;
+
+  if (!userId) {
+    return res.status(400).json({ error: 'User ID is required' });
+  }
+
   const user = await User.findOne({
     where: {
-      id: req.user.id,
+      id: userId
     },
     include: [
       {
@@ -38,7 +44,7 @@ exports.index = async (req, res) => {
             model: User,
             where: {
               [Op.not]: {
-                id: req.user.id,
+                id: userId
               },
             },
           },
@@ -61,13 +67,14 @@ exports.index = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
-  const { partnerId } = req.body;
+  const { partnerId, user } = req.body;
+  const id = user.id;
   const t = await sequelize.transaction();
 
   try {
     const user = await User.findOne({
       where: {
-        id: req.user.id,
+        id: id
       },
       include: [
         {
@@ -99,7 +106,7 @@ exports.create = async (req, res) => {
       [
         {
           chatId: chat.id,
-          userId: req.user.id,
+          userId: id
         },
         {
           chatId: chat.id,
@@ -132,7 +139,7 @@ exports.create = async (req, res) => {
 
     const creator = await User.findOne({
       where: {
-        id: req.user.id,
+        id: id
       },
     });
 
@@ -176,6 +183,13 @@ exports.messages = async (req, res) => {
     offset,
     order: [['id', 'DESC']],
   });
+
+  if (!messages) {
+    return res.status(404).json({
+      status: 'Error',
+      message: 'Messages not found!',
+    });
+  }
 
   const totalPages = Math.ceil(messages.count / limit);
 
