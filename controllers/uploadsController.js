@@ -78,6 +78,9 @@ exports.uploadMultiple = (s3) => {
         {
           id: 'original',
           key: function (req, file, cb) {
+            if (!req.body.userId) {
+              return cb(new Error('Missing user ID'));
+            }
             cb(
               null,
               `user/${req.body.userId}/${Date.now().toString()}/${
@@ -92,6 +95,9 @@ exports.uploadMultiple = (s3) => {
         {
           id: 'thumbnail',
           key: function (req, file, cb) {
+            if (!req.body.userId) {
+              return cb(new Error('Missing user ID'));
+            }
             cb(
               null,
               `user/${
