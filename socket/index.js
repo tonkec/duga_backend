@@ -3,6 +3,7 @@ const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
+const Notification = require('../models').Notification;
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -40,19 +41,19 @@ const SocketServer = (server) => {
 
     socket.on('message', async (message) => {
       let sockets = setUsers(message.fromUser, socket);
-
+    
       if (users.length > 0) {
         if (users.has(message.fromUser.id)) {
           sockets = users.get(message.fromUser.id).sockets;
         }
       }
-
+    
       message.toUserId.forEach((id) => {
         if (users.has(id)) {
           sockets = [...sockets, ...users.get(id).sockets];
         }
       });
-
+    
       try {
         const msg = {
           type: message.type,
@@ -61,8 +62,9 @@ const SocketServer = (server) => {
           message: message.message,
           messagePhotoUrl: message.messagePhotoUrl,
         };
-
+    
         const savedMessage = await Message.create(msg);
+    
         message.User = message.fromUser;
         message.fromUserId = message.fromUser.id;
         message.id = savedMessage.id;
@@ -71,13 +73,36 @@ const SocketServer = (server) => {
         message.type = savedMessage.type;
         message.messagePhotoUrl = savedMessage.messagePhotoUrl;
         delete message.fromUser;
+    
+        for (const recipientId of message.toUserId) {
+          const notification = await Notification.create({
+            userId: recipientId,
+            type: 'message',
+            content: `Nova poruka od ${message.User.username || 'someone'}`,
+          });
+    
+          if (users.has(recipientId)) {
+            users.get(recipientId).sockets.forEach((sockId) => {
+              io.to(sockId).emit('new_notification', {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+              });
+            });
+          }
+        }
+    
         sockets.forEach((socket) => {
           io.to(socket).emit('received', message);
         });
+    
       } catch (e) {
         console.log(e);
       }
     });
+    
 
     socket.on('typing', (data) => {
       data.toUserId.forEach((id) => {
