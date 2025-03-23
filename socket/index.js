@@ -211,6 +211,7 @@ const SocketServer = (server) => {
     });
 
     socket.on('disconnect', async () => {
+      console.log('Client disconnected');
       if (userSockets.has(socket.id)) {
         const user = users.get(userSockets.get(socket.id));
         if (user) {

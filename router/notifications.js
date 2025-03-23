@@ -17,4 +17,24 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
+router.put('/:id/read', async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const notification = await Notification.findByPk(id);
+    if (!notification) {
+      return res.status(404).json({ error: 'Notification not found' });
+    }
+
+    notification.isRead = true;
+    await notification.save();
+
+    res.json(notification);
+  } catch (err) {
+    console.error('Error marking notification as read:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+
 module.exports = router;
