@@ -8,11 +8,6 @@ router.get('/:userId', async (req, res) => {
     const notifications = await Notification.findAll({
       where: { userId },
       order: [['createdAt', 'DESC']],
-      include: [
-        {
-          model: User,
-        },
-      ],
     });
 
     res.json(notifications);
