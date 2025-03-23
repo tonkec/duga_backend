@@ -1,4 +1,4 @@
-const { Notification, User } = require('../models');
+const { Notification} = require('../models');
 const router = require('express').Router();
 
 router.get('/:userId', async (req, res) => {
