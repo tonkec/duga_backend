@@ -20,8 +20,53 @@ const SocketServer = (server) => {
     });
 
     socket.on("send-comment", async (data) => {
-      io.emit("receive-comment", data);
+      try {
+        const { userId, uploadId } = data.data; // 👈 FIXED
+    
+        const parsedUploadId = parseInt(uploadId);
+        if (isNaN(parsedUploadId)) {
+          console.error("❌ Invalid uploadId:", uploadId);
+          return;
+        }
+    
+        // Emit to all clients
+        io.emit("receive-comment", data); // or just `data.data` if needed
+    
+        // Get photo owner
+        const [results] = await sequelize.query(
+          `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
+          {
+            replacements: { uploadId: parsedUploadId },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+    
+        const photoOwnerId = results?.userId;
+    
+        if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
+          const notification = await Notification.create({
+            userId: photoOwnerId,
+            type: 'comment',
+            content: `Novi komentar na tvojoj fotografiji.`,
+          });
+    
+          if (users.has(photoOwnerId)) {
+            users.get(photoOwnerId).sockets.forEach((sockId) => {
+              io.to(sockId).emit("new_notification", {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+              });
+            });
+          }
+        }
+      } catch (error) {
+        console.error("🔥 Error in send-comment:", error);
+      }
     });
+    
 
     socket.on("delete-comment", async (data) => {
       io.emit("remove-comment", data);
