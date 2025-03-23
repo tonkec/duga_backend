@@ -77,13 +77,82 @@ const SocketServer = (server) => {
     })
 
     socket.on("upvote-upload", async (data) => {
-      io.emit("upvote-upload", data);
-    })
-
-    socket.on("downvote-upload", async (data) => {
-      io.emit("downvote-upload", data);
-    })
-
+      try {
+        const like = data[0];
+        const { userId, photoId } = like;
+    
+        io.emit("upvote-upload", {
+          uploadId: photoId,
+          likes: data,
+        });
+    
+        const parsedPhotoId = parseInt(photoId);
+        if (isNaN(parsedPhotoId)) {
+          console.error("Invalid photoId:", photoId);
+          return;
+        }
+    
+        const [results] = await sequelize.query(
+          `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
+          {
+            replacements: { uploadId: parsedPhotoId },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+    
+        const photoOwnerId = results?.userId;
+    
+        if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
+          const notification = await Notification.create({
+            userId: photoOwnerId,
+            type: 'like',
+            content: `Neko je lajkao tvoju fotografiju.`,
+          });
+    
+          if (users.has(photoOwnerId)) {
+            users.get(photoOwnerId).sockets.forEach((sockId) => {
+              io.to(sockId).emit("new_notification", {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+              });
+            });
+          }
+        }
+      } catch (error) {
+        console.error("🔥 Error in upvote-upload notification:", error);
+      }
+    });
+    
+    socket.on("downvote-upload", async (likeData) => {
+      try {
+        const {  uploadId } = likeData;
+    
+        if (!uploadId) {
+          console.error("❌ Missing uploadId in downvote-upload");
+          return;
+        }
+    
+        const [likes] = await sequelize.query(
+          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId`,
+          {
+            replacements: { uploadId: parseInt(uploadId) },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+    
+        io.emit("downvote-upload", {
+          uploadId,
+          likes,
+        });
+      } catch (err) {
+        console.error("🔥 Error in downvote-upload:", err);
+      }
+    });
+    
+  
     socket.on('message', async (message) => {
       let sockets = setUsers(message.fromUser, socket);
     
