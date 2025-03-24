@@ -109,7 +109,7 @@ router.post(
   }
 );
 
-router.get('/avatar/:id', [checkJwt], getImages);
+router.get('/user/:id', [checkJwt], getImages);
 
 router.get("/photo/:id", [checkJwt], async (req, res) => { 
   try {

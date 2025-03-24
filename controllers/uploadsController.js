@@ -117,7 +117,7 @@ exports.uploadMultiple = (s3) => {
 exports.getImages = async (req, res) => {
   const params = {
     Bucket: 'duga-user-photo',
-    Prefix: `user/${req.params.id}/`,
+    Prefix: `${process.env.NODE_ENV}/user/${req.params.id}/`,
   };
 
   try {
