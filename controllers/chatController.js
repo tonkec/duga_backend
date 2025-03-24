@@ -194,7 +194,6 @@ exports.messages = async (req, res) => {
   const totalPages = Math.ceil(messages.count / limit);
 
   if (page > totalPages) return res.json({ data: { messages: [] } });
-  console.log(messages.rows);
   const result = {
     messages: messages.rows,
     pagination: {

@@ -3,6 +3,7 @@ const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const users = new Map();
 const userSockets = new Map();
+const Notification = require('../models').Notification;
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -19,8 +20,56 @@ const SocketServer = (server) => {
     });
 
     socket.on("send-comment", async (data) => {
-      io.emit("receive-comment", data);
+      try {
+        const { userId, uploadId } = data.data; 
+    
+        const parsedUploadId = parseInt(uploadId);
+        if (isNaN(parsedUploadId)) {
+          console.error("❌ Invalid uploadId:", uploadId);
+          return;
+        }
+    
+        io.emit("receive-comment", data);
+
+        const [results] = await sequelize.query(
+          `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
+          {
+            replacements: { uploadId: parsedUploadId },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+    
+        const photoOwnerId = results?.userId;
+    
+        if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
+          const notification = await Notification.create({
+            userId: photoOwnerId,
+            type: 'comment',
+            content: `Novi komentar na tvojoj fotografiji.`,
+            actionId: parsedUploadId,
+            actionType: 'upload',
+          });
+          
+    
+          if (users.has(photoOwnerId)) {
+            users.get(photoOwnerId).sockets.forEach((sockId) => {
+              io.to(sockId).emit('new_notification', {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+              });
+            });
+          }
+        }
+      } catch (error) {
+        console.error("🔥 Error in send-comment:", error);
+      }
     });
+    
 
     socket.on("delete-comment", async (data) => {
       io.emit("remove-comment", data);
@@ -31,28 +80,101 @@ const SocketServer = (server) => {
     })
 
     socket.on("upvote-upload", async (data) => {
-      io.emit("upvote-upload", data);
-    })
-
-    socket.on("downvote-upload", async (data) => {
-      io.emit("downvote-upload", data);
-    })
-
+      try {
+        const like = data[0];
+        const { userId, photoId } = like;
+    
+        io.emit("upvote-upload", {
+          uploadId: photoId,
+          likes: data,
+        });
+    
+        const parsedPhotoId = parseInt(photoId);
+        if (isNaN(parsedPhotoId)) {
+          console.error("Invalid photoId:", photoId);
+          return;
+        }
+    
+        const [results] = await sequelize.query(
+          `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
+          {
+            replacements: { uploadId: parsedPhotoId },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+    
+        const photoOwnerId = results?.userId;
+    
+        if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
+          const notification = await Notification.create({
+            userId: photoOwnerId,
+            type: 'like',
+            content: `Netko je lajkao tvoju fotografiju.`,
+            actionId: parsedPhotoId,
+            actionType: 'upload',
+          });
+    
+          if (users.has(photoOwnerId)) {
+            users.get(photoOwnerId).sockets.forEach((sockId) => {
+              io.to(sockId).emit('new_notification', {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+              });
+            });
+          }
+        }
+      } catch (error) {
+        console.error("🔥 Error in upvote-upload notification:", error);
+      }
+    });
+    
+    socket.on("downvote-upload", async (likeData) => {
+      try {
+        const {  uploadId } = likeData;
+    
+        if (!uploadId) {
+          console.error("❌ Missing uploadId in downvote-upload");
+          return;
+        }
+    
+        const [likes] = await sequelize.query(
+          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId`,
+          {
+            replacements: { uploadId: parseInt(uploadId) },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+    
+        io.emit("downvote-upload", {
+          uploadId,
+          likes,
+        });
+      } catch (err) {
+        console.error("🔥 Error in downvote-upload:", err);
+      }
+    });
+    
+  
     socket.on('message', async (message) => {
       let sockets = setUsers(message.fromUser, socket);
-
+    
       if (users.length > 0) {
         if (users.has(message.fromUser.id)) {
           sockets = users.get(message.fromUser.id).sockets;
         }
       }
-
+    
       message.toUserId.forEach((id) => {
         if (users.has(id)) {
           sockets = [...sockets, ...users.get(id).sockets];
         }
       });
-
+    
       try {
         const msg = {
           type: message.type,
@@ -61,8 +183,9 @@ const SocketServer = (server) => {
           message: message.message,
           messagePhotoUrl: message.messagePhotoUrl,
         };
-
+    
         const savedMessage = await Message.create(msg);
+    
         message.User = message.fromUser;
         message.fromUserId = message.fromUser.id;
         message.id = savedMessage.id;
@@ -71,13 +194,40 @@ const SocketServer = (server) => {
         message.type = savedMessage.type;
         message.messagePhotoUrl = savedMessage.messagePhotoUrl;
         delete message.fromUser;
+    
+        for (const recipientId of message.toUserId) {
+          const notification = await Notification.create({
+            userId: recipientId,
+            type: 'message',
+            content: `Nova poruka od ${message.User.username || 'someone'}`,
+            actionId: savedMessage.chatId,
+            actionType: 'message',
+          });
+    
+          if (users.has(recipientId)) {
+            users.get(recipientId).sockets.forEach((sockId) => {
+              io.to(sockId).emit('new_notification', {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+              });
+            });
+          }
+        }
+    
         sockets.forEach((socket) => {
           io.to(socket).emit('received', message);
         });
+    
       } catch (e) {
         console.log(e);
       }
     });
+    
 
     socket.on('typing', (data) => {
       data.toUserId.forEach((id) => {
@@ -140,7 +290,6 @@ const SocketServer = (server) => {
         }
       });
 
-      // send to new chatter
       if (users.has(newChatter.id)) {
         users.get(newChatter.id).sockets.forEach((socket) => {
           try {
@@ -186,6 +335,7 @@ const SocketServer = (server) => {
     });
 
     socket.on('disconnect', async () => {
+      console.log('Client disconnected');
       if (userSockets.has(socket.id)) {
         const user = users.get(userSockets.get(socket.id));
         if (user) {
