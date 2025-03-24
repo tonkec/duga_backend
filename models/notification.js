@@ -27,7 +27,15 @@ module.exports = (sequelize, DataTypes) => {
     isRead: {
       type: DataTypes.BOOLEAN,
       defaultValue: false
-    }
+    },
+    actionId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+    },
+    actionType: {
+      type: DataTypes.STRING,
+      allowNull: true, 
+    },
   }, {
     sequelize,
     modelName: 'Notification',

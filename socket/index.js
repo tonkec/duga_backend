@@ -21,7 +21,7 @@ const SocketServer = (server) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId } = data.data; // 👈 FIXED
+        const { userId, uploadId } = data.data; 
     
         const parsedUploadId = parseInt(uploadId);
         if (isNaN(parsedUploadId)) {
@@ -29,10 +29,8 @@ const SocketServer = (server) => {
           return;
         }
     
-        // Emit to all clients
-        io.emit("receive-comment", data); // or just `data.data` if needed
-    
-        // Get photo owner
+        io.emit("receive-comment", data);
+
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -48,14 +46,19 @@ const SocketServer = (server) => {
             userId: photoOwnerId,
             type: 'comment',
             content: `Novi komentar na tvojoj fotografiji.`,
+            actionId: parsedUploadId,
+            actionType: 'upload',
           });
+          
     
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
-              io.to(sockId).emit("new_notification", {
+              io.to(sockId).emit('new_notification', {
                 id: notification.id,
                 type: notification.type,
                 content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
                 isRead: notification.isRead,
                 createdAt: notification.createdAt,
               });
@@ -106,15 +109,19 @@ const SocketServer = (server) => {
           const notification = await Notification.create({
             userId: photoOwnerId,
             type: 'like',
-            content: `Neko je lajkao tvoju fotografiju.`,
+            content: `Netko je lajkao tvoju fotografiju.`,
+            actionId: parsedPhotoId,
+            actionType: 'upload',
           });
     
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
-              io.to(sockId).emit("new_notification", {
+              io.to(sockId).emit('new_notification', {
                 id: notification.id,
                 type: notification.type,
                 content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
                 isRead: notification.isRead,
                 createdAt: notification.createdAt,
               });
@@ -193,6 +200,8 @@ const SocketServer = (server) => {
             userId: recipientId,
             type: 'message',
             content: `Nova poruka od ${message.User.username || 'someone'}`,
+            actionId: savedMessage.chatId,
+            actionType: 'message',
           });
     
           if (users.has(recipientId)) {
@@ -201,6 +210,8 @@ const SocketServer = (server) => {
                 id: notification.id,
                 type: notification.type,
                 content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
                 isRead: notification.isRead,
                 createdAt: notification.createdAt,
               });
@@ -279,7 +290,6 @@ const SocketServer = (server) => {
         }
       });
 
-      // send to new chatter
       if (users.has(newChatter.id)) {
         users.get(newChatter.id).sockets.forEach((socket) => {
           try {
