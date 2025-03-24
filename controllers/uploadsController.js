@@ -36,7 +36,7 @@ exports.uploadMessageImage = s3 => {
             const body = JSON.parse(JSON.stringify(req.body));
             cb(
               null,
-              `chat/${body.chatId}/${body.timestamp}/${
+              `${process.env.NODE_ENV}/chat/${body.chatId}/${body.timestamp}/${
                 file.originalname
               }`
             );
@@ -51,7 +51,7 @@ exports.uploadMessageImage = s3 => {
             const body = JSON.parse(JSON.stringify(req.body));
             cb(
               null,
-              `chat/${
+              `${process.env.NODE_ENV}/chat/${
                 body.chatId
               }/${body.timestamp}/${`thumbnail-${file.originalname}`}`
             );
@@ -83,7 +83,7 @@ exports.uploadMultiple = (s3) => {
             }
             cb(
               null,
-              `user/${req.body.userId}/${Date.now().toString()}/${
+              `${process.env.NODE_ENV}/user/${req.body.userId}/${Date.now().toString()}/${
                 file.originalname
               }`
             );
@@ -100,7 +100,7 @@ exports.uploadMultiple = (s3) => {
             }
             cb(
               null,
-              `user/${
+              `${process.env.NODE_ENV}/user/${
                 req.body.userId
               }/${Date.now().toString()}/${`thumbnail-${file.originalname}`}`
             );
