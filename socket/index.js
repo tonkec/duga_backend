@@ -385,7 +385,10 @@ const SocketServer = (server) => {
               if (users.has(chatters[i])) {
                 users.get(chatters[i]).sockets.forEach((socket) => {
                   try {
-                    io.to(socket).emit('offline', user);
+                    io.to(sockId).emit('status-update', {
+                      userId: user.id,
+                      status: 'offline',
+                    });
                   } catch (e) {
                     console.log(e);
                   }
