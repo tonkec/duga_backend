@@ -17,6 +17,21 @@ const SocketServer = (server) => {
     console.log('New client connected');
     socket.on('join', async (user) => {
       setUsers(user, socket);
+      const chatters = await getChatters(user.id);
+      chatters.forEach((chatterId) => {
+        if (users.has(chatterId)) {
+          users.get(chatterId).sockets.forEach((sockId) => {
+            io.to(sockId).emit('status-update', {
+              userId: user.id,
+              status: 'online',
+            });
+          });
+        }
+      });
+
+      if (users.has(user.id)) {
+        users.get(user.id).status = 'online';
+      }
     });
 
     socket.on("send-comment", async (data) => {
@@ -68,6 +83,22 @@ const SocketServer = (server) => {
       } catch (error) {
         console.error("🔥 Error in send-comment:", error);
       }
+    });
+
+    socket.on('set-status', async ({ userId, status }) => {
+      if (!['online', 'offline'].includes(status)) return;
+      if (users.has(userId)) {
+        users.get(userId).status = status;
+      }
+    
+      const chatters = await getChatters(userId);
+      chatters.forEach((id) => {
+        if (users.has(id)) {
+          users.get(id).sockets.forEach((sockId) => {
+            io.to(sockId).emit('status-update', { userId, status });
+          });
+        }
+      });
     });
     
 
@@ -398,15 +429,24 @@ const setUsers = (user, socket) => {
   if (users.has(user.id)) {
     const existingUser = users.get(user.id);
     existingUser.sockets = Array.from(new Set([...existingUser.sockets, socket.id]));
+    existingUser.status = existingUser.status || 'online';
     users.set(user.id, existingUser);
     sockets = existingUser.sockets;
   } else {
-    users.set(user.id, { id: user.id, sockets: [socket.id] });
+    users.set(user.id, {
+      id: user.id,
+      sockets: [socket.id],
+      status: 'online'
+    });
+
     sockets = [socket.id];
   }
+
   userSockets.set(socket.id, user.id);
+
   return sockets;
 };
+
 
 
 module.exports = SocketServer;
