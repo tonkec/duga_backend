@@ -1,31 +1,42 @@
 const Upload = require('../models').Upload;
+const User = require('../models').User;
 const PhotoComment = require('../models').PhotoComment;
 const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
 
 router.post('/add-comment', [checkJwt], async (req, res) => {
   try {
+    const { userId, uploadId, comment, taggedUserIds } = req.body;
+
     const upload = await Upload.findOne({
-      where: {
-        id: req.body.uploadId,
-      },
+      where: { id: uploadId },
     });
 
     if (!upload) {
-      return res.status(404).send({
-        message: 'Upload not found',
-      });
+      return res.status(404).send({ message: 'Upload not found' });
     }
 
     const photoComment = await PhotoComment.create({
-      userId: req.body.userId,
-      uploadId: req.body.uploadId,
-      comment: req.body.comment,
+      userId,
+      uploadId,
+      comment,
     });
 
-    return res.status(201).send(photoComment);
+    if (taggedUserIds && Array.isArray(taggedUserIds) && taggedUserIds.length > 0) {
+      await photoComment.setTaggedUsers(taggedUserIds);
+    }
+
+    const fullComment = await PhotoComment.findByPk(photoComment.id, {
+      include: [
+        { model: User, as: 'user', attributes: ['id', 'username'] },
+        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+      ],
+    });
+
+
+    return res.status(201).send({ data: fullComment });
   } catch (error) {
-    console.log(error);
+    console.log('❌ Error adding comment:', error);
     return res.status(500).send({
       message: 'Error occurred while adding comment',
     });
@@ -35,20 +46,31 @@ router.post('/add-comment', [checkJwt], async (req, res) => {
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
-      where: {
-        uploadId: req.params.uploadId,
-      },
+      where: { uploadId: req.params.uploadId },
       order: [['createdAt', 'DESC']],
+      include: [
+        {
+          model: User,
+          as: 'taggedUsers',
+          attributes: ['id', 'username'],
+          through: { attributes: [] }, // hides join table data
+        },
+        {
+          model: User,
+          as: 'user', // the commenter
+          attributes: ['id', 'username'],
+        },
+      ],
     });
 
     return res.status(200).send(photoComments);
   } catch (error) {
+    console.error('❌ Error fetching comments:', error);
     return res.status(500).send({
       message: 'Error occurred while fetching comments',
     });
   }
 });
-
 router.put('/update-comment/:id', [checkJwt], async (req, res) => {
   try {
     const photoComment = await PhotoComment.findOne({
