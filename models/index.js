@@ -24,7 +24,8 @@ const sslOptions =
         },
       };
 
-      const sequelize = new Sequelize({
+
+const sequelize = new Sequelize({
 
         database: DB_DATABASE || config.database,
         username: DB_USER || config.username,
@@ -33,7 +34,7 @@ const sslOptions =
         port: 5432,
         dialect: 'postgres',
         dialectOptions: sslOptions,
-      });
+
 
 fs.readdirSync(__dirname)
   .filter((file) => {
