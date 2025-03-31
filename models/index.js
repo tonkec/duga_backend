@@ -5,9 +5,12 @@ const path = require('path');
 const Sequelize = require('sequelize');
 const process = require('process');
 const basename = path.basename(__filename);
-const env = process.env.NODE_ENV || 'development';
+require('dotenv').config();
+//const env = process.env.NODE_ENV || 'development';
+const env ='development';
 const config = require(__dirname + './../config/database.js')[env];
 const db = {};
+const { DB_USER, DB_PASSWORD, DB_HOST,DB_DATABASE } = process.env;
 
 const sslOptions =
   env === 'development'
@@ -21,15 +24,16 @@ const sslOptions =
         },
       };
 
-const sequelize = new Sequelize({
-  database: config.database,
-  username: config.username,
-  password: config.password,
-  host: config.host,
-  port: config.port,
-  dialect: 'postgres',
-  dialectOptions: sslOptions,
-});
+      const sequelize = new Sequelize({
+
+        database: DB_DATABASE || config.database,
+        username: DB_USER || config.username,
+        password: DB_PASSWORD || config.password,
+        host: DB_HOST || config.host,
+        port: 5432,
+        dialect: 'postgres',
+        dialectOptions: sslOptions,
+      });
 
 fs.readdirSync(__dirname)
   .filter((file) => {
