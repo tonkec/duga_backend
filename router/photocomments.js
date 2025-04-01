@@ -33,7 +33,6 @@ router.post('/add-comment', [checkJwt], async (req, res) => {
       ],
     });
 
-
     return res.status(201).send({ data: fullComment });
   } catch (error) {
     console.log('❌ Error adding comment:', error);
