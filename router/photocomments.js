@@ -123,9 +123,7 @@ router.get("/latest", [checkJwt], async (req, res) => {
 router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
   try {
     const photoComment = await PhotoComment.findOne({
-      where: {
-        id: req.params.id,
-      },
+      where: { id: req.params.id },
     });
 
     if (!photoComment) {
@@ -134,6 +132,8 @@ router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
       });
     }
 
+    await photoComment.setTaggedUsers([]);
+
     await photoComment.destroy();
 
     return res.status(200).send({
@@ -141,10 +141,12 @@ router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
       message: 'Comment deleted successfully',
     });
   } catch (error) {
+    console.error('❌ Error deleting comment:', error);
     return res.status(500).send({
       message: 'Error occurred while deleting comment',
     });
   }
 });
+
 
 module.exports = router;
