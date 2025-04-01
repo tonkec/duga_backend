@@ -12,7 +12,7 @@ const db = {};
 const { DB_USER, DB_PASSWORD, DB_HOST,DB_DATABASE } = process.env;
 
 const sslOptions =
-  env === 'development '
+  env === 'development'
     ? {
       ssl: false,
     }
@@ -22,7 +22,7 @@ const sslOptions =
           rejectUnauthorized: false,
         },
       };
-      
+
       const sequelize = new Sequelize({
 
         database: DB_DATABASE || config.database,
