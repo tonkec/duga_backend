@@ -22,6 +22,7 @@ const sslOptions =
           rejectUnauthorized: false,
         },
       };
+      
       const sequelize = new Sequelize({
 
         database: DB_DATABASE || config.database,
