@@ -6,14 +6,13 @@ const Sequelize = require('sequelize');
 const process = require('process');
 const basename = path.basename(__filename);
 require('dotenv').config();
-//const env = process.env.NODE_ENV || 'development';
-const env ='development';
+const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + './../config/database.js')[env];
 const db = {};
 const { DB_USER, DB_PASSWORD, DB_HOST,DB_DATABASE } = process.env;
 
 const sslOptions =
-  env === 'development'
+  env === 'development '
     ? {
       ssl: false,
     }
@@ -23,7 +22,6 @@ const sslOptions =
           rejectUnauthorized: false,
         },
       };
-
       const sequelize = new Sequelize({
 
         database: DB_DATABASE || config.database,
