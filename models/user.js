@@ -20,11 +20,18 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'userId',
         foreignKeyConstraint: true,
       });
+      
       this.hasMany(models.PhotoComment, {
         as: 'photoComments',
         foreignKey: 'userId',
         foreignKeyConstraint: true,
       })
+
+      this.belongsToMany(models.PhotoComment, {
+        through: models.CommentMention,
+        as: 'mentionedIn',
+        foreignKey: 'userId',
+      });
     }
   }
   User.init(

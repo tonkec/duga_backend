@@ -21,7 +21,8 @@ const SocketServer = (server) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId } = data.data; 
+    
+        const { userId, uploadId } = data.data;
     
         const parsedUploadId = parseInt(uploadId);
         if (isNaN(parsedUploadId)) {
@@ -29,8 +30,8 @@ const SocketServer = (server) => {
           return;
         }
     
-        io.emit("receive-comment", data);
-
+        io.emit("receive-comment", { data: data.data});
+    
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -49,7 +50,6 @@ const SocketServer = (server) => {
             actionId: parsedUploadId,
             actionType: 'upload',
           });
-          
     
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
@@ -69,7 +69,6 @@ const SocketServer = (server) => {
         console.error("🔥 Error in send-comment:", error);
       }
     });
-    
 
     socket.on("delete-comment", async (data) => {
       io.emit("remove-comment", data);

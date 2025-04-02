@@ -21,6 +21,13 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'uploadId',
         foreignKeyConstraint: true,
       });
+      
+      this.belongsToMany(models.User, {
+        through: models.CommentMention,
+        as: 'taggedUsers',
+        foreignKey: 'commentId',
+      });
+      
     }
   }
   PhotoComment.init(
