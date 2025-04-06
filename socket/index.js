@@ -86,7 +86,10 @@ const SocketServer = (server) => {
     });
 
     socket.on('set-status', async ({ userId, status }) => {
-      if (!['online', 'offline'].includes(status)) return;
+      if (!['online', 'offline'].includes(status)) {
+        throw new Error(`Invalid status: ${status}`);
+      }
+      
       if (users.has(userId)) {
         users.get(userId).status = status;
       }
