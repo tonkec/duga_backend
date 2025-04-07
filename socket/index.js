@@ -141,17 +141,17 @@ const SocketServer = (server) => {
           return;
         }
     
-        const [likes] = await sequelize.query(
+        const [results] = await sequelize.query(
           `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId`,
           {
             replacements: { uploadId: parseInt(uploadId) },
             type: sequelize.QueryTypes.SELECT,
           }
         );
-    
+        
         io.emit("downvote-upload", {
           uploadId,
-          likes,
+          likes: results,
         });
       } catch (err) {
         console.error("🔥 Error in downvote-upload:", err);
