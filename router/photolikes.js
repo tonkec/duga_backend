@@ -1,4 +1,5 @@
 const Upload = require('../models').Upload;
+const User = require("../models").User
 const { checkJwt } = require('../middleware/auth');
 const PhotoLikes = require('../models').PhotoLikes;
 const router = require('express').Router();
@@ -99,10 +100,18 @@ router.get('/all-likes/:photoId', [checkJwt], async (req, res) => {
       where: {
         photoId: req.params.photoId,
       },
+      include: [
+        {
+          model: User,
+          as: "user",
+          attributes: ["id", 'username'],
+        },
+      ],
     });
 
     return res.status(200).send(photoLikes);
   } catch (error) {
+    console.log(error)
     return res.status(500).send({
       message: 'Error occurred while retrieving photo likes',
     });

@@ -36,7 +36,8 @@ const SocketServer = (server) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId } = data.data; 
+    
+        const { userId, uploadId } = data.data;
     
         const parsedUploadId = parseInt(uploadId);
         if (isNaN(parsedUploadId)) {
@@ -44,8 +45,8 @@ const SocketServer = (server) => {
           return;
         }
     
-        io.emit("receive-comment", data);
-
+        io.emit("receive-comment", { data: data.data});
+    
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -64,7 +65,6 @@ const SocketServer = (server) => {
             actionId: parsedUploadId,
             actionType: 'upload',
           });
-          
     
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
@@ -176,17 +176,17 @@ const SocketServer = (server) => {
           return;
         }
     
-        const [likes] = await sequelize.query(
+        const [results] = await sequelize.query(
           `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId`,
           {
             replacements: { uploadId: parseInt(uploadId) },
             type: sequelize.QueryTypes.SELECT,
           }
         );
-    
+        
         io.emit("downvote-upload", {
           uploadId,
-          likes,
+          likes: results,
         });
       } catch (err) {
         console.error("🔥 Error in downvote-upload:", err);
