@@ -7,6 +7,7 @@ const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
+const { DeleteObjectCommand } = require('@aws-sdk/client-s3');  
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -180,6 +181,7 @@ router.get("/latest", [checkJwt], async (req, res) => {
   }
 });
 
+
 router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
   try {
     const photoComment = await PhotoComment.findOne({
@@ -192,13 +194,29 @@ router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
       });
     }
 
-    await photoComment.setTaggedUsers([]);
+  
+    if (photoComment.imageUrl) {
+      const bucket = 'duga-user-photo';
+      const s3Url = new URL(photoComment.imageUrl);
+      const key = decodeURIComponent(s3Url.pathname.slice(1)); 
 
+      try {
+        await s3.deleteObject({
+          Bucket: bucket,
+          Key: key,
+        }).promise();
+        console.log('✅ Comment image deleted from S3');
+      } catch (err) {
+        console.warn('⚠️ Failed to delete comment image from S3:', err);
+      }
+    }
+
+    await photoComment.setTaggedUsers([]);
     await photoComment.destroy();
 
     return res.status(200).send({
       commentId: req.params.id,
-      message: 'Comment deleted successfully',
+      message: 'Comment and image deleted successfully',
     });
   } catch (error) {
     console.error('❌ Error deleting comment:', error);
@@ -207,6 +225,7 @@ router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
     });
   }
 });
+
 
 
 module.exports = router;
