@@ -103,6 +103,7 @@ exports.getUsersByUsername = async (req, res) => {
 
 exports.getUserOnlineStatus = async (req, res) => {
   try {
+    console.log(req.params.id, "PARAMS");
     const userId = req.params.id;
 
     if (!userId) {
@@ -110,14 +111,14 @@ exports.getUserOnlineStatus = async (req, res) => {
     }
 
     const user = await User.findByPk(userId, {
-      attributes: ['id', 'onlineStatus'],
+      attributes: ['id', 'status'],
     });
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
 
-    return res.json({ onlineStatus: user.onlineStatus });
+    return res.json({ status: user.status });
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
