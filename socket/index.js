@@ -411,7 +411,6 @@ const SocketServer = (server) => {
 };
 
 const getChatters = async (userId) => {
-  console.log("Fetching chatters for userId:", userId);
   try {
     const [results, metadata] = await sequelize.query(`
       select "cu"."userId" from "ChatUsers" as cu
