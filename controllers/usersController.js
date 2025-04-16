@@ -103,7 +103,6 @@ exports.getUsersByUsername = async (req, res) => {
 
 exports.getUserOnlineStatus = async (req, res) => {
   try {
-    console.log(req.params.id, "PARAMS");
     const userId = req.params.id;
 
     if (!userId) {
