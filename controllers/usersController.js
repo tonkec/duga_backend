@@ -99,3 +99,26 @@ exports.getUsersByUsername = async (req, res) => {
   }
 };
 
+
+
+exports.getUserOnlineStatus = async (req, res) => {
+  try {
+    const userId = req.params.id;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'Missing user ID parameter' });
+    }
+
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'onlineStatus'],
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json({ onlineStatus: user.onlineStatus });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+}

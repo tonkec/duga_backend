@@ -1,6 +1,7 @@
 const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
+const User = require('../models').User;
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
@@ -36,9 +37,7 @@ const SocketServer = (server) => {
 
     socket.on("send-comment", async (data) => {
       try {
-    
         const { userId, uploadId } = data.data;
-    
         const parsedUploadId = parseInt(uploadId);
         if (isNaN(parsedUploadId)) {
           console.error("❌ Invalid uploadId:", uploadId);
@@ -86,13 +85,11 @@ const SocketServer = (server) => {
     });
 
     socket.on('set-status', async ({ userId, status }) => {
-      if (!['online', 'offline'].includes(status)) {
-        throw new Error(`Invalid status: ${status}`);
-      }
-      
       if (users.has(userId)) {
         users.get(userId).status = status;
       }
+    
+      await User.update({ status }, { where: { id: userId } });
     
       const chatters = await getChatters(userId);
       chatters.forEach((id) => {
@@ -102,9 +99,14 @@ const SocketServer = (server) => {
           });
         }
       });
-    });
     
-
+      if (users.has(userId)) {
+        users.get(userId).sockets.forEach((sockId) => {
+          io.to(sockId).emit('status-update', { userId, status });
+        });
+      }
+    });  
+    
     socket.on("delete-comment", async (data) => {
       io.emit("remove-comment", data);
     });
@@ -409,6 +411,7 @@ const SocketServer = (server) => {
 };
 
 const getChatters = async (userId) => {
+  console.log("Fetching chatters for userId:", userId);
   try {
     const [results, metadata] = await sequelize.query(`
       select "cu"."userId" from "ChatUsers" as cu
