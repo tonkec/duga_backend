@@ -128,6 +128,11 @@ module.exports = (sequelize, DataTypes) => {
       location: DataTypes.STRING,
       age: DataTypes.INTEGER,
       username: DataTypes.STRING,
+      status: {
+        type: DataTypes.ENUM('online', 'offline'),
+        allowNull: false,
+        defaultValue: 'offline',
+      },
       avatar: {
         type: DataTypes.STRING,
         get() {
