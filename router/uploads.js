@@ -1,6 +1,7 @@
 require('dotenv').config();
 const Upload = require('../models').Upload;
 const PhotoComment = require('../models').PhotoComment;
+const Message = require('../models').Message;
 const { checkJwt } = require('../middleware/auth');
 const { Op } = require('sequelize');
 const router = require('express').Router();
@@ -162,9 +163,21 @@ router.get("/user-photos/:id", [checkJwt], async (req, res) => {
           [Op.ne]: null,
         },
       },
-     
     });
 
+
+    const chatPhotos = await Message.findAll({
+      where: {
+        fromUserId: req.params.id,
+        messagePhotoUrl: {
+          [Op.ne]: null,
+        },
+      },
+    });
+
+    if (chatPhotos) {
+      uploads.push(...chatPhotos);
+    }
   
     if (photoComments) {
       uploads.push(...photoComments);
