@@ -1,6 +1,8 @@
 require('dotenv').config();
 const Upload = require('../models').Upload;
+const PhotoComment = require('../models').PhotoComment;
 const { checkJwt } = require('../middleware/auth');
+const { Op } = require('sequelize');
 const router = require('express').Router();
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
 const uploadMessageImage = require('../controllers/uploadsController').uploadMessageImage;
@@ -153,16 +155,27 @@ router.get("/user-photos/:id", [checkJwt], async (req, res) => {
       },
     });
 
-    if (!uploads) {
-      return res.status(404).send({
-        message: 'Uploads not found',
-      });
+    const photoComments = await PhotoComment.findAll({
+      where: {
+        userId: req.params.id,
+        imageUrl: {
+          [Op.ne]: null,
+        },
+      },
+     
+    });
+
+  
+    if (photoComments) {
+      uploads.push(...photoComments);
     }
 
+    uploads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
     return res.status(200).send(uploads);
   } catch (error) {
+    console.error('Error fetching user photos:', error);
     return res.status(500).send({
-      message: 'Error occurred while fetching photos',
+      message: 'Error occurred while fetching user photos',
     });
   }
 });
