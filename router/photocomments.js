@@ -7,7 +7,6 @@ const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
-const { DeleteObjectCommand } = require('@aws-sdk/client-s3');  
 
 const uploadCommentImage = multer({
   storage: multerS3({

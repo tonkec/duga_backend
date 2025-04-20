@@ -15,7 +15,7 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
-router.delete('/delete-photo', async (req, res) => {
+router.delete('/delete-photo', [checkJwt], async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
@@ -133,7 +133,7 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
   }
 });
 
-router.get("/latest", async (req, res) => {
+router.get("/latest", [checkJwt], async (req, res) => {
   try {
     const uploads = await Upload.findAll({
       limit: 3,
@@ -143,6 +143,27 @@ router.get("/latest", async (req, res) => {
     return res.status(200).json(uploads);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+});
+router.get("/user-photos/:id", [checkJwt], async (req, res) => {
+  try {
+    const uploads = await Upload.findAll({
+      where: {
+        userId: req.params.id,
+      },
+    });
+
+    if (!uploads) {
+      return res.status(404).send({
+        message: 'Uploads not found',
+      });
+    }
+
+    return res.status(200).send(uploads);
+  } catch (error) {
+    return res.status(500).send({
+      message: 'Error occurred while fetching photos',
+    });
   }
 });
 

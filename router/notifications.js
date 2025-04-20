@@ -1,7 +1,9 @@
 const { Notification} = require('../models');
 const router = require('express').Router();
+const { checkJwt } = require('../middleware/auth');
 
-router.get('/:userId', async (req, res) => {
+
+router.get('/:userId', [checkJwt],async (req, res) => {
   const { userId } = req.params;
 
   try {
@@ -17,7 +19,7 @@ router.get('/:userId', async (req, res) => {
   }
 });
 
-router.put('/:id/read', async (req, res) => {
+router.put('/:id/read', [checkJwt], async (req, res) => {
   try {
     const { id } = req.params;
 
