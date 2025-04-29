@@ -35,6 +35,10 @@ module.exports = (sequelize, DataTypes) => {
       userId: DataTypes.STRING,
       uploadId: DataTypes.STRING,
       comment: DataTypes.TEXT,
+      imageUrl: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      }
     },
     {
       sequelize,

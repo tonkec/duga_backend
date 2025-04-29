@@ -1,6 +1,9 @@
 require('dotenv').config();
 const Upload = require('../models').Upload;
+const PhotoComment = require('../models').PhotoComment;
+const Message = require('../models').Message;
 const { checkJwt } = require('../middleware/auth');
+const { Op } = require('sequelize');
 const router = require('express').Router();
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
 const uploadMessageImage = require('../controllers/uploadsController').uploadMessageImage;
@@ -15,7 +18,7 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
-router.delete('/delete-photo', async (req, res) => {
+router.delete('/delete-photo', [checkJwt], async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
@@ -133,7 +136,7 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
   }
 });
 
-router.get("/latest", async (req, res) => {
+router.get("/latest", [checkJwt], async (req, res) => {
   try {
     const uploads = await Upload.findAll({
       limit: 3,
@@ -143,6 +146,50 @@ router.get("/latest", async (req, res) => {
     return res.status(200).json(uploads);
   } catch (error) {
     return res.status(500).json({ message: error.message });
+  }
+});
+router.get("/user-photos/:id", [checkJwt], async (req, res) => {
+  try {
+    const uploads = await Upload.findAll({
+      where: {
+        userId: req.params.id,
+      },
+    });
+
+    const photoComments = await PhotoComment.findAll({
+      where: {
+        userId: req.params.id,
+        imageUrl: {
+          [Op.ne]: null,
+        },
+      },
+    });
+
+
+    const chatPhotos = await Message.findAll({
+      where: {
+        fromUserId: req.params.id,
+        messagePhotoUrl: {
+          [Op.ne]: null,
+        },
+      },
+    });
+
+    if (chatPhotos) {
+      uploads.push(...chatPhotos);
+    }
+  
+    if (photoComments) {
+      uploads.push(...photoComments);
+    }
+
+    uploads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    return res.status(200).send(uploads);
+  } catch (error) {
+    console.error('Error fetching user photos:', error);
+    return res.status(500).send({
+      message: 'Error occurred while fetching user photos',
+    });
   }
 });
 
