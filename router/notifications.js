@@ -2,7 +2,6 @@ const { Notification} = require('../models');
 const router = require('express').Router();
 const { checkJwt } = require('../middleware/auth');
 
-
 router.get('/:userId', [checkJwt],async (req, res) => {
   const { userId } = req.params;
 
@@ -11,6 +10,8 @@ router.get('/:userId', [checkJwt],async (req, res) => {
       where: { userId },
       order: [['createdAt', 'DESC']],
     });
+
+    console.log('Fetched notifications:', notifications.length);
 
     res.json(notifications);
   } catch (err) {

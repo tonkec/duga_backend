@@ -84,6 +84,30 @@ const SocketServer = (server) => {
       }
     });
 
+    socket.on("markAsRead", async (data) => {
+      const { userId, notificationId } = data;
+      try {
+        const notification = await Notification.findByPk(notificationId);
+        if (!notification) {
+          console.error("❌ Notification not found:", notificationId);
+          return;
+        }
+    
+        notification.isRead = true;
+        await notification.save();
+
+    
+        if (users.has(userId)) {
+          users.get(userId).sockets.forEach((sockId) => {
+            io.to(sockId).emit('markAsRead', notification);
+          });
+        }
+      } catch (error) {
+        console.error("🔥 Error in markAsRead:", error);
+      }
+    }
+    );
+
     socket.on('set-status', async ({ userId, status }) => {
       if (users.has(userId)) {
         users.get(userId).status = status;
@@ -238,6 +262,7 @@ const SocketServer = (server) => {
             content: `Nova poruka od ${message.User.username || 'someone'}`,
             actionId: savedMessage.chatId,
             actionType: 'message',
+            chatId: savedMessage.chatId,
           });
     
           if (users.has(recipientId)) {
@@ -250,6 +275,7 @@ const SocketServer = (server) => {
                 actionType: notification.actionType,
                 isRead: notification.isRead,
                 createdAt: notification.createdAt,
+                chatId: notification.chatId,
               });
             });
           }
