@@ -12,6 +12,8 @@ module.exports = (sequelize, DataTypes) => {
     static associate(models) {
       // define association here
       this.belongsTo(models.User, { foreignKey: 'userId' });
+      this.belongsTo(models.Chat, { foreignKey: 'chatId' });
+
     }
   }
   Notification.init({
@@ -36,6 +38,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.STRING,
       allowNull: true, 
     },
+     chatId: {
+      type: DataTypes.INTEGER,
+      allowNull: true,
+      references: {
+        model: 'Chats',
+        key: 'id'
+      }
+    }
   }, {
     sequelize,
     modelName: 'Notification',
