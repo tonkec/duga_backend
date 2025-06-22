@@ -11,8 +11,6 @@ router.get('/:userId', [checkJwt],async (req, res) => {
       order: [['createdAt', 'DESC']],
     });
 
-    console.log('Fetched notifications:', notifications.length);
-
     res.json(notifications);
   } catch (err) {
     console.error('Error fetching notifications:', err);
