@@ -2,7 +2,6 @@ const { Notification} = require('../models');
 const router = require('express').Router();
 const { checkJwt } = require('../middleware/auth');
 
-
 router.get('/:userId', [checkJwt],async (req, res) => {
   const { userId } = req.params;
 

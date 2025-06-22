@@ -84,6 +84,60 @@ const SocketServer = (server) => {
       }
     });
 
+    socket.on("markAsRead", async (data) => {
+      const { userId, chatId } = data;
+      try {
+        if (!userId || !chatId) {
+          console.error("❌ Missing userId or chatId in markAsRead");
+          return;
+        }
+
+       const [lastNotification] = await sequelize.query(
+          `SELECT * FROM "Notifications" WHERE "chatId" = :chatId
+          ORDER BY "createdAt" DESC
+          LIMIT 1`,
+          {
+            replacements: { chatId },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+
+        if (lastNotification.length === 0) {
+          console.error("❌ No unread notifications found for chatId:", chatId);
+          return;
+        }
+
+        const notificationId = lastNotification.id 
+      
+        if (!notificationId) {
+          console.error("❌ No notificationId found for chatId:", chatId);
+          return;
+        }
+
+        console.log("🔍 Notification ID to mark as read:", notificationId);
+        
+        const notification = await Notification.findByPk(notificationId);
+        if (!notification) {
+          console.error("❌ Notification not found:", notificationId);
+          return;
+        }
+    
+        notification.isRead = true;
+        await notification.save();
+    
+        if (users.has(userId)) {
+          users.get(userId).sockets.forEach((sockId) => {
+            io.to(sockId).emit('markAsRead', notification);
+          });
+        }
+        
+        return notification;
+      } catch (error) {
+        console.error("🔥 Error in markAsRead:", error);
+      }
+    }
+    );
+
     socket.on('set-status', async ({ userId, status }) => {
       if (users.has(userId)) {
         users.get(userId).status = status;
@@ -238,6 +292,7 @@ const SocketServer = (server) => {
             content: `Nova poruka od ${message.User.username || 'someone'}`,
             actionId: savedMessage.chatId,
             actionType: 'message',
+            chatId: savedMessage.chatId,
           });
     
           if (users.has(recipientId)) {
@@ -250,6 +305,7 @@ const SocketServer = (server) => {
                 actionType: notification.actionType,
                 isRead: notification.isRead,
                 createdAt: notification.createdAt,
+                chatId: notification.chatId,
               });
             });
           }
@@ -390,7 +446,7 @@ const SocketServer = (server) => {
               if (users.has(chatters[i])) {
                 users.get(chatters[i]).sockets.forEach((socket) => {
                   try {
-                    io.to(sockId).emit('status-update', {
+                    io.to(socket).emit('status-update', {
                       userId: user.id,
                       status: 'offline',
                     });

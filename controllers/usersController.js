@@ -116,7 +116,6 @@ exports.getUserOnlineStatus = async (req, res) => {
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
-
     return res.json({ status: user.status });
   } catch (e) {
     return res.status(500).json({ error: e.message });
