@@ -37,5 +37,30 @@ router.put('/:id/read', [checkJwt], async (req, res) => {
   }
 });
 
+router.put('/mark-all-read', async (req, res) => {
+  const { userId } = req.body;
+
+  if (!userId) {
+    return res.status(400).json({ message: 'Missing user ID' });
+  }
+
+  try {
+    const [updatedCount] = await Notification.update(
+      { is_read: true },
+      {
+        where: {
+          userId,
+          isRead: false,
+        },
+      }
+    );
+
+    return res.status(200).json({ message: `Marked ${updatedCount} notifications as read.` });
+  } catch (error) {
+    return res.status(500).json({ message: 'Failed to mark as read', error });
+  }
+});
+
+
 
 module.exports = router;
