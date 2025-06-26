@@ -6,15 +6,16 @@ const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
 
 exports.register = async (req, res) => {
-  const { auth0Id, email, ...rest } = req.body;
+  const { auth0Id, email } = req.body;
 
   if (!auth0Id || !email) {
     return res.status(400).json({ message: 'Missing required fields' });
   }
 
   try {
-    let user = await User.findOne({ where: { email } });
+      const normalizedEmail = email.toLowerCase();
 
+    let user = await User.findOne({ where: { email: normalizedEmail } });
     if (user) {
       if (!user.auth0Id) {
         await user.update({ auth0Id });
@@ -23,7 +24,7 @@ exports.register = async (req, res) => {
       return res.status(200).json({ message: 'User already exists', user });
     }
 
-    user = await User.create({ auth0Id, email, ...rest });
+    user = await User.create({ auth0Id, email: normalizedEmail, });
     return res.status(201).json({ message: 'User created', user });
 
   } catch (error) {
