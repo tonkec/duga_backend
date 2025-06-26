@@ -116,7 +116,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,  
       },
-      email: DataTypes.STRING,
+      email: {
+        type: DataTypes.STRING,
+        allowNull: false,
+        unique: true,
+        validate: {
+          isEmail: true,
+        },
+      },
       password: {
         type: DataTypes.STRING,
         allowNull: true,
@@ -144,6 +151,11 @@ module.exports = (sequelize, DataTypes) => {
 
           return `${url}/user/${avatar}`;
         },
+      },
+      auth0Id: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,
       },
     },
     {
