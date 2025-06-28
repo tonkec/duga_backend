@@ -3,6 +3,7 @@ const AWS = require('aws-sdk');
 const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
+const allowedMimeTypes = require("../consts/allowedFileTypes")
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -111,6 +112,13 @@ exports.uploadMultiple = (s3) => {
         },
       ],
     }),
+    fileFilter: (req, file, cb) => {
+      if (allowedMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        cb(new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'));
+      }
+    },
   });
 };
 
