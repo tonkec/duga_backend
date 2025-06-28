@@ -1,9 +1,10 @@
 const { Notification} = require('../models');
 const router = require('express').Router();
 const { checkJwt } = require('../middleware/auth');
+const attachCurrentUser = require("../middleware/attachCurrentUser");
 
-router.get('/:userId', [checkJwt],async (req, res) => {
-  const { userId } = req.params;
+router.get('/', [checkJwt, attachCurrentUser], async (req, res) => {
+  const userId = req.auth.user.id;
 
   try {
     const notifications = await Notification.findAll({
@@ -37,8 +38,8 @@ router.put('/:id/read', [checkJwt], async (req, res) => {
   }
 });
 
-router.put('/mark-all-read', async (req, res) => {
-  const { userId } = req.body;
+router.put('/mark-all-read', [checkJwt, attachCurrentUser], async (req, res) => {
+  const userId = req.auth.user.id;
 
   if (!userId) {
     return res.status(400).json({ message: 'Missing user ID' });
@@ -60,7 +61,5 @@ router.put('/mark-all-read', async (req, res) => {
     return res.status(500).json({ message: 'Failed to mark as read', error });
   }
 });
-
-
 
 module.exports = router;
