@@ -255,15 +255,22 @@ const SocketServer = (server, app) => {
         }
     
        const results = await sequelize.query(
-          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId AND "userId" = :userId`,
-          {
-            replacements: { 
-              uploadId: parseInt(parsedPhotoId),
-              userId: parseInt(user.id), 
-            },
-            type: sequelize.QueryTypes.SELECT,
-          }
-        );
+        `
+          SELECT 
+            "PhotoLikes".*,
+            json_build_object('username', "Users"."username") AS user
+          FROM "PhotoLikes"
+          JOIN "Users" ON "PhotoLikes"."userId" = "Users"."id"
+          WHERE "PhotoLikes"."photoId" = :parsedPhotoId AND "PhotoLikes"."userId" = :userId
+        `,
+        {
+          replacements: {
+            uploadId: parseInt(parsedPhotoId),
+            userId: parseInt(user.id),
+          },
+          type: sequelize.QueryTypes.SELECT,
+        }
+      );
          io.emit("upvote-upload", {
           uploadId: photoId,
           likes: results,
@@ -331,11 +338,18 @@ const SocketServer = (server, app) => {
         }
 
         const results = await sequelize.query(
-          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId AND "userId" = :userId`,
+          `
+            SELECT 
+              "PhotoLikes".*,
+              json_build_object('username', "Users"."username") AS user
+            FROM "PhotoLikes"
+            JOIN "Users" ON "PhotoLikes"."userId" = "Users"."id"
+            WHERE "PhotoLikes"."photoId" = :uploadId AND "PhotoLikes"."userId" = :userId
+          `,
           {
-            replacements: { 
-              uploadId: parseInt(uploadId),
-              userId: parseInt(user.id), 
+            replacements: {
+              uploadId: parseInt(parsedPhotoId),
+              userId: parseInt(user.id),
             },
             type: sequelize.QueryTypes.SELECT,
           }
