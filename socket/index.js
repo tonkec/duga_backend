@@ -2,9 +2,32 @@ const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
+const Upload = require("../models").Upload
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
+const PhotoLikes = require("../models").PhotoLikes;
+const socketCanAccess = require('../utils/socketAccess');
+
+const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
+
+const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
+const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
+
+const client = jwksClient({
+  jwksUri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
+});
+
+function getKey(header, callback) {
+  client.getSigningKey(header.kid, (err, key) => {
+    if (err) return callback(err);
+    const signingKey = key.getPublicKey();
+    callback(null, signingKey);
+  });
+}
+
+
 const SocketServer = (server) => {
   const io = socketIo(server, {
     cors: {
@@ -13,6 +36,32 @@ const SocketServer = (server) => {
       allowedHeaders: ['Content-Type'],
     },
   });
+
+  io.use((socket, next) => {
+    const token = socket.handshake.auth?.token;
+    if (!token) {
+      return next(new Error('Missing token'));
+    }
+
+   jwt.verify(
+    token,
+    getKey,
+    {
+      audience: AUTH0_AUDIENCE,
+      issuer: `https://${AUTH0_DOMAIN}/`,
+      algorithms: ['RS256'],
+    },
+    (err, decoded) => {
+      if (err) {
+        console.error('❌ JWT verification failed:', err.message);
+        return next(new Error('Unauthorized'));
+      }
+
+      socket.user = decoded;
+      next();
+    }
+  );
+});
 
   io.on('connection', (socket) => {
     console.log('New client connected');
@@ -172,12 +221,31 @@ const SocketServer = (server) => {
     socket.on("upvote-upload", async (data) => {
       try {
         const like = data[0];
-        const { userId, photoId } = like;
-    
-        io.emit("upvote-upload", {
-          uploadId: photoId,
-          likes: data,
+        const { photoId } = like;
+        const auth0Id = socket.user?.sub;
+        const user = await User.findOne({ where: { auth0Id } });
+        const userId = user.id;
+        if (!user) {
+          console.error('User not found');
+          return;
+        }
+
+        const photoLike = await PhotoLikes.findOne({
+          where: {
+            photoId,
+            userId,
+          },
         });
+
+        if (!photoLike) {
+          console.error('PhotoLike not found in upvote');
+          return;
+        }
+        const hasAccess = await socketCanAccess({ socket, model: PhotoLikes, resourceId: photoLike.id });
+
+        if (!hasAccess) {
+          throw new Error('Forbidden: You cannot like this upload.');
+        }
     
         const parsedPhotoId = parseInt(photoId);
         if (isNaN(parsedPhotoId)) {
@@ -185,14 +253,20 @@ const SocketServer = (server) => {
           return;
         }
     
-        const [results] = await sequelize.query(
-          `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
+       const results = await sequelize.query(
+          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId AND "userId" = :userId`,
           {
-            replacements: { uploadId: parsedPhotoId },
+            replacements: { 
+              uploadId: parseInt(parsedPhotoId),
+              userId: parseInt(user.id), 
+            },
             type: sequelize.QueryTypes.SELECT,
           }
         );
-    
+         io.emit("upvote-upload", {
+          uploadId: photoId,
+          likes: results,
+         });
         const photoOwnerId = results?.userId;
     
         if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
@@ -225,21 +299,49 @@ const SocketServer = (server) => {
     
     socket.on("downvote-upload", async (likeData) => {
       try {
-        const {  uploadId } = likeData;
+        const { uploadId } = likeData;
+        const auth0Id = socket.user?.sub;
+        const user = await User.findOne({ where: { auth0Id } });
+        if (!user) {
+          console.error('User not found');
+          return;
+        }
+
+        const photoLike = await PhotoLikes.findOne({
+          where: {
+            photoId: Number(uploadId),
+            userId: user.id,
+          },
+        });
+
+        if (!photoLike) {
+          console.error('PhotoLike not found in downvote');
+          return;
+        }
+
+        const hasAccess = await socketCanAccess({ socket, model: PhotoLikes, resourceId: photoLike.id });
+        if (!hasAccess) {
+          throw new Error('Forbidden: You cannot dislike this photo.');
+        }
     
         if (!uploadId) {
           console.error("❌ Missing uploadId in downvote-upload");
           return;
         }
-    
-        const [results] = await sequelize.query(
-          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId`,
+
+        await photoLike.destroy();
+
+        const results = await sequelize.query(
+          `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId AND "userId" = :userId`,
           {
-            replacements: { uploadId: parseInt(uploadId) },
+            replacements: { 
+              uploadId: parseInt(uploadId),
+              userId: parseInt(user.id), 
+            },
             type: sequelize.QueryTypes.SELECT,
           }
         );
-        
+
         io.emit("downvote-upload", {
           uploadId,
           likes: results,

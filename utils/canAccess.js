@@ -1,12 +1,12 @@
-const canAccess = (user,resource) => {
+const canAccess = (user, resource) => {
+    console.log(user, "USER")
+  console.log(resource, "RESOURCE")
   if (!user || !resource) return false;
 
-  if (resource.auth0Id === user.sub) return true;
+  if ('auth0Id' in resource && resource.auth0Id === user.auth0Id) return true;
+  if ('userId' in resource && resource.userId === user.id) return true;
+  if ('fromUserId' in resource && resource.fromUserId === user.id) return true;
 
-  // 2. Admin override TODO
-  if (user.role === 'admin') return true;
-
-  return false;
+  return user.role === 'admin';
 };
-
 module.exports = canAccess;
