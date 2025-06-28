@@ -2,9 +2,12 @@ const { Notification} = require('../models');
 const router = require('express').Router();
 const { checkJwt } = require('../middleware/auth');
 const attachCurrentUser = require("../middleware/attachCurrentUser");
+const withAccessCheck = require('../middleware/accessCheck');
 
 router.get('/', [checkJwt, attachCurrentUser], async (req, res) => {
   const userId = req.auth.user.id;
+
+  if (!userId) return res.status(401).json({ error: 'Unauthorized' });
 
   try {
     const notifications = await Notification.findAll({
@@ -19,7 +22,7 @@ router.get('/', [checkJwt, attachCurrentUser], async (req, res) => {
   }
 });
 
-router.put('/:id/read', [checkJwt], async (req, res) => {
+router.put('/:id/read', [checkJwt, withAccessCheck(Notification)], async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -40,6 +43,7 @@ router.put('/:id/read', [checkJwt], async (req, res) => {
 
 router.put('/mark-all-read', [checkJwt, attachCurrentUser], async (req, res) => {
   const userId = req.auth.user.id;
+  
 
   if (!userId) {
     return res.status(400).json({ message: 'Missing user ID' });
