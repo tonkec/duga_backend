@@ -33,6 +33,11 @@ router.post('/upvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
       },
     });
 
+     req.app.get('io').emit('upvote-upload', {
+      uploadId,
+      likes: photoLikes,
+    });
+
     return res.status(201).json(photoLikes);
   } catch (error) {
     console.error('❌ Error upvoting:', error);
@@ -42,20 +47,14 @@ router.post('/upvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
 
 
 router.post('/downvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
-  console.log("api post")
-  const uploadId  = parseInt(req.params.id);
+  const uploadId = parseInt(req.params.id);
   const userId = req.auth.user.id;
 
   if (!uploadId) {
-    return res.status(400).json({ message: 'Missing uploadId in request body' });
+    return res.status(400).json({ message: 'Missing uploadId' });
   }
 
   try {
-    const upload = await Upload.findByPk(uploadId);
-    if (!upload) {
-      return res.status(404).json({ message: 'Upload not found' });
-    }
-
     const photoLike = await PhotoLikes.findOne({
       where: { userId, photoId: uploadId },
     });
@@ -64,12 +63,24 @@ router.post('/downvote/:id', [checkJwt, attachCurrentUser], async (req, res) => 
       return res.status(400).json({ message: 'You have not liked this photo' });
     }
 
-    return res.status(200).json({uploadId});
+    await photoLike.destroy();
+
+    const updatedLikes = await PhotoLikes.findAll({
+      where: { photoId: uploadId },
+    });
+
+    req.app.get('io').emit('downvote-upload', {
+      uploadId,
+      likes: updatedLikes,
+    });
+
+    return res.status(200).json({ uploadId });
   } catch (error) {
     console.error('❌ Error in /downvote:', error);
     return res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 
 router.get('/all-likes/:photoId', [checkJwt], async (req, res) => {
   try {

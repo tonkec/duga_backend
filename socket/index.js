@@ -2,7 +2,6 @@ const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
-const Upload = require("../models").Upload
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
@@ -27,8 +26,7 @@ function getKey(header, callback) {
   });
 }
 
-
-const SocketServer = (server) => {
+const SocketServer = (server, app) => {
   const io = socketIo(server, {
     cors: {
       origin: '*',
@@ -36,6 +34,9 @@ const SocketServer = (server) => {
       allowedHeaders: ['Content-Type'],
     },
   });
+
+  app.set('io', io);
+
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
@@ -328,8 +329,6 @@ const SocketServer = (server) => {
           console.error("❌ Missing uploadId in downvote-upload");
           return;
         }
-
-        await photoLike.destroy();
 
         const results = await sequelize.query(
           `SELECT * FROM "PhotoLikes" WHERE "photoId" = :uploadId AND "userId" = :userId`,
