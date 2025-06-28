@@ -22,7 +22,7 @@ router.get('/', [checkJwt, attachCurrentUser], async (req, res) => {
   }
 });
 
-router.put('/:id/read', [checkJwt, withAccessCheck(Notification)], async (req, res) => {
+router.put('/:id/read', [checkJwt, attachCurrentUser, withAccessCheck(Notification)], async (req, res) => {
   try {
     const { id } = req.params;
 
