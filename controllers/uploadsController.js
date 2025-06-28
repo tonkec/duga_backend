@@ -63,6 +63,15 @@ exports.uploadMessageImage = s3 => {
         },
       ],
     }),
+    fileFilter: (req, file, cb) => {
+      if (allowedMimeTypes.includes(file.mimetype)) {
+        cb(null, true);
+      } else {
+        const error = new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.');
+        error.code = 'INVALID_FILE_TYPE';
+        cb(error);
+      }
+    },
   });  
 }
 
