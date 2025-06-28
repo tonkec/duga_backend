@@ -6,18 +6,27 @@ const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
 
 exports.register = async (req, res) => {
-  const { email } = req.body;
-  try {
-    const [user, created] = await User.findOrCreate({
-      where: { email },
-      defaults: req.body,
-    });
+  const { auth0Id, email } = req.body;
 
-    if (created) {
-      res.status(201).json({ message: 'User created', user });
-    } else {
-      res.status(200).json({ message: 'User already exists', user });
+  if (!auth0Id || !email) {
+    return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  try {
+      const normalizedEmail = email.toLowerCase();
+
+    let user = await User.findOne({ where: { email: normalizedEmail } });
+    if (user) {
+      if (!user.auth0Id) {
+        await user.update({ auth0Id });
+      }
+
+      return res.status(200).json({ message: 'User already exists', user });
     }
+
+    user = await User.create({ auth0Id, email: normalizedEmail, });
+    return res.status(201).json({ message: 'User created', user });
+
   } catch (error) {
     console.error('Error registering user:', error);
     res.status(500).json({ message: 'Error creating user' });
@@ -49,12 +58,23 @@ exports.sendVerificationEmail = async (req, res) => {
       return res.status(400).json({ error: "Missing user ID" });
     }
 
+    const user = await User.findByPk(userId);
+
+    if (!user || !user.auth0Id) {
+      return res.status(404).json({ error: "User not found or missing auth0Id" });
+    }
+
     const token = await getManagementApiToken();
 
     const response = await axios.post(
       `https://${AUTH0_DOMAIN}/api/v2/jobs/verification-email`,
-      { user_id: userId },
-      { headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" } }
+      { user_id: user.auth0Id }, 
+      {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+      }
     );
 
     console.log("✅ Verification email sent:", response.data);
@@ -64,6 +84,7 @@ exports.sendVerificationEmail = async (req, res) => {
     res.status(500).json({ error: error.response?.data || error.message });
   }
 };
+
 
 const AWS = require('aws-sdk');
 AWS.config.update({
