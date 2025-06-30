@@ -66,9 +66,12 @@ const SocketServer = (server, app) => {
 
   io.on('connection', (socket) => {
     console.log('New client connected');
-    socket.on('join', async (user) => {
+    socket.on('join', async () => {
+      const auth0Id = socket.user?.sub;
+      const user = await User.findOne({ where: { auth0Id } });
+      const userId = user.id;
       setUsers(user, socket);
-      const chatters = await getChatters(user.id);
+      const chatters = await getChatters(userId);
       chatters.forEach((chatterId) => {
         if (users.has(chatterId)) {
           users.get(chatterId).sockets.forEach((sockId) => {
