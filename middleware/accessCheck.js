@@ -3,7 +3,8 @@ const canAccess = require('./../utils/canAccess');
 
 const withAccessCheck = (model) => {
   return async (req, res, next) => {
-    const resourceId =  req.params.id; 
+    const resourceId = req.params.id; 
+    
     const resource = await model.findByPk(resourceId);
 
     if (!resource) {

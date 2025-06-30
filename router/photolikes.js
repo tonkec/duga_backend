@@ -1,4 +1,3 @@
-const Upload = require('../models').Upload;
 const User = require("../models").User
 const { checkJwt } = require('../middleware/auth');
 const PhotoLikes = require('../models').PhotoLikes;
