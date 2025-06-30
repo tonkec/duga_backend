@@ -3,96 +3,84 @@ const User = require("../models").User
 const { checkJwt } = require('../middleware/auth');
 const PhotoLikes = require('../models').PhotoLikes;
 const router = require('express').Router();
+const attachCurrentUser = require("../middleware/attachCurrentUser");
 
-router.post('/upvote', [checkJwt], async (req, res) => {
+router.post('/upvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
   try {
-    const upload = await Upload.findOne({
-      where: {
-        id: req.body.uploadId,
-      },
-    });
+    const uploadId = parseInt(req.params.id);
+    const userId = req.auth.user.id;
 
-    if (!upload) {
-      return res.status(404).send({
-        message: 'Upload not found',
-      });
-    }
+    console.log(userId)
 
     const photoLike = await PhotoLikes.findOne({
       where: {
-        userId: req.body.userId,
-        photoId: req.body.uploadId,
+        userId,
+        photoId: uploadId,
       },
     });
 
     if (photoLike) {
-      return res.status(400).send({
-        message: 'You already liked this photo',
-      });
+      return res.status(400).json({ message: 'You already liked this photo' });
     }
-
     await PhotoLikes.create({
-      userId: req.body.userId,
-      photoId: req.body.uploadId,
+      userId,
+      photoId: uploadId,
     });
 
     const photoLikes = await PhotoLikes.findAll({
       where: {
-        photoId: req.body.uploadId,
+        photoId: uploadId,
       },
     });
 
-    return res.status(201).send(photoLikes);
-  } catch (error) {
-    return res.status(500).send({
-      message: 'Error occurred while liking photo',
+     req.app.get('io').emit('upvote-upload', {
+      uploadId,
+      likes: photoLikes,
     });
+
+    return res.status(201).json(photoLikes);
+  } catch (error) {
+    console.error('❌ Error upvoting:', error);
+    return res.status(500).json({ message: 'Error occurred while liking photo' });
   }
 });
 
-router.post('/downvote', [checkJwt], async (req, res) => {
+
+router.post('/downvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
+  const uploadId = parseInt(req.params.id);
+  const userId = req.auth.user.id;
+
+  if (!uploadId) {
+    return res.status(400).json({ message: 'Missing uploadId' });
+  }
+
   try {
-    const upload = await Upload.findOne({
-      where: {
-        id: req.body.uploadId,
-      },
-    });
-
-    if (!upload) {
-      return res.status(404).send({
-        message: 'Upload not found',
-      });
-    }
-
     const photoLike = await PhotoLikes.findOne({
-      where: {
-        userId: req.body.userId,
-        photoId: req.body.uploadId,
-      },
+      where: { userId, photoId: uploadId },
     });
 
     if (!photoLike) {
-      return res.status(400).send({
-        message: 'You have not liked this photo',
-      });
+      return res.status(400).json({ message: 'You have not liked this photo' });
     }
 
     await photoLike.destroy();
 
-    const photoLikes = await PhotoLikes.findAll({
-      where: {
-        photoId: req.body.uploadId,
-      },
+    const updatedLikes = await PhotoLikes.findAll({
+      where: { photoId: uploadId },
     });
 
-    return res.status(200).send(photoLikes);
-  } catch (error) {
-    console.log(error);
-    return res.status(500).send({
-      message: 'Error occurred while unliking photo',
+    req.app.get('io').emit('downvote-upload', {
+      uploadId,
+      likes: updatedLikes,
     });
+
+    return res.status(200).json({ uploadId });
+  } catch (error) {
+    console.error('❌ Error in /downvote:', error);
+    return res.status(500).json({ message: 'Internal server error' });
   }
 });
+
 
 router.get('/all-likes/:photoId', [checkJwt], async (req, res) => {
   try {
@@ -108,7 +96,6 @@ router.get('/all-likes/:photoId', [checkJwt], async (req, res) => {
         },
       ],
     });
-
     return res.status(200).send(photoLikes);
   } catch (error) {
     console.log(error)
