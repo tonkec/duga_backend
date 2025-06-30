@@ -109,7 +109,22 @@ exports.getUsersByUsername = async (req, res) => {
   }
 };
 
+exports.getCurrentUser = async (req, res) => {
+  try {
+    const userId = req.auth.user.id;
 
+    const user = await User.findByPk(userId, {
+      attributes: { exclude: ['auth0Id'] },
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json(user);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  } }
 
 exports.getUserOnlineStatus = async (req, res) => {
   try {
