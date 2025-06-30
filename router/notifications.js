@@ -51,7 +51,7 @@ router.put('/mark-all-read', [checkJwt, attachCurrentUser], async (req, res) => 
 
   try {
     const [updatedCount] = await Notification.update(
-      { is_read: true },
+      { isRead: true },
       {
         where: {
           userId,

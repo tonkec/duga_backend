@@ -57,9 +57,20 @@ const removeSpacesAndDashes = (str) => {
   return str.replace(/[\s-]/g, '');
 };
 
-router.post("/message-photos", [checkJwt, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)], async (req, res) => {  
-  return res.status(200).json({ message: 'Upload successful' });
-}
+router.post(
+  "/message-photos",
+  [checkJwt, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)],
+  async (req, res) => {
+    try {
+      return res.status(200).json({ message: 'Upload successful' });
+    } catch (error) {
+      if (error.code === 'INVALID_FILE_TYPE') {
+        return res.status(400).json({ message: error.message });
+      }
+
+      return res.status(500).json({ message: 'Something went wrong' });
+    }
+  }
 );
 
 router.post(

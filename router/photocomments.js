@@ -7,6 +7,7 @@ const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
+const allowedMimeTypes = require("../consts/allowedFileTypes")
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -31,6 +32,15 @@ const uploadCommentImage = multer({
     acl: "public-read",
   }),
   limits: { fileSize: 1 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (allowedMimeTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      const error = new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.');
+      error.code = 'INVALID_FILE_TYPE';
+      cb(new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'));
+    }
+  },
 });
 
 
@@ -79,6 +89,10 @@ router.post(
     } catch (error) {
       if (error.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ message: 'Image must be under 1MB' });
+      }
+
+      if (error.message?.includes('Invalid file type')) {
+        return res.status(400).json({ message: error.message });
       }
 
       console.error('❌ Error adding comment:', error);
