@@ -121,8 +121,9 @@ const deleteAllUserImagesFromS3 = async (userId) => {
 };
 
 exports.deleteUser = async (req, res) => {
-  const userId = parseInt(req.query.userId);
-  const auth0UserId = req.query.auth0UserId
+  const userId = req.auth.user.id;
+
+  const auth0UserId = req.auth.user.auth0Id
 
   if (!auth0UserId) {
     return res.status(400).json({ error: 'Missing Auth0 user ID' });

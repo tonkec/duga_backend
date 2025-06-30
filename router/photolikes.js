@@ -10,8 +10,6 @@ router.post('/upvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
     const uploadId = parseInt(req.params.id);
     const userId = req.auth.user.id;
 
-    console.log(userId)
-
     const photoLike = await PhotoLikes.findOne({
       where: {
         userId,
