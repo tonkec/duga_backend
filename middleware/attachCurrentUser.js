@@ -1,4 +1,3 @@
-// middleware/attachCurrentUser.js
 const { User } = require('../models');
 
 const attachCurrentUser = async (req, res, next) => {
@@ -10,8 +9,8 @@ const attachCurrentUser = async (req, res, next) => {
 
     const user = await User.findOne({ where: { auth0Id } });
 
-    if (!user) {
-      return res.status(404).json({ message: 'User not found' });
+     if (!user) {
+      return res.status(401).json({ error: 'Unauthorized: user not found' });
     }
 
     req.auth.user = {
