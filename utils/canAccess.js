@@ -1,6 +1,4 @@
 const canAccess = (user, resource) => {
-    console.log(user, "USER")
-  console.log(resource, "RESOURCE")
   if (!user || !resource) return false;
 
   if ('auth0Id' in resource && resource.auth0Id === user.auth0Id) return true;
