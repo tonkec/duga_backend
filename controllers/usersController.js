@@ -1,5 +1,9 @@
 const User = require('../models').User;
+const { Op } = require('sequelize');
+
 exports.update = async (req, res) => {
+  const userId = req.auth.user.id;
+
   try {
     const [rows, result] = await User.update(
       {
@@ -29,16 +33,15 @@ exports.update = async (req, res) => {
       },
       {
         where: {
-          id: req.query.userId,
+          id: userId,
         },
         returning: true,
         individualHooks: true,
       }
     );
 
-    const user = result[0].get({ raw: true });
+    const { auth0Id, ...user } = result[0].get({ raw: true });
     user.avatar = result[0].avatar;
-    delete user.password;
 
     return res.send(user);
   } catch (e) {
@@ -48,7 +51,11 @@ exports.update = async (req, res) => {
 
 exports.getAllUsers = async (req, res) => {
   try {
-    const users = await User.findAll();
+   const users = await User.findAll({
+      attributes: {
+        exclude: ['auth0Id'], 
+      },
+    });
     return res.json(users);
   } catch (e) {
     console.log(e);
@@ -58,18 +65,21 @@ exports.getAllUsers = async (req, res) => {
 
 exports.getUser = async (req, res) => {
   try {
-  
-    const user = await User.findByPk(req.params.id);
+
+    const user = await User.findByPk(req.params.id, {
+      attributes: { exclude: ['auth0Id'] },
+    });
+    
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
     return res.json(user);
   } catch (e) {
     return res.status(500).json({ error: e.message });
   }
 };
 
-const { Op } = require('sequelize');
 
 exports.getUsersByUsername = async (req, res) => {
   try {
@@ -99,18 +109,33 @@ exports.getUsersByUsername = async (req, res) => {
   }
 };
 
+exports.getCurrentUser = async (req, res) => {
+  try {
+    const userId = req.auth.user.id;
 
+    const user = await User.findByPk(userId, {
+      attributes: { exclude: ['auth0Id'] },
+    });
+    
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    return res.json(user);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  } }
 
 exports.getUserOnlineStatus = async (req, res) => {
   try {
-    const userId = req.params.id;
+    const userId = req.auth.user.id;
 
     if (!userId) {
       return res.status(400).json({ error: 'Missing user ID parameter' });
     }
 
     const user = await User.findByPk(userId, {
-      attributes: ['id', 'status'],
+      attributes: ['status'],
     });
 
     if (!user) {
@@ -118,6 +143,7 @@ exports.getUserOnlineStatus = async (req, res) => {
     }
     return res.json({ status: user.status });
   } catch (e) {
+    console.log(e)
     return res.status(500).json({ error: e.message });
   }
 }
