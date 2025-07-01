@@ -5,11 +5,15 @@ const {
   getUser,
   getUsersByUsername,
   getUserOnlineStatus,
+  getCurrentUser,
 } = require('../controllers/usersController');
+const attachCurrentUser = require('../middleware/attachCurrentUser');
 const { checkJwt } = require('../middleware/auth');
-router.post('/update-user', [checkJwt], update);
-router.get('/get-users', checkJwt, getAllUsers);
-router.get('/username/:username', checkJwt, getUsersByUsername); 
-router.get('/:id', checkJwt, getUser);
-router.get("/online-status/:id/", checkJwt, getUserOnlineStatus);
+
+router.post('/update-user', [checkJwt, attachCurrentUser], update);
+router.get('/get-users', [checkJwt, attachCurrentUser], getAllUsers);
+router.get('/username/:username', [checkJwt, attachCurrentUser], getUsersByUsername); 
+router.get("/online-status/", [checkJwt, attachCurrentUser], getUserOnlineStatus);
+router.get("/current-user/", [checkJwt, attachCurrentUser], getCurrentUser)
+router.get('/:id', [checkJwt], getUser);
 module.exports = router;

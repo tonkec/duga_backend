@@ -9,6 +9,7 @@ const uploadMultiple = require('../controllers/uploadsController').uploadMultipl
 const uploadMessageImage = require('../controllers/uploadsController').uploadMessageImage;
 const getImages = require('../controllers/uploadsController').getImages;
 const AWS = require('aws-sdk');
+const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
 
 AWS.config.update({
@@ -159,17 +160,23 @@ router.get("/latest", [checkJwt], async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 });
-router.get("/user-photos/:id", [checkJwt], async (req, res) => {
+router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
   try {
+    const userId = req.auth.user.id;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'User ID is required' });
+    }
+
     const uploads = await Upload.findAll({
       where: {
-        userId: req.params.id,
+        userId,
       },
     });
 
     const photoComments = await PhotoComment.findAll({
       where: {
-        userId: req.params.id,
+        userId,
         imageUrl: {
           [Op.ne]: null,
         },
@@ -179,7 +186,7 @@ router.get("/user-photos/:id", [checkJwt], async (req, res) => {
 
     const chatPhotos = await Message.findAll({
       where: {
-        fromUserId: req.params.id,
+        fromUserId: userId,
         messagePhotoUrl: {
           [Op.ne]: null,
         },

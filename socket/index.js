@@ -191,7 +191,10 @@ const SocketServer = (server, app) => {
     }
     );
 
-    socket.on('set-status', async ({ userId, status }) => {
+    socket.on('set-status', async ({ status }) => {
+      const auth0Id = socket.user?.sub;
+      const user = await User.findOne({ where: { auth0Id } });
+      const userId = user.id;
       if (users.has(userId)) {
         users.get(userId).status = status;
       }
