@@ -6,7 +6,7 @@ const withAccessCheck = (model) => {
     const resourceId = req.params.id; 
     
     const resource = await model.findByPk(resourceId);
-
+    
     if (!resource) {
       return res.status(404).json({ error: 'Resource not found' });
     }
