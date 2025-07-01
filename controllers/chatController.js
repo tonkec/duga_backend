@@ -26,7 +26,7 @@ exports.getCurrentChat = async (req, res) => {
 };
 
 exports.index = async (req, res) => {
-  const userId = req.query.user?.id;
+  const userId =  req.auth.user.id;
 
   if (!userId) {
     return res.status(400).json({ error: 'User ID is required' });
@@ -67,8 +67,9 @@ exports.index = async (req, res) => {
 };
 
 exports.create = async (req, res) => {
-  const { partnerId, user } = req.body;
-  const id = user.id;
+  const { partnerId } = req.body;
+  const id = req.auth.user.id;
+
   const t = await sequelize.transaction();
 
   try {
@@ -117,25 +118,6 @@ exports.create = async (req, res) => {
     );
 
     await t.commit();
-
-    // const chatNew = await Chat.findOne({
-    //     where: {
-    //         id: chat.id
-    //     },
-    //     include: [
-    //         {
-    //             model: User,
-    //             where: {
-    //                 [Op.not]: {
-    //                     id: req.user.id
-    //                 }
-    //             }
-    //         },
-    //         {
-    //             model: Message
-    //         }
-    //     ]
-    // })
 
     const creator = await User.findOne({
       where: {
