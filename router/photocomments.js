@@ -8,6 +8,8 @@ const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes")
+const attachCurrentUser = require('../middleware/attachCurrentUser');
+
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -46,10 +48,11 @@ const uploadCommentImage = multer({
 
 router.post(
   '/add-comment',
-  [checkJwt, uploadCommentImage.single('commentImage')],
+  [checkJwt, attachCurrentUser, uploadCommentImage.single('commentImage')],
   async (req, res) => {
     try {
-      const { userId, uploadId, comment, taggedUserIds } = req.body;
+      const { uploadId, comment, taggedUserIds } = req.body;
+      const userId =  req.auth.user.id;
 
       const upload = await Upload.findOne({
         where: { id: uploadId },
