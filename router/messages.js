@@ -45,7 +45,6 @@ router.post(
   }
 );
 
-// Secure route
 router.get(
   "/is-read",
   [
