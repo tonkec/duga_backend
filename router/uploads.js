@@ -5,12 +5,14 @@ const Message = require('../models').Message;
 const { checkJwt } = require('../middleware/auth');
 const { Op } = require('sequelize');
 const router = require('express').Router();
+const User = require('../models').User;
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
 const uploadMessageImage = require('../controllers/uploadsController').uploadMessageImage;
 const getImages = require('../controllers/uploadsController').getImages;
 const AWS = require('aws-sdk');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
+const withAccessCheck = require('../middleware/accessCheck');
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -19,7 +21,14 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
-router.delete('/delete-photo', [checkJwt], async (req, res) => {
+router.delete('/delete-photo',  [
+    checkJwt,
+    withAccessCheck(Upload, async (req) => {
+      const { url } = req.body;
+      if (!url) return null;
+      return await Upload.findOne({ where: { url } });
+    }),
+  ], async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
@@ -76,53 +85,68 @@ router.post(
 
 router.post(
   '/photos',
-  [checkJwt, uploadMultiple(s3).array('avatars', MAX_NUMBER_OF_FILES)],
-  async function (req, res, next) {
-    const descriptions = JSON.parse(req.body.text);
+  [
+    checkJwt,
+    attachCurrentUser,
+    withAccessCheck(User, async (req) => {
+      const userId = req.auth.user.id;
+      return await User.findOne({ where: { id: userId, auth0Id: req.auth.sub } });
+    }),
+    uploadMultiple(s3).array('avatars', MAX_NUMBER_OF_FILES),
+  ],
+  async function (req, res) {
     try {
-      if (req.files.length) {
-        req.files.forEach(async (file) => {
-          const findImageByDescription = descriptions.find(
-            (description) => description.imageId === removeSpacesAndDashes(file.originalname)
-          )
-          await Upload.create({
-            name: removeSpacesAndDashes(file.originalname),
-            url: file.transforms[1].key,
-            description: findImageByDescription?.description || null,
-            userId: req.body.userId,
-          });        
-        });
-      } else {
-        descriptions.forEach(async (description) => {
-          await Upload.update(
-            { isProfilePhoto: false },
-            { where: { userId: req.body.userId } }
-          );
+      const descriptions = JSON.parse(req.body.text);
 
-          const [rowsUpdated] = await Upload.update(
-            { description: description.description, isProfilePhoto: description.isProfilePhoto },
-            { 
-              where: { 
-                name: removeSpacesAndDashes(description.imageId),
-                userId: req.body.userId 
-              } 
+      if (req.files.length) {
+        await Promise.all(
+          req.files.map(async (file) => {
+            const match = descriptions.find(
+              (d) => d.imageId === removeSpacesAndDashes(file.originalname)
+            );
+            await Upload.create({
+              name: removeSpacesAndDashes(file.originalname),
+              url: file.transforms[1].key,
+              description: match?.description || null,
+              userId: req.user.id,
+            });
+          })
+        );
+      } else {
+        await Upload.update(
+          { isProfilePhoto: false },
+          { where: { userId: req.user.id } }
+        );
+
+        await Promise.all(
+          descriptions.map(async (description) => {
+            const [rowsUpdated] = await Upload.update(
+              {
+                description: description.description,
+                isProfilePhoto: description.isProfilePhoto,
+              },
+              {
+                where: {
+                  name: removeSpacesAndDashes(description.imageId),
+                  userId: req.user.id,
+                },
+              }
+            );
+            if (rowsUpdated === 0) {
+              console.warn('No records updated');
             }
-  );
-        
-          if (rowsUpdated === 0) {
-            console.log('No records updated. Check your where clause.');
-          } else {
-            console.log(`Successfully updated ${rowsUpdated} record(s).`);
-          }
-        });
+          })
+        );
       }
-     
+
       return res.status(200).json({ message: 'Upload successful' });
     } catch (e) {
+      console.error('Upload error:', e);
       return res.status(500).json({ message: e.message });
     }
   }
 );
+
 
 router.get('/user/:id', [checkJwt], getImages);
 
@@ -160,55 +184,71 @@ router.get("/latest", [checkJwt], async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 });
+
 router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
   try {
-    const userId = req.auth.user.id;
+    const userId = req.auth?.user?.id;
 
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const uploads = await Upload.findAll({
-      where: {
-        userId,
-      },
-    });
-
-    const photoComments = await PhotoComment.findAll({
-      where: {
-        userId,
-        imageUrl: {
-          [Op.ne]: null,
+    const [uploads, photoComments, chatPhotos] = await Promise.all([
+      Upload.findAll({
+        where: { userId },
+        attributes: ['id', 'url', 'description', 'createdAt'],
+      }),
+      PhotoComment.findAll({
+        where: {
+          userId,
+          imageUrl: { [Op.ne]: null },
         },
-      },
-    });
-
-
-    const chatPhotos = await Message.findAll({
-      where: {
-        fromUserId: userId,
-        messagePhotoUrl: {
-          [Op.ne]: null,
+        attributes: ['id', 'imageUrl', 'comment', 'createdAt'],
+      }),
+      Message.findAll({
+        where: {
+          fromUserId: userId,
+          messagePhotoUrl: {
+            [Op.and]: [
+              { [Op.ne]: null },
+              { [Op.notILike]: '%.gif' },
+              { [Op.notILike]: '%giphy%' }, 
+            ],
+          },
         },
-      },
-    });
+        attributes: ['id', 'messagePhotoUrl', 'createdAt'],
+      }),
+    ]);
 
-    if (chatPhotos) {
-      uploads.push(...chatPhotos);
-    }
-  
-    if (photoComments) {
-      uploads.push(...photoComments);
-    }
+    const normalizedUploads = uploads.map(photo => ({
+      ...photo.toJSON(),
+      url: photo.url,
+      type: 'upload',
+    }));
 
-    uploads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return res.status(200).send(uploads);
+    const normalizedComments = photoComments.map(photo => ({
+      ...photo.toJSON(),
+      url: photo.imageUrl,
+      type: 'comment',
+    }));
+
+    const normalizedMessages = chatPhotos.map(photo => ({
+      ...photo.toJSON(),
+      url: photo.messagePhotoUrl,
+      type: 'message',
+    }));
+
+    const allPhotos = [...normalizedUploads, ...normalizedComments, ...normalizedMessages];
+    allPhotos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.status(200).json(allPhotos);
   } catch (error) {
     console.error('Error fetching user photos:', error);
-    return res.status(500).send({
+    return res.status(500).json({
       message: 'Error occurred while fetching user photos',
     });
   }
 });
+
 
 module.exports = router;
