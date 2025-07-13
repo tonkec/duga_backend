@@ -26,45 +26,51 @@ exports.getCurrentChat = async (req, res) => {
 };
 
 exports.index = async (req, res) => {
-  const userId =  req.auth.user.id;
+  const user = req.auth?.user;
 
-  if (!userId) {
-    return res.status(400).json({ error: 'User ID is required' });
+  if (!user?.id) {
+    return res.status(401).json({ error: 'Unauthorized: User not found' });
   }
 
-  const user = await User.findOne({
-    where: {
-      id: userId
-    },
-    include: [
-      {
-        model: Chat,
-        include: [
-          {
-            model: User,
-            where: {
-              [Op.not]: {
-                id: userId
+  try {
+    const result = await User.findOne({
+      where: { id: user.id },
+      include: [
+        {
+          model: Chat,
+          include: [
+            {
+              model: User,
+              attributes: ['id', 'username', 'avatar'], // restrict user fields
+              where: {
+                [Op.not]: { id: user.id }, // show only the *partner*
               },
             },
-          },
-          {
-            model: Message,
-            include: [{ model: User }],
-            limit: 20,
-            order: [['id', 'DESC']],
-          },
-        ],
-      },
-    ],
-  });
+            {
+              model: Message,
+              include: [
+                {
+                  model: User,
+                  attributes: ['id', 'username', 'avatar'], // restrict again
+                },
+              ],
+              limit: 20,
+              order: [['id', 'DESC']],
+            },
+          ],
+        },
+      ],
+    });
 
-  if (user) {
-    return res.json(user.Chats);
+    if (!result) return res.json([]);
+
+    return res.json(result.Chats);
+  } catch (err) {
+    console.error('Error fetching chats:', err);
+    return res.status(500).json({ error: 'Something went wrong' });
   }
-
-  return res.json([]);
 };
+
 
 exports.create = async (req, res) => {
   const { partnerId } = req.body;
