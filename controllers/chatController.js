@@ -76,87 +76,82 @@ exports.create = async (req, res) => {
   const { partnerId } = req.body;
   const id = req.auth.user.id;
 
+  if (!partnerId || typeof partnerId !== 'number') {
+    return res.status(400).json({ error: 'Invalid or missing partnerId' });
+  }
+
+  if (partnerId === id) {
+    return res.status(400).json({ error: 'Cannot create a chat with yourself' });
+  }
+
+  const partner = await User.findByPk(partnerId);
+  if (!partner) {
+    return res.status(404).json({ error: 'Partner not found' });
+  }
+
   const t = await sequelize.transaction();
 
   try {
     const user = await User.findOne({
-      where: {
-        id: id
-      },
-      include: [
-        {
-          model: Chat,
-          where: {
-            type: 'dual',
-          },
-          include: [
-            {
-              model: ChatUser,
-              where: {
-                userId: partnerId,
-              },
-            },
-          ],
-        },
-      ],
+      where: { id },
+      include: [{
+        model: Chat,
+        where: { type: 'dual' },
+        include: [{
+          model: ChatUser,
+          where: { userId: partnerId },
+        }],
+      }],
     });
 
-    if (user && user.Chats.length > 0)
-      return res.status(403).json({
-        status: 'Error',
-        message: 'Chat with this user already exists!',
-      });
+    if (user && user.Chats.length > 0) {
+      return res.status(403).json({ error: 'Chat with this user already exists' });
+    }
 
     const chat = await Chat.create({ type: 'dual' }, { transaction: t });
 
-    await ChatUser.bulkCreate(
-      [
-        {
-          chatId: chat.id,
-          userId: id
-        },
-        {
-          chatId: chat.id,
-          userId: partnerId,
-        },
-      ],
-      { transaction: t }
-    );
+    await ChatUser.bulkCreate([
+      { chatId: chat.id, userId: id },
+      { chatId: chat.id, userId: partnerId },
+    ], { transaction: t });
 
     await t.commit();
 
-    const creator = await User.findOne({
-      where: {
-        id: id
-      },
-    });
+    const creator = await User.findByPk(id);
 
-    const partner = await User.findOne({
-      where: {
-        id: partnerId,
-      },
-    });
+    const safePartner = {
+      id: partner.id,
+      username: partner.username,
+      avatar: partner.avatar,
+    };
+
+    const safeCreator = {
+      id: creator.id,
+      username: creator.username,
+      avatar: creator.avatar,
+    };
 
     const forCreator = {
       id: chat.id,
       type: 'dual',
-      Users: [partner],
+      Users: [safePartner],
       Messages: [],
     };
 
     const forReceiver = {
       id: chat.id,
       type: 'dual',
-      Users: [creator],
+      Users: [safeCreator],
       Messages: [],
     };
 
     return res.json([forCreator, forReceiver]);
   } catch (e) {
     await t.rollback();
-    return res.status(500).json({ status: 'Error', message: e.message });
+    return res.status(500).json({ error: e.message });
   }
 };
+
 
 exports.messages = async (req, res) => {
  const limit = 10;
