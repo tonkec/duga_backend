@@ -26,165 +26,170 @@ exports.getCurrentChat = async (req, res) => {
 };
 
 exports.index = async (req, res) => {
-  const userId =  req.auth.user.id;
+  const user = req.auth?.user;
 
-  if (!userId) {
-    return res.status(400).json({ error: 'User ID is required' });
+  if (!user?.id) {
+    return res.status(401).json({ error: 'Unauthorized: User not found' });
   }
-
-  const user = await User.findOne({
-    where: {
-      id: userId
-    },
-    include: [
-      {
-        model: Chat,
-        include: [
-          {
-            model: User,
-            where: {
-              [Op.not]: {
-                id: userId
-              },
-            },
-          },
-          {
-            model: Message,
-            include: [{ model: User }],
-            limit: 20,
-            order: [['id', 'DESC']],
-          },
-        ],
-      },
-    ],
-  });
-
-  if (user) {
-    return res.json(user.Chats);
-  }
-
-  return res.json([]);
-};
-
-exports.create = async (req, res) => {
-  const { partnerId } = req.body;
-  const id = req.auth.user.id;
-
-  const t = await sequelize.transaction();
 
   try {
-    const user = await User.findOne({
-      where: {
-        id: id
-      },
+    const result = await User.findOne({
+      where: { id: user.id },
       include: [
         {
           model: Chat,
-          where: {
-            type: 'dual',
-          },
           include: [
             {
-              model: ChatUser,
+              model: User,
+              attributes: ['id', 'username', 'avatar'], // restrict user fields
               where: {
-                userId: partnerId,
+                [Op.not]: { id: user.id }, // show only the *partner*
               },
+            },
+            {
+              model: Message,
+              include: [
+                {
+                  model: User,
+                  attributes: ['id', 'username', 'avatar'], // restrict again
+                },
+              ],
+              limit: 20,
+              order: [['id', 'DESC']],
             },
           ],
         },
       ],
     });
 
-    if (user && user.Chats.length > 0)
-      return res.status(403).json({
-        status: 'Error',
-        message: 'Chat with this user already exists!',
-      });
+    if (!result) return res.json([]);
+
+    return res.json(result.Chats);
+  } catch (err) {
+    console.error('Error fetching chats:', err);
+    return res.status(500).json({ error: 'Something went wrong' });
+  }
+};
+
+
+exports.create = async (req, res) => {
+  const { partnerId } = req.body;
+  const id = req.auth.user.id;
+
+  if (!partnerId || typeof partnerId !== 'number') {
+    return res.status(400).json({ error: 'Invalid or missing partnerId' });
+  }
+
+  if (partnerId === id) {
+    return res.status(400).json({ error: 'Cannot create a chat with yourself' });
+  }
+
+  const partner = await User.findByPk(partnerId);
+  if (!partner) {
+    return res.status(404).json({ error: 'Partner not found' });
+  }
+
+  const t = await sequelize.transaction();
+
+  try {
+    const user = await User.findOne({
+      where: { id },
+      include: [{
+        model: Chat,
+        where: { type: 'dual' },
+        include: [{
+          model: ChatUser,
+          where: { userId: partnerId },
+        }],
+      }],
+    });
+
+    if (user && user.Chats.length > 0) {
+      return res.status(403).json({ error: 'Chat with this user already exists' });
+    }
 
     const chat = await Chat.create({ type: 'dual' }, { transaction: t });
 
-    await ChatUser.bulkCreate(
-      [
-        {
-          chatId: chat.id,
-          userId: id
-        },
-        {
-          chatId: chat.id,
-          userId: partnerId,
-        },
-      ],
-      { transaction: t }
-    );
+    await ChatUser.bulkCreate([
+      { chatId: chat.id, userId: id },
+      { chatId: chat.id, userId: partnerId },
+    ], { transaction: t });
 
     await t.commit();
 
-    const creator = await User.findOne({
-      where: {
-        id: id
-      },
-    });
+    const creator = await User.findByPk(id);
 
-    const partner = await User.findOne({
-      where: {
-        id: partnerId,
-      },
-    });
+    const safePartner = {
+      id: partner.id,
+      username: partner.username,
+      avatar: partner.avatar,
+    };
+
+    const safeCreator = {
+      id: creator.id,
+      username: creator.username,
+      avatar: creator.avatar,
+    };
 
     const forCreator = {
       id: chat.id,
       type: 'dual',
-      Users: [partner],
+      Users: [safePartner],
       Messages: [],
     };
 
     const forReceiver = {
       id: chat.id,
       type: 'dual',
-      Users: [creator],
+      Users: [safeCreator],
       Messages: [],
     };
 
     return res.json([forCreator, forReceiver]);
   } catch (e) {
     await t.rollback();
-    return res.status(500).json({ status: 'Error', message: e.message });
+    return res.status(500).json({ error: e.message });
   }
 };
 
+
 exports.messages = async (req, res) => {
-  const limit = 10;
+ const limit = 10;
   const page = Number(req.query.page) || 1;
-  const offset = page > 1 ? page * limit : 0;
-  const messages = await Message.findAndCountAll({
+  const chatId = Number(req.query.id);
+
+  if (!chatId || isNaN(chatId)) {
+    return res.status(400).json({ error: 'Invalid or missing chatId' });
+  }
+
+  const chatUser = await ChatUser.findOne({
     where: {
-      chatId: req.query.id,
+      chatId,
+      userId: req.auth.user.id,
     },
+  });
+
+  if (!chatUser) {
+    return res.status(403).json({ error: 'You do not have access to this chat' });
+  }
+
+  const offset = (page - 1) * limit;
+
+  const messages = await Message.findAndCountAll({
+    where: { chatId },
     include: [{ model: User }],
     limit,
     offset,
     order: [['id', 'DESC']],
   });
 
-  if (!messages) {
-    return res.status(404).json({
-      status: 'Error',
-      message: 'Messages not found!',
-    });
-  }
-
   const totalPages = Math.ceil(messages.count / limit);
-
-  if (page > totalPages) return res.json({ data: { messages: [] } });
   const result = {
     messages: messages.rows,
-    pagination: {
-      page,
-      totalPages,
-    },
+    pagination: { page, totalPages },
   };
 
-  return res.json(result);
+  return res.status(200).json(result);
 };
 
 exports.deleteChat = async (req, res) => {

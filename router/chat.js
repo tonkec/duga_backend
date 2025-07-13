@@ -1,6 +1,7 @@
 
 const ChatUser = require("./../models").ChatUser
 const router = require('express').Router();
+const { Chat } = require('../models');
 const {
   index,
   create,
@@ -16,10 +17,10 @@ const attachCurrentUser = require('../middleware/attachCurrentUser');
 
 router.get('/', [checkJwt, attachCurrentUser], index);
 router.get("/current-chat/:id", [checkJwt, withAccessCheck(ChatUser)], getCurrentChat);
-router.get('/messages', [checkJwt], messages);
+router.get('/messages', [checkJwt, attachCurrentUser], messages);
 router.post('/create', [checkJwt, attachCurrentUser], create);
 router.post('/add-user-to-group', checkJwt, addUserToGroup);
 router.post('/leave-current-chat', checkJwt, leaveCurrentChat);
-router.delete('/:id', [checkJwt], deleteChat);
+router.delete('/:id', [checkJwt, withAccessCheck(Chat)], deleteChat);
 
 module.exports = router;
