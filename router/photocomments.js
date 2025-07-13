@@ -46,7 +46,6 @@ const uploadCommentImage = multer({
   },
 });
 
-
 router.post(
   '/add-comment',
   [
@@ -105,35 +104,48 @@ router.post(
 );
 
 
+router.get(
+  '/get-comments/:uploadId',
+  [
+    checkJwt,
+    withAccessCheck(Upload, async (req) => {
+      const uploadId = Number(req.params.uploadId);
+      if (!uploadId) return null;
+      return await Upload.findByPk(uploadId);
+    }),
+  ],
+  async (req, res) => {
+    try {
+      const uploadId = req.resource.id;
 
-router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
-  try {
-    const photoComments = await PhotoComment.findAll({
-      where: { uploadId: req.params.uploadId },
-      order: [['createdAt', 'DESC']],
-      include: [
-        {
-          model: User,
-          as: 'taggedUsers',
-          attributes: ['id', 'username'],
-          through: { attributes: [] }, 
-        },
-        {
-          model: User,
-          as: 'user', 
-          attributes: ['id', 'username'],
-        },
-      ],
-    });
+      const photoComments = await PhotoComment.findAll({
+        where: { uploadId },
+        order: [['createdAt', 'DESC']],
+        include: [
+          {
+            model: User,
+            as: 'taggedUsers',
+            attributes: ['id', 'username'],
+            through: { attributes: [] },
+          },
+          {
+            model: User,
+            as: 'user',
+            attributes: ['id', 'username'],
+          },
+        ],
+      });
 
-    return res.status(200).send(photoComments);
-  } catch (error) {
-    console.error('❌ Error fetching comments:', error);
-    return res.status(500).send({
-      message: 'Error occurred while fetching comments',
-    });
+      return res.status(200).send(photoComments);
+    } catch (error) {
+      console.error('❌ Error fetching comments:', error);
+      return res.status(500).send({
+        message: 'Error occurred while fetching comments',
+      });
+    }
   }
-});
+);
+
 
 router.put('/update-comment/:id', [checkJwt], async (req, res) => {
   try {
