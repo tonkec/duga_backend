@@ -11,6 +11,7 @@ const getImages = require('../controllers/uploadsController').getImages;
 const AWS = require('aws-sdk');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
+const withAccessCheck = require('../middleware/accessCheck');
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -19,7 +20,14 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
-router.delete('/delete-photo', [checkJwt], async (req, res) => {
+router.delete('/delete-photo',  [
+    checkJwt,
+    withAccessCheck(Upload, async (req) => {
+      const { url } = req.body;
+      if (!url) return null;
+      return await Upload.findOne({ where: { url } });
+    }),
+  ], async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
