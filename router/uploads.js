@@ -184,55 +184,71 @@ router.get("/latest", [checkJwt], async (req, res) => {
     return res.status(500).json({ message: error.message });
   }
 });
+
 router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
   try {
-    const userId = req.auth.user.id;
+    const userId = req.auth?.user?.id;
 
     if (!userId) {
-      return res.status(400).json({ error: 'User ID is required' });
+      return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const uploads = await Upload.findAll({
-      where: {
-        userId,
-      },
-    });
-
-    const photoComments = await PhotoComment.findAll({
-      where: {
-        userId,
-        imageUrl: {
-          [Op.ne]: null,
+    const [uploads, photoComments, chatPhotos] = await Promise.all([
+      Upload.findAll({
+        where: { userId },
+        attributes: ['id', 'url', 'description', 'createdAt'],
+      }),
+      PhotoComment.findAll({
+        where: {
+          userId,
+          imageUrl: { [Op.ne]: null },
         },
-      },
-    });
-
-
-    const chatPhotos = await Message.findAll({
-      where: {
-        fromUserId: userId,
-        messagePhotoUrl: {
-          [Op.ne]: null,
+        attributes: ['id', 'imageUrl', 'comment', 'createdAt'],
+      }),
+      Message.findAll({
+        where: {
+          fromUserId: userId,
+          messagePhotoUrl: {
+            [Op.and]: [
+              { [Op.ne]: null },
+              { [Op.notILike]: '%.gif' },
+              { [Op.notILike]: '%giphy%' }, 
+            ],
+          },
         },
-      },
-    });
+        attributes: ['id', 'messagePhotoUrl', 'createdAt'],
+      }),
+    ]);
 
-    if (chatPhotos) {
-      uploads.push(...chatPhotos);
-    }
-  
-    if (photoComments) {
-      uploads.push(...photoComments);
-    }
+    const normalizedUploads = uploads.map(photo => ({
+      ...photo.toJSON(),
+      url: photo.url,
+      type: 'upload',
+    }));
 
-    uploads.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-    return res.status(200).send(uploads);
+    const normalizedComments = photoComments.map(photo => ({
+      ...photo.toJSON(),
+      url: photo.imageUrl,
+      type: 'comment',
+    }));
+
+    const normalizedMessages = chatPhotos.map(photo => ({
+      ...photo.toJSON(),
+      url: photo.messagePhotoUrl,
+      type: 'message',
+    }));
+
+    const allPhotos = [...normalizedUploads, ...normalizedComments, ...normalizedMessages];
+    allPhotos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    return res.status(200).json(allPhotos);
   } catch (error) {
     console.error('Error fetching user photos:', error);
-    return res.status(500).send({
+    return res.status(500).json({
       message: 'Error occurred while fetching user photos',
     });
   }
 });
+
 
 module.exports = router;
