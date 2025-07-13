@@ -11,7 +11,6 @@ const allowedMimeTypes = require("../consts/allowedFileTypes")
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const withAccessCheck = require('../middleware/accessCheck');
 
-
 const uploadCommentImage = multer({
   storage: multerS3({
     s3,
@@ -106,9 +105,7 @@ router.post(
 
 router.get(
   '/get-comments/:uploadId',
-  [
-    checkJwt,
-  ],
+  [checkJwt],
   async (req, res) => {
     try {
       const uploadId = req.params.uploadId;
@@ -209,13 +206,9 @@ router.get("/latest", [checkJwt], async (req, res) => {
   }
 });
 
-
 router.delete(
   '/delete-comment/:id',
-  [
-    checkJwt,
-    withAccessCheck(PhotoComment),
-  ],
+  [checkJwt, withAccessCheck(PhotoComment)],
   async (req, res) => {
     try {
       const photoComment = req.resource; 
@@ -253,6 +246,5 @@ router.delete(
     }
   }
 );
-
 
 module.exports = router;
