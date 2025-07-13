@@ -9,6 +9,7 @@ const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes")
 const attachCurrentUser = require('../middleware/attachCurrentUser');
+const withAccessCheck = require('../middleware/accessCheck');
 
 
 const uploadCommentImage = multer({
@@ -48,19 +49,21 @@ const uploadCommentImage = multer({
 
 router.post(
   '/add-comment',
-  [checkJwt, attachCurrentUser, uploadCommentImage.single('commentImage')],
+  [
+    checkJwt,
+    attachCurrentUser,
+    uploadCommentImage.single('commentImage'), 
+    withAccessCheck(Upload, async (req) => {
+      const { uploadId } = req.body;
+      if (!uploadId) return null;
+      return await Upload.findOne({ where: { id: uploadId } });
+    }),
+  ],
   async (req, res) => {
     try {
-      const { uploadId, comment, taggedUserIds } = req.body;
-      const userId =  req.auth.user.id;
-
-      const upload = await Upload.findOne({
-        where: { id: uploadId },
-      });
-
-      if (!upload) {
-        return res.status(404).send({ message: 'Upload not found' });
-      }
+      const { comment, taggedUserIds } = req.body;
+      const userId = req.auth.user.id;
+      const uploadId = req.resource.id;
 
       const imageUrl = req.file?.transforms?.[0]?.location ?? null;
 
@@ -71,10 +74,7 @@ router.post(
         imageUrl,
       });
 
-      if (
-        taggedUserIds &&
-        typeof taggedUserIds === 'string' 
-      ) {
+      if (taggedUserIds && typeof taggedUserIds === 'string') {
         const parsedTags = JSON.parse(taggedUserIds);
         if (Array.isArray(parsedTags) && parsedTags.length > 0) {
           await photoComment.setTaggedUsers(parsedTags);
@@ -91,7 +91,7 @@ router.post(
       return res.status(201).send({ data: fullComment });
     } catch (error) {
       if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ message: 'Image must be under 1MB' });
+        return res.status(400).json({ message: 'Image too big' });
       }
 
       if (error.message?.includes('Invalid file type')) {
@@ -103,6 +103,8 @@ router.post(
     }
   }
 );
+
+
 
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
