@@ -21,6 +21,34 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
+// GET /files/:key*  (wildcard match for full S3 key)
+router.get('/files/*', checkJwt, async (req, res) => {
+  const rawKey = req.params[0]; // still encoded
+  const key = decodeURIComponent(rawKey); // decode it
+
+  try {
+    const file = await Upload.findOne({ where: { url: key } });
+    if (!file) {
+      console.log('❌ Not found in DB');
+      return res.status(404).json({ message: 'File not found in DB' });
+    }
+
+    const s3Stream = s3
+      .getObject({
+        Bucket: 'duga-user-photo',
+        Key: key,
+      })
+      .createReadStream();
+
+    res.setHeader('Content-Type', 'image/png'); // or dynamic based on extension
+    return s3Stream.pipe(res);
+  } catch (err) {
+    console.error('🔥 Error accessing S3:', err);
+    return res.status(500).json({ message: 'S3 fetch failed' });
+  }
+});
+
+
 router.delete('/delete-photo',  [
     checkJwt,
     withAccessCheck(Upload, async (req) => {
@@ -147,7 +175,6 @@ router.post(
   }
 );
 
-
 router.get('/user/:id', [checkJwt], getImages);
 
 router.get("/photo/:id", [checkJwt], async (req, res) => { 
@@ -172,6 +199,7 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
   }
 });
 
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 router.get("/latest", [checkJwt], async (req, res) => {
   try {
     const uploads = await Upload.findAll({
@@ -179,7 +207,13 @@ router.get("/latest", [checkJwt], async (req, res) => {
       order: [['createdAt', 'DESC']],
     });
 
-    return res.status(200).json(uploads);
+    const withProxyUrls = uploads.map((upload) => ({
+      ...upload.toJSON(),
+      // Convert the S3 key into a secure URL served via your backend
+      secureUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(upload.url)}`,
+    }));
+
+    return res.status(200).json(withProxyUrls);
   } catch (error) {
     return res.status(500).json({ message: error.message });
   }
