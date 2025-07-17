@@ -13,6 +13,7 @@ const AWS = require('aws-sdk');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
 const withAccessCheck = require('../middleware/accessCheck');
+const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -23,13 +24,28 @@ const s3 = new AWS.S3();
 
 // GET /files/:key*  (wildcard match for full S3 key)
 router.get('/files/*', checkJwt, async (req, res) => {
-  const rawKey = req.params[0]; // still encoded
-  const key = decodeURIComponent(rawKey); // decode it
+  const rawKey = req.params[0];
+  const key = decodeURIComponent(rawKey);
+  console.log('🔍 Requested key:', key);
 
   try {
-    const file = await Upload.findOne({ where: { url: key } });
+    let file = await Upload.findOne({ where: { url: key } });
+
     if (!file) {
-      console.log('❌ Not found in DB');
+      console.log('🔍 Not found in Upload. Checking PhotoComment.imageUrl...');
+      const commentWithImage = await PhotoComment.findOne({
+        where: { imageUrl: key },
+      });
+
+      if (commentWithImage) {
+        console.log('✅ Found in PhotoComment.imageUrl');
+        // create a dummy file object to allow S3 streaming
+        file = { url: commentWithImage.imageUrl };
+      }
+    }
+
+    if (!file) {
+      console.log('❌ Not found in Upload or PhotoComment');
       return res.status(404).json({ message: 'File not found in DB' });
     }
 
@@ -40,10 +56,10 @@ router.get('/files/*', checkJwt, async (req, res) => {
       })
       .createReadStream();
 
-    res.setHeader('Content-Type', 'image/png'); // or dynamic based on extension
+    res.setHeader('Content-Type', 'image/png'); // or detect dynamically
     return s3Stream.pipe(res);
   } catch (err) {
-    console.error('🔥 Error accessing S3:', err);
+    console.error('🔥 S3 fetch failed:', err);
     return res.status(500).json({ message: 'S3 fetch failed' });
   }
 });
@@ -200,22 +216,17 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
 });
 
 const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
-router.get("/latest", [checkJwt], async (req, res) => {
+router.get('/latest', [checkJwt], async (req, res) => {
   try {
     const uploads = await Upload.findAll({
       limit: 3,
       order: [['createdAt', 'DESC']],
     });
 
-    const withProxyUrls = uploads.map((upload) => ({
-      ...upload.toJSON(),
-      // Convert the S3 key into a secure URL served via your backend
-      secureUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(upload.url)}`,
-    }));
-
-    return res.status(200).json(withProxyUrls);
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
+    const result = addSecureUrlsToList(uploads, API_BASE_URL);
+    return res.status(200).json(result);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
   }
 });
 
