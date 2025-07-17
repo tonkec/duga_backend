@@ -11,6 +11,7 @@ const allowedMimeTypes = require("../consts/allowedFileTypes")
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 
 function extractKeyFromUrl(url) {
+  console.log('🔍 Extracting key from URL:', url);
   if (!url) return null;
 
   if (!url.startsWith('http')) return url;
@@ -147,17 +148,25 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
           model: User,
           as: 'taggedUsers',
           attributes: ['id', 'username'],
-          through: { attributes: [] }, 
+          through: { attributes: [] },
         },
         {
           model: User,
-          as: 'user', 
+          as: 'user',
           attributes: ['id', 'username'],
         },
       ],
     });
 
-    return res.status(200).send(photoComments);
+    // ⬇️ Add secureImageUrl to each comment
+    const commentsWithSecureUrls = addSecureUrlsToList(
+      photoComments,
+      API_BASE_URL,
+      'imageUrl',
+      'secureImageUrl'
+    );
+
+    return res.status(200).send(commentsWithSecureUrls);
   } catch (error) {
     console.error('❌ Error fetching comments:', error);
     return res.status(500).send({
@@ -165,6 +174,7 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
     });
   }
 });
+
 
 router.put('/update-comment/:id', [checkJwt], async (req, res) => {
   try {

@@ -193,7 +193,7 @@ router.post(
 
 router.get('/user/:id', [checkJwt], getImages);
 
-router.get("/photo/:id", [checkJwt], async (req, res) => { 
+router.get("/photo/:id", [checkJwt], async (req, res) => {
   try {
     const upload = await Upload.findOne({
       where: {
@@ -207,13 +207,21 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
       });
     }
 
-    return res.status(200).send(upload);
+    const plainUpload = upload.toJSON();
+    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL)[0].secureUrl;
+
+    return res.status(200).send({
+      ...plainUpload,
+      secureUrl,
+    });
   } catch (error) {
+    console.error('❌ Error fetching photo:', error);
     return res.status(500).send({
       message: 'Error occurred while fetching photo',
     });
   }
 });
+
 
 const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 router.get('/latest', [checkJwt], async (req, res) => {

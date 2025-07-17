@@ -4,6 +4,7 @@ const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const allowedMimeTypes = require("../consts/allowedFileTypes")
+const { attachSecureUrl } = require('../utils/secureUploadUrl');
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -130,30 +131,32 @@ exports.uploadMultiple = (s3) => {
     },
   });
 };
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 exports.getImages = async (req, res) => {
+  const userId = req.params.id;
   const params = {
     Bucket: 'duga-user-photo',
-    Prefix: `${process.env.NODE_ENV}/user/${req.params.id}/`,
+    Prefix: `${process.env.NODE_ENV}/user/${userId}/`,
   };
 
   try {
-    const uploads = await Upload.findAll();
+    const uploads = await Upload.findAll({ where: { userId } });
     const data = await s3.listObjectsV2(params).promise();
-    const contents = data.Contents;
-    const filtered = uploads.filter((upload) => {
-      const found = contents.find((content) => {
-        return content.Key === upload.url;
+
+    const s3Keys = data.Contents.map((obj) => obj.Key);
+
+    const filtered = uploads
+      .filter((upload) => s3Keys.includes(upload.url))
+      .map((upload) => {
+        const plain = upload.toJSON();
+        const secureUrl = attachSecureUrl(API_BASE_URL, plain.url);
+        return { ...plain, secureUrl };
       });
 
-      if (found) {
-        return true;
-      }
-
-      return false;
-    });
     return res.status(200).json({ images: filtered });
   } catch (e) {
+    console.error('❌ Error in getImages:', e);
     return res.status(500).json({ message: e.message });
   }
 };
