@@ -11,3 +11,18 @@ export const addSecureUrlsToList = (items, baseUrl, key = 'url') => {
     return plain;
   });
 };
+
+
+export const extractKeyFromUrl = (url) => {
+  console.log('🔍 Extracting key from URL:', url);
+  if (!url) return null;
+
+  if (!url.startsWith('http')) return url;
+
+  try {
+    const parsed = new URL(url);
+    return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
+  } catch (e) {
+    return null;
+  }
+}

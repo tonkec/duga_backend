@@ -5,6 +5,7 @@ const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const allowedMimeTypes = require("../consts/allowedFileTypes")
 const { attachSecureUrl } = require('../utils/secureUploadUrl');
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -131,7 +132,6 @@ exports.uploadMultiple = (s3) => {
     },
   });
 };
-const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 exports.getImages = async (req, res) => {
   const userId = req.params.id;

@@ -5,6 +5,8 @@ const ChatUser = models.ChatUser;
 const Message = models.Message;
 const { Op } = require('sequelize');
 const { sequelize } = require('../models');
+const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 exports.getCurrentChat = async (req, res) => {
   const { id } = req.params;
@@ -153,8 +155,9 @@ exports.create = async (req, res) => {
 };
 
 
+
 exports.messages = async (req, res) => {
- const limit = 10;
+  const limit = 10;
   const page = Number(req.query.page) || 1;
   const chatId = Number(req.query.id);
 
@@ -183,15 +186,36 @@ exports.messages = async (req, res) => {
     order: [['id', 'DESC']],
   });
 
+  // ✅ Add secureUrl for images
+  const enrichedMessages = messages.rows.map((message) => {
+    const plain = message.toJSON();
+    const { messagePhotoUrl } = plain;
+
+    if (messagePhotoUrl) {
+      const key = extractKeyFromUrl(messagePhotoUrl);
+
+      if (key) {
+        plain.securePhotoUrl = `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`;
+      } else {
+        console.warn('🚨 Could not extract key from:', messagePhotoUrl);
+        plain.securePhotoUrl = null;
+      }
+    } else {
+      plain.securePhotoUrl = null;
+    }
+
+    return plain;
+  });
+
+
   const totalPages = Math.ceil(messages.count / limit);
   const result = {
-    messages: messages.rows,
+    messages: enrichedMessages,
     pagination: { page, totalPages },
   };
 
   return res.status(200).json(result);
 };
-
 exports.deleteChat = async (req, res) => {
   try {
     await Chat.destroy({

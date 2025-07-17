@@ -9,27 +9,22 @@ const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes")
 const attachCurrentUser = require('../middleware/attachCurrentUser');
-
-function extractKeyFromUrl(url) {
-  console.log('🔍 Extracting key from URL:', url);
-  if (!url) return null;
-
-  if (!url.startsWith('http')) return url;
-
-  try {
-    const parsed = new URL(url);
-    return decodeURIComponent(parsed.pathname.replace(/^\/+/, ''));
-  } catch (e) {
-    return null;
-  }
-}
+const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
 
 function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = 'secureUrl') {
   return items.map((item) => {
     const plain = item.toJSON ? item.toJSON() : item;
     const originalUrl = plain[originalField];
 
+    if (!originalUrl) {
+      console.warn(`⚠️ Skipping item with missing ${originalField}`);
+      plain[newField] = null;
+      return plain;
+    }
+
     const key = extractKeyFromUrl(originalUrl);
+    console.log('🔍 Extracting key from URL:', originalUrl);
+
     if (key) {
       plain[newField] = `${baseUrl}/uploads/files/${encodeURIComponent(key)}`;
     } else {
@@ -40,6 +35,7 @@ function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = '
     return plain;
   });
 }
+
 
 
 const uploadCommentImage = multer({
