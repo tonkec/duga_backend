@@ -13,6 +13,8 @@ const AWS = require('aws-sdk');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
 const withAccessCheck = require('../middleware/accessCheck');
+const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -20,6 +22,60 @@ AWS.config.update({
 });
 
 const s3 = new AWS.S3();
+
+// GET /files/:key*  (wildcard match for full S3 key)
+router.get('/files/*', checkJwt, async (req, res) => {
+  const rawKey = req.params[0];
+  const key = decodeURIComponent(rawKey);
+  console.log('🔍 Requested key:', key);
+
+  try {
+    let file = await Upload.findOne({ where: { url: key } });
+
+    // Check in PhotoComment.imageUrl if not found in Uploads
+    if (!file) {
+      console.log('🔍 Not found in Upload. Checking PhotoComment.imageUrl...');
+      const commentWithImage = await PhotoComment.findOne({ where: { imageUrl: key } });
+
+      if (commentWithImage) {
+        console.log('✅ Found in PhotoComment.imageUrl');
+        file = { url: commentWithImage.imageUrl };
+      }
+    }
+
+    // Check in Message.messagePhotoUrl if still not found
+    if (!file) {
+      console.log('🔍 Not found in Comment. Checking Message.messagePhotoUrl...');
+      const messageWithImage = await Message.findOne({ where: { messagePhotoUrl: `${process.env.NODE_ENV}}/${key}` } });
+
+      if (messageWithImage) {
+        console.log('✅ Found in Message.messagePhotoUrl');
+        file = { url: messageWithImage.messagePhotoUrl };
+      }
+    }
+
+    if (!file) {
+      console.log('❌ Not found in Upload, Comment, or Message');
+      return res.status(404).json({ message: 'File not found in DB' });
+    }
+
+    // Fetch from S3
+    const s3Stream = s3
+      .getObject({
+        Bucket: 'duga-user-photo',
+        Key: key,
+      })
+      .createReadStream();
+
+    res.setHeader('Content-Type', 'image/png'); // optionally detect from key
+    return s3Stream.pipe(res);
+  } catch (err) {
+    console.error('🔥 S3 fetch failed:', err);
+    return res.status(500).json({ message: 'S3 fetch failed' });
+  }
+});
+
+
 
 router.delete('/delete-photo',  [
     checkJwt,
@@ -69,19 +125,50 @@ const removeSpacesAndDashes = (str) => {
 
 router.post(
   "/message-photos",
-  [checkJwt, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)],
+  [checkJwt, attachCurrentUser, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)],
   async (req, res) => {
     try {
-      return res.status(200).json({ message: 'Upload successful' });
+      if (!req.files?.length) {
+        return res.status(400).json({ message: 'No files uploaded' });
+      }
+
+      const uploaded = await Promise.all(
+        req.files.map(async (file) => {
+          const key = file.transforms?.find((t) => t.id === 'original')?.key;
+          
+          const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
+
+          const uploadRecord = await Upload.create({
+            name: file.originalname,
+            url: key,
+            filetype: file.mimetype,
+            userId: req.auth.user.id, 
+          });
+
+          return {
+            id: uploadRecord.id,
+            originalName: file.originalname,
+            key,
+            secureUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
+            thumbnailUrl: thumbnailKey
+              ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(thumbnailKey)}`
+              : null,
+          };
+        })
+      );
+
+      return res.status(200).json({ message: 'Upload successful', files: uploaded });
     } catch (error) {
       if (error.code === 'INVALID_FILE_TYPE') {
         return res.status(400).json({ message: error.message });
       }
 
+      console.error('❌ Upload error:', error);
       return res.status(500).json({ message: 'Something went wrong' });
     }
   }
 );
+
 
 router.post(
   '/photos',
@@ -147,10 +234,9 @@ router.post(
   }
 );
 
-
 router.get('/user/:id', [checkJwt], getImages);
 
-router.get("/photo/:id", [checkJwt], async (req, res) => { 
+router.get("/photo/:id", [checkJwt], async (req, res) => {
   try {
     const upload = await Upload.findOne({
       where: {
@@ -164,24 +250,33 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
       });
     }
 
-    return res.status(200).send(upload);
+    const plainUpload = upload.toJSON();
+    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL)[0].secureUrl;
+
+    return res.status(200).send({
+      ...plainUpload,
+      secureUrl,
+    });
   } catch (error) {
+    console.error('❌ Error fetching photo:', error);
     return res.status(500).send({
       message: 'Error occurred while fetching photo',
     });
   }
 });
 
-router.get("/latest", [checkJwt], async (req, res) => {
+
+router.get('/latest', [checkJwt], async (req, res) => {
   try {
     const uploads = await Upload.findAll({
       limit: 3,
       order: [['createdAt', 'DESC']],
     });
 
-    return res.status(200).json(uploads);
-  } catch (error) {
-    return res.status(500).json({ message: error.message });
+    const result = addSecureUrlsToList(uploads, API_BASE_URL);
+    return res.status(200).json(result);
+  } catch (e) {
+    return res.status(500).json({ message: e.message });
   }
 });
 

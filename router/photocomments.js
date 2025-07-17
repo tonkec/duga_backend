@@ -9,6 +9,33 @@ const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes")
 const attachCurrentUser = require('../middleware/attachCurrentUser');
+const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
+
+function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = 'secureUrl') {
+  return items.map((item) => {
+    const plain = item.toJSON ? item.toJSON() : item;
+    const originalUrl = plain[originalField];
+
+    if (!originalUrl) {
+      console.warn(`⚠️ Skipping item with missing ${originalField}`);
+      plain[newField] = null;
+      return plain;
+    }
+
+    const key = extractKeyFromUrl(originalUrl);
+    console.log('🔍 Extracting key from URL:', originalUrl);
+
+    if (key) {
+      plain[newField] = `${baseUrl}/uploads/files/${encodeURIComponent(key)}`;
+    } else {
+      console.warn('🚨 Could not generate secure URL for comment:', originalUrl);
+      plain[newField] = null;
+    }
+
+    return plain;
+  });
+}
+
 
 
 const uploadCommentImage = multer({
@@ -31,7 +58,6 @@ const uploadCommentImage = multer({
         },
       },
     ],
-    acl: "public-read",
   }),
   limits: { fileSize: 1 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
@@ -52,29 +78,32 @@ router.post(
   async (req, res) => {
     try {
       const { uploadId, comment, taggedUserIds } = req.body;
-      const userId =  req.auth.user.id;
+      const userId = req.auth.user.id;
 
-      const upload = await Upload.findOne({
-        where: { id: uploadId },
-      });
-
+      const upload = await Upload.findOne({ where: { id: uploadId } });
       if (!upload) {
         return res.status(404).send({ message: 'Upload not found' });
       }
 
-      const imageUrl = req.file?.transforms?.[0]?.location ?? null;
+      const s3Key = req.file?.transforms?.[0]?.key ?? null;
+      let commentImageUpload = null;
+
+      if (s3Key) {
+        commentImageUpload = await Upload.create({
+          url: s3Key, 
+          name: req.file.originalname,
+          userId,
+        });
+      }
 
       const photoComment = await PhotoComment.create({
         userId,
         uploadId,
         comment,
-        imageUrl,
+        imageUrl: commentImageUpload?.url || null, 
       });
 
-      if (
-        taggedUserIds &&
-        typeof taggedUserIds === 'string' 
-      ) {
+      if (taggedUserIds && typeof taggedUserIds === 'string') {
         const parsedTags = JSON.parse(taggedUserIds);
         if (Array.isArray(parsedTags) && parsedTags.length > 0) {
           await photoComment.setTaggedUsers(parsedTags);
@@ -104,6 +133,7 @@ router.post(
   }
 );
 
+
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
@@ -114,17 +144,25 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
           model: User,
           as: 'taggedUsers',
           attributes: ['id', 'username'],
-          through: { attributes: [] }, 
+          through: { attributes: [] },
         },
         {
           model: User,
-          as: 'user', 
+          as: 'user',
           attributes: ['id', 'username'],
         },
       ],
     });
 
-    return res.status(200).send(photoComments);
+    // ⬇️ Add secureImageUrl to each comment
+    const commentsWithSecureUrls = addSecureUrlsToList(
+      photoComments,
+      API_BASE_URL,
+      'imageUrl',
+      'secureImageUrl'
+    );
+
+    return res.status(200).send(commentsWithSecureUrls);
   } catch (error) {
     console.error('❌ Error fetching comments:', error);
     return res.status(500).send({
@@ -132,6 +170,7 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
     });
   }
 });
+
 
 router.put('/update-comment/:id', [checkJwt], async (req, res) => {
   try {
@@ -167,8 +206,8 @@ router.put('/update-comment/:id', [checkJwt], async (req, res) => {
   }
 });
 
-
-router.get("/latest", [checkJwt], async (req, res) => {
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
+router.get('/latest', [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
       limit: 5,
@@ -183,20 +222,24 @@ router.get("/latest", [checkJwt], async (req, res) => {
           model: User,
           as: 'taggedUsers',
           attributes: ['id', 'username'],
-          through: { attributes: [] }, 
+          through: { attributes: [] },
         },
       ],
     });
 
-    return res.status(200).send(photoComments);
+    const commentsWithSecureUrls = addSecureUrlsToList(
+      photoComments,
+      API_BASE_URL,
+      'imageUrl',
+      'secureImageUrl'
+    );
+
+    res.status(200).json(commentsWithSecureUrls);
   } catch (error) {
-    console.error("❌ Error in /latest:", error);
-    return res.status(500).send({
-      message: 'Error occurred while fetching comments',
-    });
+    console.error('❌ Error in /comments/latest:', error);
+    res.status(500).json({ message: 'Error occurred while fetching comments' });
   }
 });
-
 
 router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
   try {
