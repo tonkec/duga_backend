@@ -30,7 +30,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
   console.log('🔍 Requested key:', key);
 
   try {
-    let file = await Upload.findOne({ where: { url: key } });
+    let file = await Upload.findOne({ where: { url: `${process.env.NODE_ENV}/${key}` } });
 
     // Check in PhotoComment.imageUrl if not found in Uploads
     if (!file) {
@@ -46,7 +46,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
     // Check in Message.messagePhotoUrl if still not found
     if (!file) {
       console.log('🔍 Not found in Comment. Checking Message.messagePhotoUrl...');
-      const messageWithImage = await Message.findOne({ where: { messagePhotoUrl: `${process.env.NODE_ENV}}/${key}` } });
+      const messageWithImage = await Message.findOne({ where: { messagePhotoUrl: key } });
 
       if (messageWithImage) {
         console.log('✅ Found in Message.messagePhotoUrl');
@@ -58,12 +58,12 @@ router.get('/files/*', checkJwt, async (req, res) => {
       console.log('❌ Not found in Upload, Comment, or Message');
       return res.status(404).json({ message: 'File not found in DB' });
     }
-
+console.log(key, '🔑 Key to fetch from S3:', key);
     // Fetch from S3
     const s3Stream = s3
       .getObject({
         Bucket: 'duga-user-photo',
-        Key: key,
+        Key: `${process.env.NODE_ENV}/${key}`, // Ensure the key matches the S3 structure
       })
       .createReadStream();
 
@@ -74,8 +74,6 @@ router.get('/files/*', checkJwt, async (req, res) => {
     return res.status(500).json({ message: 'S3 fetch failed' });
   }
 });
-
-
 
 router.delete('/delete-photo',  [
     checkJwt,
