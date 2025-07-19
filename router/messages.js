@@ -1,51 +1,83 @@
 const Message = require('../models').Message;
 const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
+const withAccessCheck = require('../middleware/accessCheck');   
+const attachCurrentUser = require('../middleware/attachCurrentUser');
+const { Chat, ChatUser } = require('../models');
 
-router.post('/read-message', [checkJwt], async (req, res) => {
-  try {
-      const message = await Message.findOne({
-            where: {
-                id: Number(req.body.id),
-            },
+router.post(
+  '/read-message',
+  [
+    checkJwt,
+    withAccessCheck(Message, async (req) => {
+      const messageId = Number(req.body.id);
+      if (!messageId) return null;
+
+      return await Message.findOne({
+        where: { id: messageId },
+        include: [
+          {
+            model: Chat,
+            include: [
+              {
+                model: ChatUser,
+              },
+            ],
+          },
+        ],
       });
-        
-        if (!message) {
-            return res.status(404).send({
-                message: 'Message not found',
-            });
-        }
-      message.is_read= true;
-      await message.save();
-      return res.status(200).send(message);
-  } catch (error) {
-        console.log(error);
-        return res.status(500).send({
-            message: 'Error occurred while reading message',
-        });
-  }
-});
-
-router.get("/is-read", [checkJwt], async (req, res) => {
+    }),
+  ],
+  async (req, res) => {
     try {
-        if (!req.query.id) {
-            return res.status(400).json({ message: "Message ID is required" });
-        }
-        const message = await Message.findOne({
-            where: {
-                id: Number(req.query.id),
-            },
-        });
-    
-        if (!message) {
-            return res.status(404).json({ message: "Message not found" });
-        }
-    
-        return res.status(200).json({ is_read: message.is_read });
+      const message = req.resource; 
+
+      message.is_read = true;
+      await message.save();
+
+      return res.status(200).send(message);
     } catch (error) {
-        console.error(error);
-        return res.status(500).json({ error: error.message });
+      console.error(error);
+      return res.status(500).send({
+        message: 'Error occurred while reading message',
+      });
     }
-    });
+  }
+);
+
+router.get(
+  "/is-read",
+  [
+    checkJwt,
+    attachCurrentUser,
+    withAccessCheck(Message, async (req) => {
+      const messageId = Number(req.query.id);
+      if (!messageId) return null;
+
+      return await Message.findOne({
+        where: { id: messageId },
+        include: {
+          model: Chat,
+          include: {
+            model: ChatUser,
+            where: {
+              userId: req.auth.user.id, 
+            },
+          },
+        },
+      });
+    }),
+  ],
+  async (req, res) => {
+    try {
+      const message = req.resource;
+
+      return res.status(200).json({ is_read: message.is_read });
+    } catch (error) {
+      console.error(error);
+      return res.status(500).json({ error: error.message });
+    }
+  }
+);
 
 module.exports = router;
