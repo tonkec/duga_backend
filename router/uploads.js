@@ -30,7 +30,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
   console.log('🔍 Requested key:', key);
 
   try {
-    let file = await Upload.findOne({ where: { url: `${process.env.NODE_ENV}/${key}` } });
+    let file = await Upload.findOne({ where: { url: key} });
 
     // Check in PhotoComment.imageUrl if not found in Uploads
     if (!file) {
@@ -43,10 +43,10 @@ router.get('/files/*', checkJwt, async (req, res) => {
       }
     }
 
-    // Check in Message.messagePhotoUrl if still not found
+    let messageWithImage;
     if (!file) {
       console.log('🔍 Not found in Comment. Checking Message.messagePhotoUrl...');
-      const messageWithImage = await Message.findOne({ where: { messagePhotoUrl: key } });
+      messageWithImage = await Message.findOne({ where: { messagePhotoUrl: key } });
 
       if (messageWithImage) {
         console.log('✅ Found in Message.messagePhotoUrl');
@@ -58,12 +58,10 @@ router.get('/files/*', checkJwt, async (req, res) => {
       console.log('❌ Not found in Upload, Comment, or Message');
       return res.status(404).json({ message: 'File not found in DB' });
     }
-console.log(key, '🔑 Key to fetch from S3:', key);
-    // Fetch from S3
     const s3Stream = s3
       .getObject({
         Bucket: 'duga-user-photo',
-        Key: `${process.env.NODE_ENV}/${key}`, // Ensure the key matches the S3 structure
+        Key: messageWithImage ? `${process.env.NODE_ENV}/${key}` : key
       })
       .createReadStream();
 
@@ -71,7 +69,6 @@ console.log(key, '🔑 Key to fetch from S3:', key);
     return s3Stream.pipe(res);
   } catch (err) {
     console.error('🔥 S3 fetch failed:', err);
-    return res.status(500).json({ message: 'S3 fetch failed' });
   }
 });
 
