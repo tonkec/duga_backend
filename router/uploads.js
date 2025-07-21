@@ -23,7 +23,6 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
-// GET /files/:key*  (wildcard match for full S3 key)
 router.get('/files/*', checkJwt, async (req, res) => {
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
@@ -337,6 +336,31 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
     return res.status(500).json({
       message: 'Error occurred while fetching user photos',
     });
+  }
+});
+
+router.get("/profile-photo/:id", async (req, res) => {
+  console.log(req.params)
+  const { id } = req.params;
+
+  try {
+    const upload = await Upload.findOne({
+      where: {
+        id,
+        isProfilePhoto: true,
+      },
+      order: [['createdAt', 'DESC']],
+    });
+
+    if (!upload) {
+      return res.json({ securePhotoUrl: null });
+    }
+
+    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url'); // or 'messagePhotoUrl', depending on your column
+    return res.json({ securePhotoUrl: secureUpload.securePhotoUrl });
+  } catch (error) {
+    console.error('Error fetching profile photo:', error);
+    return res.status(500).json({ error: 'Failed to fetch profile photo' });
   }
 });
 

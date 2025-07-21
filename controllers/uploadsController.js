@@ -154,7 +154,6 @@ exports.getImages = async (req, res) => {
         return { ...plain, securePhotoUrl };
       });
 
-    console.log(filtered)
     return res.status(200).json({ images: filtered });
   } catch (e) {
     console.error('❌ Error in getImages:', e);
