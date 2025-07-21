@@ -150,10 +150,11 @@ exports.getImages = async (req, res) => {
       .filter((upload) => s3Keys.includes(upload.url))
       .map((upload) => {
         const plain = upload.toJSON();
-        const secureUrl = attachSecureUrl(API_BASE_URL, plain.url);
-        return { ...plain, secureUrl };
+        const securePhotoUrl = attachSecureUrl(API_BASE_URL, plain.url);
+        return { ...plain, securePhotoUrl };
       });
 
+    console.log(filtered)
     return res.status(200).json({ images: filtered });
   } catch (e) {
     console.error('❌ Error in getImages:', e);
