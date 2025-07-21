@@ -6,6 +6,7 @@ const Message = models.Message;
 const { Op } = require('sequelize');
 const { sequelize } = require('../models');
 const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
+const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
 const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 exports.getCurrentChat = async (req, res) => {
@@ -43,9 +44,9 @@ exports.index = async (req, res) => {
           include: [
             {
               model: User,
-              attributes: ['id', 'username', 'avatar'], // restrict user fields
+              attributes: ['username'],
               where: {
-                [Op.not]: { id: user.id }, // show only the *partner*
+                [Op.not]: { id: user.id },
               },
             },
             {
@@ -53,7 +54,7 @@ exports.index = async (req, res) => {
               include: [
                 {
                   model: User,
-                  attributes: ['id', 'username', 'avatar'], // restrict again
+                  attributes: ['id', 'username', 'avatar'],
                 },
               ],
               limit: 20,
@@ -66,7 +67,16 @@ exports.index = async (req, res) => {
 
     if (!result) return res.json([]);
 
-    return res.json(result.Chats);
+
+    const chatsWithSecureUrls = result.Chats.map(chat => {
+      const updatedMessages = addSecureUrlsToList(chat.Messages, API_BASE_URL, 'messagePhotoUrl');
+      return {
+        ...chat.toJSON(),
+        Messages: updatedMessages,
+      };
+    });
+
+    return res.json(chatsWithSecureUrls);
   } catch (err) {
     console.error('Error fetching chats:', err);
     return res.status(500).json({ error: 'Something went wrong' });
