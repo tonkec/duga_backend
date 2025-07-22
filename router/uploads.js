@@ -23,6 +23,20 @@ AWS.config.update({
 
 const s3 = new AWS.S3();
 
+/**
+ * @swagger
+ * /uploads/files/*:
+ *   get:
+ *     summary: Stream image files from S3 bucket
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: File stream initiated
+ *       404:
+ *         description: File not found in DB
+ */
 router.get('/files/*', checkJwt, async (req, res) => {
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
@@ -70,6 +84,29 @@ router.get('/files/*', checkJwt, async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /uploads/delete-photo:
+ *   delete:
+ *     summary: Delete a photo from S3 and database
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               url:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Photo deleted successfully
+ *       404:
+ *         description: Photo not found
+ */
 router.delete('/delete-photo',  [
     checkJwt,
     withAccessCheck(Upload, async (req) => {
@@ -116,6 +153,30 @@ const removeSpacesAndDashes = (str) => {
   return str.replace(/[\s-]/g, '');
 };
 
+/**
+ * @swagger
+ * /uploads/message-photos:
+ *   post:
+ *     summary: Upload message-related photos
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               avatars:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *     responses:
+ *       200:
+ *         description: Upload successful
+ */
 router.post(
   "/message-photos",
   [checkJwt, attachCurrentUser, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)],
@@ -163,6 +224,32 @@ router.post(
 );
 
 
+/**
+ * @swagger
+ * /uploads/photos:
+ *   post:
+ *     summary: Upload user photos with descriptions
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               avatars:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                   format: binary
+ *               text:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Upload and metadata update successful
+ */
 router.post(
   '/photos',
   [
@@ -227,8 +314,44 @@ router.post(
   }
 );
 
+/**
+ * @swagger
+ * /uploads/user/{id}:
+ *   get:
+ *     summary: Get uploads by user ID
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of uploads by user
+ */
 router.get('/user/:id', [checkJwt], getImages);
 
+/**
+ * @swagger
+ * /uploads/photo/{id}:
+ *   get:
+ *     summary: Get a single upload by ID with secure URL
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Upload data with secure URL
+ */
 router.get("/photo/:id", [checkJwt], async (req, res) => {
   try {
     const upload = await Upload.findOne({
@@ -258,7 +381,18 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
   }
 });
 
-
+/**
+ * @swagger
+ * /uploads/latest:
+ *   get:
+ *     summary: Get latest 3 uploads
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of recent uploads
+ */
 router.get('/latest', [checkJwt], async (req, res) => {
   try {
     const uploads = await Upload.findAll({
@@ -274,6 +408,18 @@ router.get('/latest', [checkJwt], async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /uploads/user-photos:
+ *   get:
+ *     summary: Get all images uploaded, commented, or messaged by user
+ *     tags: [Uploads]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Combined list of user photos
+ */
 router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
   try {
     const userId = req.auth?.user?.id;
@@ -339,6 +485,22 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /uploads/profile-photo/{id}:
+ *   get:
+ *     summary: Get user profile photo
+ *     tags: [Uploads]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Secure profile photo URL
+ */
 router.get("/profile-photo/:id", async (req, res) => {
   const { id } = req.params;
   console.log(id)

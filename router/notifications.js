@@ -4,6 +4,35 @@ const { checkJwt } = require('../middleware/auth');
 const attachCurrentUser = require("../middleware/attachCurrentUser");
 const withAccessCheck = require('../middleware/accessCheck');
 
+/**
+ * @swagger
+ * tags:
+ *   name: Notifications
+ *   description: User notification operations
+ */
+
+/**
+ * @swagger
+ * /notifications:
+ *   get:
+ *     summary: Get all notifications for the current user
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of notifications
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                 $ref: '#/components/schemas/Notification'
+ *       401:
+ *         description: Unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get('/', [checkJwt, attachCurrentUser], async (req, res) => {
   const userId = req.auth.user.id;
 
@@ -22,6 +51,29 @@ router.get('/', [checkJwt, attachCurrentUser], async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /notifications/{id}/read:
+ *   put:
+ *     summary: Mark a specific notification as read
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Notification ID
+ *     responses:
+ *       200:
+ *         description: Notification marked as read
+ *       404:
+ *         description: Notification not found
+ *       500:
+ *         description: Server error
+ */
 router.put('/:id/read', [checkJwt, attachCurrentUser, withAccessCheck(Notification)], async (req, res) => {
   try {
     const { id } = req.params;
@@ -41,6 +93,30 @@ router.put('/:id/read', [checkJwt, attachCurrentUser, withAccessCheck(Notificati
   }
 });
 
+/**
+ * @swagger
+ * /notifications/mark-all-read:
+ *   put:
+ *     summary: Mark all notifications as read for the current user
+ *     tags: [Notifications]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Count of notifications marked as read
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Marked 5 notifications as read.
+ *       400:
+ *         description: Missing user ID
+ *       500:
+ *         description: Server error
+ */
 router.put('/mark-all-read', [checkJwt, attachCurrentUser], async (req, res) => {
   const userId = req.auth.user.id;
   

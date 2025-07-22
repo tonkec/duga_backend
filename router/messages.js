@@ -5,6 +5,45 @@ const withAccessCheck = require('../middleware/accessCheck');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const { Chat, ChatUser } = require('../models');
 
+/**
+ * @swagger
+ * tags:
+ *   name: Messages
+ *   description: Message read status and tracking
+ */
+
+/**
+ * @swagger
+ * /messages/read-message:
+ *   post:
+ *     summary: Mark a message as read
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - id
+ *             properties:
+ *               id:
+ *                 type: number
+ *                 description: ID of the message to mark as read
+ *     responses:
+ *       200:
+ *         description: Message marked as read
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Message'
+ *       403:
+ *         description: Forbidden or invalid message access
+ *       500:
+ *         description: Server error
+ */
 router.post(
   '/read-message',
   [
@@ -45,6 +84,36 @@ router.post(
   }
 );
 
+/**
+ * @swagger
+ * /messages/is-read:
+ *   get:
+ *     summary: Check if a message is read
+ *     tags: [Messages]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: number
+ *         description: ID of the message to check
+ *     responses:
+ *       200:
+ *         description: Message read status
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 is_read:
+ *                   type: boolean
+ *       403:
+ *         description: Forbidden or unauthorized
+ *       500:
+ *         description: Server error
+ */
 router.get(
   "/is-read",
   [

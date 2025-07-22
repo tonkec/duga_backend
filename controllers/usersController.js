@@ -49,6 +49,7 @@ exports.update = async (req, res) => {
   }
 };
 
+
 exports.getAllUsers = async (req, res) => {
   try {
    const users = await User.findAll({
