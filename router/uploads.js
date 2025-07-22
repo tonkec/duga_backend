@@ -270,6 +270,7 @@ router.get('/latest', [checkJwt], async (req, res) => {
     const result = addSecureUrlsToList(uploads, API_BASE_URL);
     return res.status(200).json(result);
   } catch (e) {
+    console.log(e)
     return res.status(500).json({ message: e.message });
   }
 });
