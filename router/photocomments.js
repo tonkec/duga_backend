@@ -1,15 +1,18 @@
-const Upload = require('../models').Upload;
-const User = require('../models').User;
-const PhotoComment = require('../models').PhotoComment;
+const express = require('express');
+const router = express.Router();
+
+const { Upload, User, PhotoComment } = require('../models');
 const { checkJwt } = require('../middleware/auth');
-const router = require('express').Router();
+const attachCurrentUser = require('../middleware/attachCurrentUser');
+const withAccessCheck = require('../middleware/accessCheck');
 const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
-const allowedMimeTypes = require("../consts/allowedFileTypes")
-const attachCurrentUser = require('../middleware/attachCurrentUser');
+const allowedMimeTypes = require("../consts/allowedFileTypes");
 const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
+
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = 'secureUrl') {
   return items.map((item) => {
@@ -64,31 +67,34 @@ const uploadCommentImage = multer({
     } else {
       const error = new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.');
       error.code = 'INVALID_FILE_TYPE';
-      cb(new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'));
+      cb(error);
     }
   },
 });
 
-
 router.post(
   '/add-comment',
-  [checkJwt, attachCurrentUser, uploadCommentImage.single('commentImage')],
+  [
+    checkJwt,
+    attachCurrentUser,
+    uploadCommentImage.single('commentImage'),
+    withAccessCheck(Upload, async (req) => {
+      const { uploadId } = req.body;
+      if (!uploadId) return null;
+      return await Upload.findOne({ where: { id: uploadId } });
+    }),
+  ],
   async (req, res) => {
     try {
       const { uploadId, comment, taggedUserIds } = req.body;
       const userId = req.auth.user.id;
-
-      const upload = await Upload.findOne({ where: { id: uploadId } });
-      if (!upload) {
-        return res.status(404).send({ message: 'Upload not found' });
-      }
 
       const s3Key = req.file?.transforms?.[0]?.key ?? null;
       let commentImageUpload = null;
 
       if (s3Key) {
         commentImageUpload = await Upload.create({
-          url: s3Key, 
+          url: s3Key,
           name: req.file.originalname,
           userId,
         });
@@ -98,7 +104,7 @@ router.post(
         userId,
         uploadId,
         comment,
-        imageUrl: commentImageUpload?.url || null, 
+        imageUrl: commentImageUpload?.url || null,
       });
 
       if (taggedUserIds && typeof taggedUserIds === 'string') {
@@ -118,7 +124,7 @@ router.post(
       return res.status(201).send({ data: fullComment });
     } catch (error) {
       if (error.code === 'LIMIT_FILE_SIZE') {
-        return res.status(400).json({ message: 'Image must be under 1MB' });
+        return res.status(400).json({ message: 'Image too big' });
       }
 
       if (error.message?.includes('Invalid file type')) {
@@ -130,7 +136,6 @@ router.post(
     }
   }
 );
-
 
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
@@ -152,7 +157,6 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
       ],
     });
 
-    // ⬇️ Add secureImageUrl to each comment
     const commentsWithSecureUrls = addSecureUrlsToList(
       photoComments,
       API_BASE_URL,
@@ -169,43 +173,46 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   }
 });
 
+router.put(
+  '/update-comment/:id',
+  [
+    checkJwt,
+    withAccessCheck(PhotoComment, async (req) => {
+      const commentId = Number(req.params.id);
+      if (!commentId) return null;
+      return await PhotoComment.findByPk(commentId);
+    }),
+  ],
+  async (req, res) => {
+    try {
+      const { comment, taggedUserIds } = req.body;
+      const photoComment = req.resource;
 
-router.put('/update-comment/:id', [checkJwt], async (req, res) => {
-  try {
-    const { comment, taggedUserIds } = req.body;
+      photoComment.comment = comment;
+      await photoComment.save();
 
-    const photoComment = await PhotoComment.findOne({
-      where: { id: req.params.id },
-    });
+      if (Array.isArray(taggedUserIds)) {
+        await photoComment.setTaggedUsers(taggedUserIds);
+      }
 
-    if (!photoComment) {
-      return res.status(404).send({ message: 'Comment not found' });
+      const fullUpdatedComment = await PhotoComment.findByPk(photoComment.id, {
+        include: [
+          { model: User, as: 'user', attributes: ['id', 'username'] },
+          { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+        ],
+      });
+
+      return res.status(200).send({ data: fullUpdatedComment });
+    } catch (error) {
+      console.error('❌ Error updating comment:', error);
+      return res.status(500).send({
+        message: 'Error occurred while updating comment',
+      });
     }
-
-    photoComment.comment = comment;
-    await photoComment.save();
-
-    if (Array.isArray(taggedUserIds)) {
-      await photoComment.setTaggedUsers(taggedUserIds); 
-    }
-
-    const fullUpdatedComment = await PhotoComment.findByPk(photoComment.id, {
-      include: [
-        { model: User, as: 'user', attributes: ['id', 'username'] },
-        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
-      ],
-    });
-    return res.status(200).send({ data: fullUpdatedComment });
-  } catch (error) {
-    console.error('❌ Error updating comment:', error);
-    return res.status(500).send({
-      message: 'Error occurred while updating comment',
-    });
   }
-});
+);
 
-const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
-router.get('/latest', [checkJwt], async (req, res) => {
+router.get("/latest", [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
       limit: 5,
@@ -239,50 +246,40 @@ router.get('/latest', [checkJwt], async (req, res) => {
   }
 });
 
-router.delete('/delete-comment/:id', [checkJwt], async (req, res) => {
-  try {
-    const photoComment = await PhotoComment.findOne({
-      where: { id: req.params.id },
-    });
+router.delete(
+  '/delete-comment/:id',
+  [checkJwt, withAccessCheck(PhotoComment)],
+  async (req, res) => {
+    try {
+      const photoComment = req.resource;
 
-    if (!photoComment) {
-      return res.status(404).send({
-        message: 'Comment not found',
+      if (photoComment.imageUrl) {
+        const bucket = 'duga-user-photo';
+        const s3Url = new URL(photoComment.imageUrl);
+        const key = decodeURIComponent(s3Url.pathname.slice(1));
+
+        try {
+          await s3.deleteObject({ Bucket: bucket, Key: key }).promise();
+          console.log('✅ Comment image deleted from S3');
+        } catch (err) {
+          console.warn('⚠️ Failed to delete comment image from S3:', err);
+        }
+      }
+
+      await photoComment.setTaggedUsers([]);
+      await photoComment.destroy();
+
+      return res.status(200).send({
+        commentId: req.params.id,
+        message: 'Comment and image deleted successfully',
+      });
+    } catch (error) {
+      console.error('❌ Error deleting comment:', error);
+      return res.status(500).send({
+        message: 'Error occurred while deleting comment',
       });
     }
-
-  
-    if (photoComment.imageUrl) {
-      const bucket = 'duga-user-photo';
-      const s3Url = new URL(photoComment.imageUrl);
-      const key = decodeURIComponent(s3Url.pathname.slice(1)); 
-
-      try {
-        await s3.deleteObject({
-          Bucket: bucket,
-          Key: key,
-        }).promise();
-        console.log('✅ Comment image deleted from S3');
-      } catch (err) {
-        console.warn('⚠️ Failed to delete comment image from S3:', err);
-      }
-    }
-
-    await photoComment.setTaggedUsers([]);
-    await photoComment.destroy();
-
-    return res.status(200).send({
-      commentId: req.params.id,
-      message: 'Comment and image deleted successfully',
-    });
-  } catch (error) {
-    console.error('❌ Error deleting comment:', error);
-    return res.status(500).send({
-      message: 'Error occurred while deleting comment',
-    });
   }
-});
-
-
+);
 
 module.exports = router;
