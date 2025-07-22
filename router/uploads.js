@@ -24,7 +24,6 @@ AWS.config.update({
 const s3 = new AWS.S3();
 
 router.get('/files/*', checkJwt, async (req, res) => {
-  console.log(req.params, "PARAMS")
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
   console.log('🔍 Requested key:', key);
