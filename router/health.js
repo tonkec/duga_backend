@@ -1,6 +1,33 @@
 const router = require('express').Router();
 const { sequelize } = require('../models');
-
+/**
+ * @swagger
+ * /health:
+ *   get:
+ *     summary: Check database connection health
+ *     tags: [Health]
+ *     responses:
+ *       200:
+ *         description: Database connected successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Database connected
+ *       500:
+ *         description: Database connection error
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: Database connection error
+ */
 router.get('/', async (req, res) => {
     try {
         await sequelize.authenticate();

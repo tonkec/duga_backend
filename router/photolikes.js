@@ -4,6 +4,29 @@ const PhotoLikes = require('../models').PhotoLikes;
 const router = require('express').Router();
 const attachCurrentUser = require("../middleware/attachCurrentUser");
 
+/**
+ * @swagger
+ * /likes/upvote/{id}:
+ *   post:
+ *     summary: Upvote (like) a photo
+ *     tags: [PhotoLikes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: ID of the photo to like
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       201:
+ *         description: Photo liked successfully
+ *       400:
+ *         description: Already liked or invalid photo ID
+ *       500:
+ *         description: Server error
+ */
 router.post('/upvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
   try {
     const uploadId = parseInt(req.params.id);
@@ -42,7 +65,29 @@ router.post('/upvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
   }
 });
 
-
+/**
+ * @swagger
+ * /likes/downvote/{id}:
+ *   post:
+ *     summary: Downvote (unlike) a photo
+ *     tags: [PhotoLikes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         description: ID of the photo to unlike
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: Photo unliked successfully
+ *       400:
+ *         description: Not previously liked
+ *       500:
+ *         description: Server error
+ */
 router.post('/downvote/:id', [checkJwt, attachCurrentUser], async (req, res) => {
   const uploadId = parseInt(req.params.id);
   const userId = req.auth.user.id;
@@ -78,7 +123,27 @@ router.post('/downvote/:id', [checkJwt, attachCurrentUser], async (req, res) => 
   }
 });
 
-
+/**
+ * @swagger
+ * /likes/all-likes/{photoId}:
+ *   get:
+ *     summary: Get all likes for a specific photo
+ *     tags: [PhotoLikes]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: photoId
+ *         in: path
+ *         required: true
+ *         description: ID of the photo
+ *         schema:
+ *           type: integer
+ *     responses:
+ *       200:
+ *         description: List of users who liked the photo
+ *       500:
+ *         description: Server error
+ */
 router.get('/all-likes/:photoId', [checkJwt], async (req, res) => {
   try {
     const photoLikes = await PhotoLikes.findAll({
