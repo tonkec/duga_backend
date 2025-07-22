@@ -1,8 +1,8 @@
-export const attachSecureUrl = (baseUrl, fileKey) => {
+const attachSecureUrl = (baseUrl, fileKey) => {
   return `${baseUrl}/uploads/files/${encodeURIComponent(fileKey)}`;
 };
 
-export const addSecureUrlsToList = (items, baseUrl, key = 'url') => {
+const addSecureUrlsToList = (items, baseUrl, key = 'url') => {
   return items.map((item) => {
     const plain = item.toJSON?.() || item;
     const value = plain[key];
@@ -19,7 +19,7 @@ export const addSecureUrlsToList = (items, baseUrl, key = 'url') => {
 };
 
 
-export const extractKeyFromUrl = (url) => {
+const extractKeyFromUrl = (url) => {
   console.log('🔍 Extracting key from URL:', url);
   if (!url) return null;
 
@@ -32,3 +32,9 @@ export const extractKeyFromUrl = (url) => {
     return null;
   }
 }
+
+module.exports = {
+  attachSecureUrl,
+  addSecureUrlsToList,
+  extractKeyFromUrl,
+};
