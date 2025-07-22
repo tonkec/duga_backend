@@ -36,8 +36,6 @@ function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = '
   });
 }
 
-
-
 const uploadCommentImage = multer({
   storage: multerS3({
     s3,
