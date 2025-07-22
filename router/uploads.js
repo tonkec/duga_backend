@@ -342,11 +342,12 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
 
 router.get("/profile-photo/:id", async (req, res) => {
   const { id } = req.params;
+  console.log(id)
 
   try {
     const upload = await Upload.findOne({
       where: {
-        id,
+        userId: id,
         isProfilePhoto: true,
       },
       order: [['createdAt', 'DESC']],
