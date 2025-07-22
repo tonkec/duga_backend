@@ -14,7 +14,7 @@ const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
 const withAccessCheck = require('../middleware/accessCheck');
 const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
-const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
+const {API_BASE_URL} = require("../consts/apiBaseUrl");
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,

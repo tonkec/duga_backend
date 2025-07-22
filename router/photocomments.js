@@ -11,8 +11,7 @@ const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes");
 const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
-
-const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
+const {API_BASE_URL }= require("../consts/apiBaseUrl");
 
 function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = 'secureUrl') {
   return items.map((item) => {

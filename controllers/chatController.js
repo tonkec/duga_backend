@@ -7,7 +7,7 @@ const { Op } = require('sequelize');
 const { sequelize } = require('../models');
 const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
 const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
-const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
+const {API_BASE_URL} = require("../consts/apiBaseUrl");
 
 exports.getCurrentChat = async (req, res) => {
   const { id } = req.params;
