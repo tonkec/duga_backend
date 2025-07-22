@@ -405,8 +405,12 @@ const SocketServer = (server, app) => {
         message.type = savedMessage.type;
         message.messagePhotoUrl = savedMessage.messagePhotoUrl;
         delete message.fromUser;
-    
         for (const recipientId of message.toUserId) {
+          if (!recipientId) {
+            console.warn('⚠️ Skipping null or invalid recipientId:', recipientId);
+            continue;
+          }
+
           const notification = await Notification.create({
             userId: recipientId,
             type: 'message',
@@ -415,7 +419,7 @@ const SocketServer = (server, app) => {
             actionType: 'message',
             chatId: savedMessage.chatId,
           });
-    
+
           if (users.has(recipientId)) {
             users.get(recipientId).sockets.forEach((sockId) => {
               io.to(sockId).emit('new_notification', {
@@ -431,6 +435,7 @@ const SocketServer = (server, app) => {
             });
           }
         }
+
     
         sockets.forEach((socket) => {
           io.to(socket).emit('received', message);
