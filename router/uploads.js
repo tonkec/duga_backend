@@ -24,6 +24,7 @@ AWS.config.update({
 const s3 = new AWS.S3();
 
 router.get('/files/*', checkJwt, async (req, res) => {
+  console.log(req.params, "PARAMS")
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
   console.log('🔍 Requested key:', key);
@@ -31,7 +32,6 @@ router.get('/files/*', checkJwt, async (req, res) => {
   try {
     let file = await Upload.findOne({ where: { url: key} });
 
-    // Check in PhotoComment.imageUrl if not found in Uploads
     if (!file) {
       console.log('🔍 Not found in Upload. Checking PhotoComment.imageUrl...');
       const commentWithImage = await PhotoComment.findOne({ where: { imageUrl: key } });
@@ -64,7 +64,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
       })
       .createReadStream();
 
-    res.setHeader('Content-Type', 'image/png'); // optionally detect from key
+    res.setHeader('Content-Type', 'image/png'); 
     return s3Stream.pipe(res);
   } catch (err) {
     console.error('🔥 S3 fetch failed:', err);
@@ -245,7 +245,7 @@ router.get("/photo/:id", [checkJwt], async (req, res) => {
     }
 
     const plainUpload = upload.toJSON();
-    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL)[0].secureUrl;
+    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL)[0].securePhotoUrl;
 
     return res.status(200).send({
       ...plainUpload,
@@ -341,7 +341,6 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
 });
 
 router.get("/profile-photo/:id", async (req, res) => {
-  console.log(req.params)
   const { id } = req.params;
 
   try {

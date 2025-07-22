@@ -200,6 +200,9 @@ exports.messages = async (req, res) => {
   const enrichedMessages = messages.rows.map((message) => {
     const plain = message.toJSON();
     const { messagePhotoUrl } = plain;
+    if (message.type === "gif") {
+      return message
+    }
 
     if (messagePhotoUrl) {
       const key = extractKeyFromUrl(messagePhotoUrl);
