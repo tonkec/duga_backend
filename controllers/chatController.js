@@ -5,6 +5,9 @@ const ChatUser = models.ChatUser;
 const Message = models.Message;
 const { Op } = require('sequelize');
 const { sequelize } = require('../models');
+const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
+const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
+const API_BASE_URL = `${process.env.APP_URL}:${process.env.APP_PORT}`;
 
 exports.getCurrentChat = async (req, res) => {
   const { id } = req.params;
@@ -41,9 +44,9 @@ exports.index = async (req, res) => {
           include: [
             {
               model: User,
-              attributes: ['id', 'username', 'avatar'], // restrict user fields
+              attributes: ['username', "id"],
               where: {
-                [Op.not]: { id: user.id }, // show only the *partner*
+                [Op.not]: { id: user.id },
               },
             },
             {
@@ -51,7 +54,7 @@ exports.index = async (req, res) => {
               include: [
                 {
                   model: User,
-                  attributes: ['id', 'username', 'avatar'], // restrict again
+                  attributes: ['id', 'username', 'avatar'],
                 },
               ],
               limit: 20,
@@ -64,7 +67,16 @@ exports.index = async (req, res) => {
 
     if (!result) return res.json([]);
 
-    return res.json(result.Chats);
+
+    const chatsWithSecureUrls = result.Chats.map(chat => {
+      const updatedMessages = addSecureUrlsToList(chat.Messages, API_BASE_URL, 'messagePhotoUrl');
+      return {
+        ...chat.toJSON(),
+        Messages: updatedMessages,
+      };
+    });
+
+    return res.json(chatsWithSecureUrls);
   } catch (err) {
     console.error('Error fetching chats:', err);
     return res.status(500).json({ error: 'Something went wrong' });
@@ -153,8 +165,9 @@ exports.create = async (req, res) => {
 };
 
 
+
 exports.messages = async (req, res) => {
- const limit = 10;
+  const limit = 10;
   const page = Number(req.query.page) || 1;
   const chatId = Number(req.query.id);
 
@@ -183,15 +196,39 @@ exports.messages = async (req, res) => {
     order: [['id', 'DESC']],
   });
 
+  // ✅ Add secureUrl for images
+  const enrichedMessages = messages.rows.map((message) => {
+    const plain = message.toJSON();
+    const { messagePhotoUrl } = plain;
+    if (message.type === "gif") {
+      return message
+    }
+
+    if (messagePhotoUrl) {
+      const key = extractKeyFromUrl(messagePhotoUrl);
+
+      if (key) {
+        plain.securePhotoUrl = `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`;
+      } else {
+        console.warn('🚨 Could not extract key from:', messagePhotoUrl);
+        plain.securePhotoUrl = null;
+      }
+    } else {
+      plain.securePhotoUrl = null;
+    }
+
+    return plain;
+  });
+
+
   const totalPages = Math.ceil(messages.count / limit);
   const result = {
-    messages: messages.rows,
+    messages: enrichedMessages,
     pagination: { page, totalPages },
   };
 
   return res.status(200).json(result);
 };
-
 exports.deleteChat = async (req, res) => {
   try {
     await Chat.destroy({
