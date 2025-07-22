@@ -5,9 +5,15 @@ export const attachSecureUrl = (baseUrl, fileKey) => {
 export const addSecureUrlsToList = (items, baseUrl, key = 'url') => {
   return items.map((item) => {
     const plain = item.toJSON?.() || item;
-    if (plain[key]) {
-      plain.securePhotoUrl = attachSecureUrl(baseUrl, plain[key]);
+    const value = plain[key];
+
+    // ⛔ Skip if it's already a full URL
+    if (value && !value.startsWith('http')) {
+      plain.securePhotoUrl = attachSecureUrl(baseUrl, value);
+    } else {
+      plain.securePhotoUrl = null; // Or just leave it undefined
     }
+
     return plain;
   });
 };
