@@ -10,33 +10,8 @@ const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes");
-const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
 const {API_BASE_URL }= require("../consts/apiBaseUrl");
-
-function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = 'secureUrl') {
-  return items.map((item) => {
-    const plain = item.toJSON ? item.toJSON() : item;
-    const originalUrl = plain[originalField];
-
-    if (!originalUrl) {
-      console.warn(`⚠️ Skipping item with missing ${originalField}`);
-      plain[newField] = null;
-      return plain;
-    }
-
-    const key = extractKeyFromUrl(originalUrl);
-    console.log('🔍 Extracting key from URL:', originalUrl);
-
-    if (key) {
-      plain[newField] = `${baseUrl}/uploads/files/${encodeURIComponent(key)}`;
-    } else {
-      console.warn('🚨 Could not generate secure URL for comment:', originalUrl);
-      plain[newField] = null;
-    }
-
-    return plain;
-  });
-}
+const addSecureUrlsToList = require("../utils/secureUploadUrl");
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -156,13 +131,7 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
       ],
     });
 
-    const commentsWithSecureUrls = addSecureUrlsToList(
-      photoComments,
-      API_BASE_URL,
-      'imageUrl',
-      'secureImageUrl'
-    );
-
+    const commentsWithSecureUrls = addSecureUrlsToList(photoComments, API_BASE_URL, 'imageUrl');
     return res.status(200).send(commentsWithSecureUrls);
   } catch (error) {
     console.error('❌ Error fetching comments:', error);
@@ -234,8 +203,7 @@ router.get("/latest", [checkJwt], async (req, res) => {
     const commentsWithSecureUrls = addSecureUrlsToList(
       photoComments,
       API_BASE_URL,
-      'imageUrl',
-      'secureImageUrl'
+      'imageUrl'
     );
 
     res.status(200).json(commentsWithSecureUrls);

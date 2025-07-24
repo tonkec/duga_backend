@@ -56,12 +56,23 @@ router.get('/files/*', checkJwt, async (req, res) => {
       console.log('❌ Not found in Upload, Comment, or Message');
       return res.status(404).json({ message: 'File not found in DB' });
     }
+
+    console.log(`${process.env.NODE_ENV}/${key}`, "KEY")
+    const normalizedKey = key.startsWith(`${process.env.NODE_ENV}/`)
+  ? key
+  : `${process.env.NODE_ENV}/${key}`;
     const s3Stream = s3
       .getObject({
         Bucket: 'duga-user-photo',
-        Key: messageWithImage ? `${process.env.NODE_ENV}/${key}` : key
+        Key: normalizedKey.toLowerCase()
       })
       .createReadStream();
+    
+    
+    s3Stream.on('error', (err) => {
+      console.error('❌ Stream error:', err); // Log here!
+      res.status(404).json({ message: 'Image not found on S3' });
+    });
 
     res.setHeader('Content-Type', 'image/png'); 
     return s3Stream.pipe(res);
@@ -70,14 +81,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
   }
 });
 
-router.delete('/delete-photo',  [
-    checkJwt,
-    withAccessCheck(Upload, async (req) => {
-      const { url } = req.body;
-      if (!url) return null;
-      return await Upload.findOne({ where: { url } });
-    }),
-  ], async (req, res) => {
+router.delete('/delete-photo', [checkJwt], async (req, res) => {
   const { url } = req.body;
 
   if (!url) {
@@ -85,30 +89,62 @@ router.delete('/delete-photo',  [
   }
 
   try {
-    // Extract S3 Bucket Key from URL
-    const bucketKey = url; // `url` contains the S3 key, e.g., "user/4/profile-photo/filename.jpg"
-
-    // Delete photo from S3
-    const params = {
-      Bucket: 'duga-user-photo',
-      Key: bucketKey, // The key extracted from `url`
+    const extractKeyFromUrl = (url) => {
+      try {
+        const u = new URL(url);
+        return decodeURIComponent(u.pathname.slice(1));
+      } catch {
+        return url; 
+      }
     };
 
-    await s3.deleteObject(params).promise();
+    const key = extractKeyFromUrl(url);
+    let deletedFrom = null;
 
-    // Optionally, delete the photo record from the database
-    const deletedPhoto = await Upload.destroy({
-      where: { url },
-    });
-
-    if (!deletedPhoto) {
-      return res.status(404).json({ error: 'Photo not found in the database.' });
+    // Try Upload
+    const upload = await Upload.findOne({ where: { url: key } });
+    if (upload) {
+      await upload.destroy();
+      deletedFrom = 'Upload';
     }
 
-    res.status(200).json({ message: 'Photo deleted successfully.' });
+    // Try PhotoComment
+    if (!deletedFrom) {
+      const comment = await PhotoComment.findOne({ where: { imageUrl: key } });
+      if (comment) {
+        await comment.setTaggedUsers([]);
+        await comment.destroy();
+        deletedFrom = 'PhotoComment';
+      }
+    }
+
+    // Try Message
+    if (!deletedFrom) {
+      const message = await Message.findOne({ where: { messagePhotoUrl: key } });
+      if (message) {
+        await message.destroy(); // FULLY DELETE THE MESSAGE
+        deletedFrom = 'Message';
+      }
+    }
+
+    if (!deletedFrom) {
+      return res.status(404).json({ error: 'No matching record found for this photo.' });
+    }
+
+    // Delete the actual file from S3
+    await s3
+      .deleteObject({
+        Bucket: 'duga-user-photo',
+        Key: key,
+      })
+      .promise(); 
+
+    return res.status(200).json({
+      message: `Photo and associated ${deletedFrom} record deleted successfully.`,
+    });
   } catch (error) {
-    console.error('Error deleting photo:', error);
-    res.status(500).json({ error });
+    console.error('❌ Error deleting photo:', error);
+    return res.status(500).json({ error: 'Server error during deletion.' });
   }
 });
 
@@ -301,7 +337,7 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
             [Op.and]: [
               { [Op.ne]: null },
               { [Op.notILike]: '%.gif' },
-              { [Op.notILike]: '%giphy%' }, 
+              { [Op.notILike]: '%giphy%' },
             ],
           },
         },
@@ -313,22 +349,34 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
       ...photo.toJSON(),
       url: photo.url,
       type: 'upload',
+      originalField: 'url',
     }));
 
     const normalizedComments = photoComments.map(photo => ({
       ...photo.toJSON(),
       url: photo.imageUrl,
       type: 'comment',
+      originalField: 'imageUrl',
     }));
 
     const normalizedMessages = chatPhotos.map(photo => ({
       ...photo.toJSON(),
       url: photo.messagePhotoUrl,
       type: 'message',
+      originalField: 'messagePhotoUrl',
     }));
 
-    const allPhotos = [...normalizedUploads, ...normalizedComments, ...normalizedMessages];
+    let allPhotos = [...normalizedUploads, ...normalizedComments, ...normalizedMessages];
     allPhotos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+    allPhotos = allPhotos.map(photo => {
+      const key = photo.url;
+      const encodedKey = encodeURIComponent(key);
+      return {
+        ...photo,
+        securePhotoUrl: `${API_BASE_URL}/uploads/files/${encodedKey}`,
+      };
+    });
 
     return res.status(200).json(allPhotos);
   } catch (error) {
@@ -341,7 +389,6 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
 
 router.get("/profile-photo/:id", async (req, res) => {
   const { id } = req.params;
-  console.log(id)
 
   try {
     const upload = await Upload.findOne({
@@ -356,7 +403,7 @@ router.get("/profile-photo/:id", async (req, res) => {
       return res.json({ securePhotoUrl: null });
     }
 
-    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url'); // or 'messagePhotoUrl', depending on your column
+    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url'); 
     return res.json({ securePhotoUrl: secureUpload.securePhotoUrl });
   } catch (error) {
     console.error('Error fetching profile photo:', error);
