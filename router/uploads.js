@@ -57,7 +57,6 @@ router.get('/files/*', checkJwt, async (req, res) => {
       return res.status(404).json({ message: 'File not found in DB' });
     }
 
-    console.log(`${process.env.NODE_ENV}/${key}`, "KEY")
     const normalizedKey = key.startsWith(`${process.env.NODE_ENV}/`)
   ? key
   : `${process.env.NODE_ENV}/${key}`;

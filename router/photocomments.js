@@ -11,7 +11,7 @@ const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes");
 const {API_BASE_URL }= require("../consts/apiBaseUrl");
-const addSecureUrlsToList = require("../utils/secureUploadUrl");
+const { addSecureUrlsToList } = require("../utils/secureUploadUrl");
 
 const uploadCommentImage = multer({
   storage: multerS3({
