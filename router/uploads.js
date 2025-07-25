@@ -318,59 +318,22 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const [uploads, photoComments] = await Promise.all([
-      Upload.findAll({
-        where: { userId },
-        attributes: ['id', 'url', 'description', 'createdAt'],
-      }),
-      PhotoComment.findAll({
-        where: {
-          userId,
-          imageUrl: { [Op.ne]: null },
-        },
-        attributes: ['id', 'imageUrl', 'comment', 'createdAt'],
-      }),
-      Message.findAll({
-        where: {
-          fromUserId: userId,
-          messagePhotoUrl: {
-            [Op.and]: [
-              { [Op.ne]: null },
-              { [Op.notILike]: '%.gif' },
-              { [Op.notILike]: '%giphy%' },
-            ],
-          },
-        },
-        attributes: ['id', 'messagePhotoUrl', 'createdAt'],
-      }),
-    ]);
-
-    const normalizedUploads = uploads.map(photo => ({
-      ...photo.toJSON(),
-      url: photo.url,
-      type: 'upload',
-      originalField: 'url',
-    }));
-
-    const normalizedComments = photoComments.map(photo => ({
-      ...photo.toJSON(),
-      url: photo.imageUrl,
-      type: 'comment',
-      originalField: 'imageUrl',
-    }));
-
-  
-    let allPhotos = [...normalizedUploads, ...normalizedComments];
-    allPhotos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    allPhotos = allPhotos.map(photo => {
-      const key = photo.url;
-      const encodedKey = encodeURIComponent(key);
-      return {
-        ...photo,
-        securePhotoUrl: `${API_BASE_URL}/uploads/files/${encodedKey}`,
-      };
+    const uploads = await Upload.findAll({
+      where: { userId },
+      attributes: ['id', 'url', 'description', 'createdAt'],
     });
+
+    const allPhotos = uploads
+      .map(upload => {
+        const key = upload.url;
+        return {
+          ...upload.toJSON(),
+          type: 'upload',
+          originalField: 'url',
+          securePhotoUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.status(200).json(allPhotos);
   } catch (error) {
@@ -380,6 +343,7 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
     });
   }
 });
+
 
 router.get("/profile-photo/:id", async (req, res) => {
   const { id } = req.params;
