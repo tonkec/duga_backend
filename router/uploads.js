@@ -3,7 +3,6 @@ const Upload = require('../models').Upload;
 const PhotoComment = require('../models').PhotoComment;
 const Message = require('../models').Message;
 const { checkJwt } = require('../middleware/auth');
-const { Op } = require('sequelize');
 const router = require('express').Router();
 const User = require('../models').User;
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
