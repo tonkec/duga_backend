@@ -27,7 +27,8 @@ router.get('/files/*', checkJwt, async (req, res) => {
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
   console.log('🔍 Requested key:', key);
-
+  
+  
   try {
     let file = await Upload.findOne({ where: { url: key} });
 
@@ -57,9 +58,9 @@ router.get('/files/*', checkJwt, async (req, res) => {
       return res.status(404).json({ message: 'File not found in DB' });
     }
 
-    const normalizedKey = key.startsWith(`${process.env.NODE_ENV}/`)
+    const normalizedKey = removeSpacesAndDashes(key).startsWith(`${process.env.NODE_ENV}/`)
   ? key
-  : `${process.env.NODE_ENV}/${key}`;
+  : `${process.env.NODE_ENV}/${removeSpacesAndDashes(key)}`;
     const s3Stream = s3
       .getObject({
         Bucket: 'duga-user-photo',
@@ -358,14 +359,8 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
       originalField: 'imageUrl',
     }));
 
-    const normalizedMessages = chatPhotos.map(photo => ({
-      ...photo.toJSON(),
-      url: photo.messagePhotoUrl,
-      type: 'message',
-      originalField: 'messagePhotoUrl',
-    }));
-
-    let allPhotos = [...normalizedUploads, ...normalizedComments, ...normalizedMessages];
+  
+    let allPhotos = [...normalizedUploads, ...normalizedComments];
     allPhotos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     allPhotos = allPhotos.map(photo => {
