@@ -318,7 +318,7 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const [uploads, photoComments, chatPhotos] = await Promise.all([
+    const [uploads, photoComments] = await Promise.all([
       Upload.findAll({
         where: { userId },
         attributes: ['id', 'url', 'description', 'createdAt'],
