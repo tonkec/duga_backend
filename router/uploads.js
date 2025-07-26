@@ -121,7 +121,7 @@ router.delete('/delete-photo', [checkJwt], async (req, res) => {
     // PhotoComments
     const commentMatches = await PhotoComment.findAll({
       where: {
-        imageUrl: key,
+        imageUrl: removeSpacesAndDashes(key)
       },
     });
     for (const match of commentMatches) {

@@ -12,6 +12,7 @@ const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes");
 const {API_BASE_URL }= require("../consts/apiBaseUrl");
 const { addSecureUrlsToList } = require("../utils/secureUploadUrl");
+const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -24,8 +25,8 @@ const uploadCommentImage = multer({
         id: "commentImageResized",
         key: function (req, file, cb) {
           const timestamp = Date.now();
-          const filename = `${file.originalname}`;
-          const path = `${process.env.NODE_ENV}/comment/${timestamp}/${filename}`;
+          const cleanedFilename = removeSpacesAndDashes(file.originalname.toLowerCase().trim());
+          const path = `${process.env.NODE_ENV}/comment/${timestamp}/${cleanedFilename}`;
           cb(null, path);
         },
         transform: function (req, file, cb) {
@@ -34,7 +35,7 @@ const uploadCommentImage = multer({
       },
     ],
   }),
-  limits: { fileSize: 1 * 1024 * 1024 },
+  limits: { fileSize: 1 * 1024 * 1024 }, // 1MB
   fileFilter: (req, file, cb) => {
     if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
@@ -45,6 +46,7 @@ const uploadCommentImage = multer({
     }
   },
 });
+
 
 router.post(
   '/add-comment',
@@ -65,20 +67,27 @@ router.post(
 
       const s3Key = req.file?.transforms?.[0]?.key ?? null;
       let commentImageUpload = null;
+      let imageUrl = null;
 
       if (s3Key) {
+        const cleanedName = removeSpacesAndDashes(req.file.originalname.toLowerCase().trim());
+        const envPrefix = `${process.env.NODE_ENV}/`;
+        const dbKey = s3Key.startsWith(envPrefix) ? s3Key.slice(envPrefix.length) : s3Key;
+
         commentImageUpload = await Upload.create({
-          url: s3Key,
-          name: req.file.originalname,
+          url: s3Key, 
+          name: cleanedName,
           userId,
         });
+
+        imageUrl = dbKey; 
       }
 
       const photoComment = await PhotoComment.create({
         userId,
         uploadId,
         comment,
-        imageUrl: commentImageUpload?.url || null,
+        imageUrl, 
       });
 
       if (taggedUserIds && typeof taggedUserIds === 'string') {
@@ -110,6 +119,8 @@ router.post(
     }
   }
 );
+
+
 
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
