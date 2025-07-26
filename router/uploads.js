@@ -16,7 +16,6 @@ const withAccessCheck = require('../middleware/accessCheck');
 const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
 const { API_BASE_URL } = require("../consts/apiBaseUrl");
 const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
-const path = require('path');
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -141,10 +140,6 @@ router.delete('/delete-photo', [checkJwt], async (req, res) => {
       deletedModels.push('Message');
     }
 
-    console.log(`🗑️ Deleted from: ${deletedModels.join(', ')}`);
-    console.log(key, "KEY TO DELETE")
-    console.log(`🧹 S3 key to delete: ${s3Key}`);
-
     if (deletedModels.length === 0) {
       return res.status(404).json({ error: 'No matching records found for this photo.' });
     }
@@ -181,7 +176,6 @@ router.post(
           
           const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
 
-          console.log(file.originalName, "NAME")
           console.log(key)
           const uploadRecord = await Upload.create({
             name: file.originalname,

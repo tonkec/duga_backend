@@ -373,80 +373,108 @@ const SocketServer = (server, app) => {
     
   
     socket.on('message', async (message) => {
-      let sockets = setUsers(message.fromUser, socket);
-    
-      if (users.length > 0) {
-        if (users.has(message.fromUser.id)) {
-          sockets = users.get(message.fromUser.id).sockets;
-        }
+  let sockets = setUsers(message.fromUser, socket);
+
+  if (users.length > 0 && users.has(message.fromUser.id)) {
+    sockets = users.get(message.fromUser.id).sockets;
+  }
+
+  message.toUserId.forEach((id) => {
+    if (users.has(id)) {
+      sockets = [...sockets, ...users.get(id).sockets];
+    }
+  });
+
+  try {
+    let finalMessagePhotoUrl = null;
+
+    if (message.messagePhotoUrl) {
+      const envPrefix = `${process.env.NODE_ENV}/`;
+
+      // Remove env prefix if it exists
+      let cleanKey = message.messagePhotoUrl.startsWith(envPrefix)
+        ? message.messagePhotoUrl.slice(envPrefix.length)
+        : message.messagePhotoUrl;
+
+      const lastSlashIndex = cleanKey.lastIndexOf('/');
+      const path = cleanKey.substring(0, lastSlashIndex);
+      const fileName = cleanKey.substring(lastSlashIndex + 1);
+
+      // Lowercase and sanitize only the filename
+      const normalizedFileName = removeSpacesAndDashes(fileName.toLowerCase());
+      finalMessagePhotoUrl = `${path}/${normalizedFileName}`;
+    }
+
+    const msg = {
+      type: message.type,
+      fromUserId: message.fromUser.id,
+      chatId: message.chatId,
+      message: message.message,
+      messagePhotoUrl: finalMessagePhotoUrl,
+    };
+
+    const savedMessage = await Message.create(msg);
+
+    // Prepare outgoing socket message
+    message.User = message.fromUser;
+    message.fromUserId = message.fromUser.id;
+    message.id = savedMessage.id;
+    message.message = savedMessage.message;
+    message.createdAt = savedMessage.createdAt;
+    message.type = savedMessage.type;
+
+    // Send secure URL for rendering image on frontend
+    message.messagePhotoUrl = finalMessagePhotoUrl;
+    if (finalMessagePhotoUrl) {
+      const fullKey = `${process.env.NODE_ENV}/${finalMessagePhotoUrl}`;
+      message.securePhotoUrl = `/uploads/files/${encodeURIComponent(fullKey)}`;
+    }
+
+    delete message.fromUser;
+
+    // Notify recipients
+    for (const recipientId of message.toUserId) {
+      if (!recipientId) {
+        console.warn('⚠️ Skipping null or invalid recipientId:', recipientId);
+        continue;
       }
-    
-      message.toUserId.forEach((id) => {
-        if (users.has(id)) {
-          sockets = [...sockets, ...users.get(id).sockets];
-        }
+
+      const notification = await Notification.create({
+        userId: recipientId,
+        type: 'message',
+        content: `Nova poruka od ${message.User.username || 'someone'}`,
+        actionId: savedMessage.chatId,
+        actionType: 'message',
+        chatId: savedMessage.chatId,
       });
-    
-      try {
-        const msg = {
-          type: message.type,
-          fromUserId: message.fromUser.id,
-          chatId: message.chatId,
-          message: message.message,
-          messagePhotoUrl: removeSpacesAndDashes(message.messagePhotoUrl), 
-        };
-    
-        const savedMessage = await Message.create(msg);
-    
-        message.User = message.fromUser;
-        message.fromUserId = message.fromUser.id;
-        message.id = savedMessage.id;
-        message.message = savedMessage.message;
-        message.createdAt = savedMessage.createdAt;
-        message.type = savedMessage.type;
-        message.messagePhotoUrl = savedMessage.messagePhotoUrl;
-        delete message.fromUser;
-        for (const recipientId of message.toUserId) {
-          if (!recipientId) {
-            console.warn('⚠️ Skipping null or invalid recipientId:', recipientId);
-            continue;
-          }
 
-          const notification = await Notification.create({
-            userId: recipientId,
-            type: 'message',
-            content: `Nova poruka od ${message.User.username || 'someone'}`,
-            actionId: savedMessage.chatId,
-            actionType: 'message',
-            chatId: savedMessage.chatId,
+      if (users.has(recipientId)) {
+        users.get(recipientId).sockets.forEach((sockId) => {
+          io.to(sockId).emit('new_notification', {
+            id: notification.id,
+            type: notification.type,
+            content: notification.content,
+            actionId: notification.actionId,
+            actionType: notification.actionType,
+            isRead: notification.isRead,
+            createdAt: notification.createdAt,
+            chatId: notification.chatId,
           });
-
-          if (users.has(recipientId)) {
-            users.get(recipientId).sockets.forEach((sockId) => {
-              io.to(sockId).emit('new_notification', {
-                id: notification.id,
-                type: notification.type,
-                content: notification.content,
-                actionId: notification.actionId,
-                actionType: notification.actionType,
-                isRead: notification.isRead,
-                createdAt: notification.createdAt,
-                chatId: notification.chatId,
-              });
-            });
-          }
-        }
-
-    
-        sockets.forEach((socket) => {
-          io.to(socket).emit('received', message);
         });
-    
-      } catch (e) {
-        console.log(e);
       }
+    }
+
+    // Broadcast message
+    sockets.forEach((sockId) => {
+      io.to(sockId).emit('received', message);
     });
-    
+
+  } catch (e) {
+    console.error('❌ Error in socket message handler:', e);
+  }
+});
+
+
 
     socket.on('typing', (data) => {
       data.toUserId.forEach((id) => {

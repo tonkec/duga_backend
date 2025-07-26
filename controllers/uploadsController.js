@@ -38,7 +38,7 @@ exports.uploadMessageImage = (s3) => {
           id: 'original',
           key(req, file, cb) {
             const body = JSON.parse(JSON.stringify(req.body));
-            const cleanedName = removeSpacesAndDashes(file.originalname);
+            const cleanedName = removeSpacesAndDashes(file.originalname).toLowerCase();
             cb(
               null,
               `${process.env.NODE_ENV}/chat/${body.chatId}/${body.timestamp}/${cleanedName}`
