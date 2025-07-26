@@ -119,9 +119,9 @@ const SocketServer = (server, app) => {
         io.emit('receive-comment', {
           data: {
             ...comment.toJSON(),
-            securePhotoUrl: comment.imageUrl
-              ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(`${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`)}`
-              : null,
+           securePhotoUrl: comment.imageUrl
+            ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(normalizeS3Key(comment.imageUrl))}`
+            : null
           },
         });
 
