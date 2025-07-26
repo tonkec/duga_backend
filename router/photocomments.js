@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-
 const { Upload, User, PhotoComment } = require('../models');
 const { checkJwt } = require('../middleware/auth');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
@@ -278,4 +277,5 @@ router.delete(
     }
   }
 );
+
 module.exports = router;
