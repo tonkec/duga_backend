@@ -241,14 +241,25 @@ router.delete(
 
       if (photoComment.imageUrl) {
         const bucket = 'duga-user-photo';
-        const s3Url = new URL(photoComment.imageUrl);
-        const key = decodeURIComponent(s3Url.pathname.slice(1));
+        const envPrefix = `${process.env.NODE_ENV}/`;
 
+        // Normalize and add env prefix for S3 key
+        const normalizedKey = normalizeS3Key(photoComment.imageUrl);
+        const s3Key = `${envPrefix}${normalizedKey}`;
+
+        // Delete from S3
         try {
-          await s3.deleteObject({ Bucket: bucket, Key: key }).promise();
+          await s3.deleteObject({ Bucket: bucket, Key: s3Key }).promise();
           console.log('✅ Comment image deleted from S3');
         } catch (err) {
           console.warn('⚠️ Failed to delete comment image from S3:', err);
+        }
+
+        // Also delete the Upload record
+        const upload = await Upload.findOne({ where: { url: s3Key } });
+        if (upload) {
+          await upload.destroy();
+          console.log('✅ Upload record deleted');
         }
       }
 
@@ -257,7 +268,7 @@ router.delete(
 
       return res.status(200).send({
         commentId: req.params.id,
-        message: 'Comment and image deleted successfully',
+        message: 'Comment, image, and upload deleted successfully',
       });
     } catch (error) {
       console.error('❌ Error deleting comment:', error);
@@ -267,5 +278,4 @@ router.delete(
     }
   }
 );
-
 module.exports = router;
