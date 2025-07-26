@@ -2,16 +2,15 @@ const attachSecureUrl = (baseUrl, fileKey) => {
   return `${baseUrl}/uploads/files/${encodeURIComponent(fileKey)}`;
 };
 
-const addSecureUrlsToList = (items, baseUrl, key = 'url') => {
+const addSecureUrlsToList = (items, baseUrl, key = 'url', outputKey = 'securePhotoUrl') => {
   return items.map((item) => {
     const plain = item.toJSON?.() || item;
     const value = plain[key];
 
-    // ⛔ Skip if it's already a full URL
     if (value && !value.startsWith('http')) {
-      plain.securePhotoUrl = attachSecureUrl(baseUrl, value);
+      plain[outputKey] = attachSecureUrl(baseUrl, value);
     } else {
-      plain.securePhotoUrl = null; // Or just leave it undefined
+      plain[outputKey] = null;
     }
 
     return plain;
