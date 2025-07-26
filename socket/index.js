@@ -7,6 +7,7 @@ const userSockets = new Map();
 const Notification = require('../models').Notification;
 const PhotoLikes = require("../models").PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
+const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
@@ -392,7 +393,7 @@ const SocketServer = (server, app) => {
           fromUserId: message.fromUser.id,
           chatId: message.chatId,
           message: message.message,
-          messagePhotoUrl: message.messagePhotoUrl,
+          messagePhotoUrl: removeSpacesAndDashes(message.messagePhotoUrl), 
         };
     
         const savedMessage = await Message.create(msg);

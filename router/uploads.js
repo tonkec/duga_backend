@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { Op } = require('sequelize');
 const Upload = require('../models').Upload;
 const PhotoComment = require('../models').PhotoComment;
 const Message = require('../models').Message;
@@ -13,7 +14,9 @@ const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
 const withAccessCheck = require('../middleware/accessCheck');
 const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
-const {API_BASE_URL} = require("../consts/apiBaseUrl");
+const { API_BASE_URL } = require("../consts/apiBaseUrl");
+const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
+const path = require('path');
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -26,7 +29,6 @@ router.get('/files/*', checkJwt, async (req, res) => {
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
   console.log('🔍 Requested key:', key);
-  
   
   try {
     let file = await Upload.findOne({ where: { url: key} });
@@ -80,6 +82,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
   }
 });
 
+
 router.delete('/delete-photo', [checkJwt], async (req, res) => {
   const { url } = req.body;
 
@@ -88,68 +91,80 @@ router.delete('/delete-photo', [checkJwt], async (req, res) => {
   }
 
   try {
-    const extractKeyFromUrl = (url) => {
+    const extractKeyFromUrl = (inputUrl) => {
       try {
-        const u = new URL(url);
+        const u = new URL(inputUrl);
         return decodeURIComponent(u.pathname.slice(1));
       } catch {
-        return url; 
+        return inputUrl; // already a key
       }
     };
 
-    const key = extractKeyFromUrl(url);
-    let deletedFrom = null;
+    const fullKey = extractKeyFromUrl(url);
+    const envPrefix = `${process.env.NODE_ENV}/`;
+    const key = fullKey.startsWith(envPrefix) ? fullKey.slice(envPrefix.length) : fullKey;
+    const s3Key = `${process.env.NODE_ENV}/${key}`;
 
-    // Try Upload
-    const upload = await Upload.findOne({ where: { url: key } });
-    if (upload) {
-      await upload.destroy();
-      deletedFrom = 'Upload';
+    let deletedModels = [];
+
+    // Uploads
+    const uploadMatches = await Upload.findAll({
+      where: {
+        url: s3Key,
+      },
+    });
+    for (const match of uploadMatches) {
+      await match.destroy();
+      deletedModels.push('Upload');
     }
 
-    // Try PhotoComment
-    if (!deletedFrom) {
-      const comment = await PhotoComment.findOne({ where: { imageUrl: key } });
-      if (comment) {
-        await comment.setTaggedUsers([]);
-        await comment.destroy();
-        deletedFrom = 'PhotoComment';
-      }
+    // PhotoComments
+    const commentMatches = await PhotoComment.findAll({
+      where: {
+        imageUrl: key,
+      },
+    });
+    for (const match of commentMatches) {
+      await match.setTaggedUsers([]);
+      await match.destroy();
+      deletedModels.push('PhotoComment');
     }
 
-    // Try Message
-    if (!deletedFrom) {
-      const message = await Message.findOne({ where: { messagePhotoUrl: key } });
-      if (message) {
-        await message.destroy(); // FULLY DELETE THE MESSAGE
-        deletedFrom = 'Message';
-      }
+    // Messages
+    const messageMatches = await Message.findAll({
+      where: {
+        messagePhotoUrl: removeSpacesAndDashes(key)
+      },
+    });
+    for (const match of messageMatches) {
+      await match.destroy();
+      deletedModels.push('Message');
     }
 
-    if (!deletedFrom) {
-      return res.status(404).json({ error: 'No matching record found for this photo.' });
+    console.log(`🗑️ Deleted from: ${deletedModels.join(', ')}`);
+    console.log(key, "KEY TO DELETE")
+    console.log(`🧹 S3 key to delete: ${s3Key}`);
+
+    if (deletedModels.length === 0) {
+      return res.status(404).json({ error: 'No matching records found for this photo.' });
     }
 
-    // Delete the actual file from S3
+    // Delete file from S3
     await s3
       .deleteObject({
         Bucket: 'duga-user-photo',
-        Key: key,
+        Key: s3Key,
       })
-      .promise(); 
+      .promise();
 
     return res.status(200).json({
-      message: `Photo and associated ${deletedFrom} record deleted successfully.`,
+      message: `Photo and associated records (${[...new Set(deletedModels)].join(', ')}) deleted successfully.`,
     });
   } catch (error) {
     console.error('❌ Error deleting photo:', error);
     return res.status(500).json({ error: 'Server error during deletion.' });
   }
 });
-
-const removeSpacesAndDashes = (str) => {
-  return str.replace(/[\s-]/g, '');
-};
 
 router.post(
   "/message-photos",
@@ -166,6 +181,8 @@ router.post(
           
           const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
 
+          console.log(file.originalName, "NAME")
+          console.log(key)
           const uploadRecord = await Upload.create({
             name: file.originalname,
             url: key,
@@ -177,9 +194,9 @@ router.post(
             id: uploadRecord.id,
             originalName: file.originalname,
             key,
-            secureUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
+            secureUrl: `/uploads/files/${encodeURIComponent(key)}`,
             thumbnailUrl: thumbnailKey
-              ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(thumbnailKey)}`
+              ? `/uploads/files/${encodeURIComponent(thumbnailKey)}`
               : null,
           };
         })
@@ -196,7 +213,6 @@ router.post(
     }
   }
 );
-
 
 router.post(
   '/photos',

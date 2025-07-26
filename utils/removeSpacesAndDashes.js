@@ -1,4 +1,4 @@
-export const removeSpacesAndDashes = (str) => {
+const removeSpacesAndDashes = (str) => {
   return str.replace(/[\s-]/g, '');
 };
 
