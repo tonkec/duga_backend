@@ -13,6 +13,7 @@ const allowedMimeTypes = require("../consts/allowedFileTypes");
 const {API_BASE_URL }= require("../consts/apiBaseUrl");
 const { addSecureUrlsToList } = require("../utils/secureUploadUrl");
 const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
+const normalizeS3Key = require("../utils/normalizeS3Key");
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -71,23 +72,22 @@ router.post(
 
       if (s3Key) {
         const cleanedName = removeSpacesAndDashes(req.file.originalname.toLowerCase().trim());
-        const envPrefix = `${process.env.NODE_ENV}/`;
-        const dbKey = s3Key.startsWith(envPrefix) ? s3Key.slice(envPrefix.length) : s3Key;
+        const normalizedKey = normalizeS3Key(s3Key); // Removes env and sanitizes
 
         commentImageUpload = await Upload.create({
-          url: s3Key, 
+          url: s3Key, // full key with env prefix for Upload table
           name: cleanedName,
           userId,
         });
 
-        imageUrl = dbKey; 
+        imageUrl = normalizedKey; // sanitized key (without env) for PhotoComment
       }
 
       const photoComment = await PhotoComment.create({
         userId,
         uploadId,
         comment,
-        imageUrl, 
+        imageUrl,
       });
 
       if (taggedUserIds && typeof taggedUserIds === 'string') {
@@ -104,7 +104,17 @@ router.post(
         ],
       });
 
-      return res.status(201).send({ data: fullComment });
+      // Build securePhotoUrl from imageUrl
+      const securePhotoUrl = imageUrl
+        ? `${process.env.API_BASE_URL}/uploads/files/${encodeURIComponent(`${process.env.NODE_ENV}/${imageUrl}`)}`
+        : null;
+
+      return res.status(201).send({
+        data: {
+          ...fullComment.toJSON(),
+          securePhotoUrl,
+        },
+      });
     } catch (error) {
       if (error.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ message: 'Image too big' });
@@ -119,8 +129,6 @@ router.post(
     }
   }
 );
-
-
 
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {

@@ -2,15 +2,17 @@ const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
+const PhotoComment = require("../models").PhotoComment;
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
 const PhotoLikes = require("../models").PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
-const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
+const normalizeS3Key = require("../utils/normalizeS3Key");
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
+const { API_BASE_URL } = require('../consts/apiBaseUrl');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -91,15 +93,39 @@ const SocketServer = (server, app) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId } = data.data;
+        const { userId, uploadId, id } = data.data;
         const parsedUploadId = parseInt(uploadId);
-        if (isNaN(parsedUploadId)) {
-          console.error("❌ Invalid uploadId:", uploadId);
+        const parsedCommentId = parseInt(id);
+
+        if (isNaN(parsedUploadId) || isNaN(parsedCommentId)) {
+          console.error("❌ Invalid uploadId or commentId:", uploadId, id);
           return;
         }
-    
-        io.emit("receive-comment", { data: data.data});
-    
+
+        // 🔍 Fetch the comment with relations
+        const comment = await PhotoComment.findByPk(parsedCommentId, {
+          include: [
+            { model: User, as: 'user', attributes: ['id', 'username'] },
+            { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+          ],
+        });
+
+        if (!comment) {
+          console.error("❌ Comment not found:", parsedCommentId);
+          return;
+        }
+
+        // ✅ Emit the full comment + securePhotoUrl
+        io.emit('receive-comment', {
+          data: {
+            ...comment.toJSON(),
+            securePhotoUrl: comment.imageUrl
+              ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(`${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`)}`
+              : null,
+          },
+        });
+
+        // 📤 Notify photo owner
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -107,9 +133,9 @@ const SocketServer = (server, app) => {
             type: sequelize.QueryTypes.SELECT,
           }
         );
-    
+
         const photoOwnerId = results?.userId;
-    
+
         if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
           const notification = await Notification.create({
             userId: photoOwnerId,
@@ -118,7 +144,7 @@ const SocketServer = (server, app) => {
             actionId: parsedUploadId,
             actionType: 'upload',
           });
-    
+
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
               io.to(sockId).emit('new_notification', {
@@ -137,6 +163,7 @@ const SocketServer = (server, app) => {
         console.error("🔥 Error in send-comment:", error);
       }
     });
+
 
     socket.on("markAsRead", async (data) => {
       const { userId, chatId } = data;
@@ -389,20 +416,7 @@ const SocketServer = (server, app) => {
     let finalMessagePhotoUrl = null;
 
     if (message.messagePhotoUrl) {
-      const envPrefix = `${process.env.NODE_ENV}/`;
-
-      // Remove env prefix if it exists
-      let cleanKey = message.messagePhotoUrl.startsWith(envPrefix)
-        ? message.messagePhotoUrl.slice(envPrefix.length)
-        : message.messagePhotoUrl;
-
-      const lastSlashIndex = cleanKey.lastIndexOf('/');
-      const path = cleanKey.substring(0, lastSlashIndex);
-      const fileName = cleanKey.substring(lastSlashIndex + 1);
-
-      // Lowercase and sanitize only the filename
-      const normalizedFileName = removeSpacesAndDashes(fileName.toLowerCase());
-      finalMessagePhotoUrl = `${path}/${normalizedFileName}`;
+      finalMessagePhotoUrl = normalizeS3Key(message.messagePhotoUrl);
     }
 
     const msg = {
