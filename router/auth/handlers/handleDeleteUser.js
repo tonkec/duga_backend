@@ -1,37 +1,10 @@
 const axios = require('axios');
-const { sequelize, User, PhotoComment, Upload, PhotoLikes, Message, Notification } = require('../models');
+const { sequelize, User, PhotoComment, Upload, PhotoLikes, Message, Notification } = require('../../../models');
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
-
-exports.register = async (req, res) => {
-  const { auth0Id, email } = req.body;
-
-  if (!auth0Id || !email) {
-    return res.status(400).json({ message: 'Missing required fields' });
-  }
-
-  try {
-      const normalizedEmail = email.toLowerCase();
-
-    let user = await User.findOne({ where: { email: normalizedEmail } });
-    if (user) {
-      if (!user.auth0Id) {
-        await user.update({ auth0Id });
-      }
-
-      return res.status(200).json({ message: 'User already exists', user });
-    }
-
-    user = await User.create({ auth0Id, email: normalizedEmail, });
-    return res.status(201).json({ message: 'User created', user });
-
-  } catch (error) {
-    console.error('Error registering user:', error);
-    res.status(500).json({ message: 'Error creating user' });
-  }
-};
+const s3 = require("../../../utils/s3");
 
 const getManagementApiToken = async () => {
   try {
@@ -49,49 +22,6 @@ const getManagementApiToken = async () => {
     throw new Error("Failed to get Management API token");
   }
 };
-
-exports.sendVerificationEmail = async (req, res) => {
-  try {
-    const { userId } = req.body;
-
-    if (!userId) {
-      return res.status(400).json({ error: "Missing user ID" });
-    }
-
-    const user = await User.findByPk(userId);
-
-    if (!user || !user.auth0Id) {
-      return res.status(404).json({ error: "User not found or missing auth0Id" });
-    }
-
-    const token = await getManagementApiToken();
-
-    const response = await axios.post(
-      `https://${AUTH0_DOMAIN}/api/v2/jobs/verification-email`,
-      { user_id: user.auth0Id }, 
-      {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-
-    console.log("✅ Verification email sent:", response.data);
-    res.json({ message: "Verification email sent successfully!", data: response.data });
-  } catch (error) {
-    console.error("❌ Error resending email:", error.response?.data || error.message);
-    res.status(500).json({ error: error.response?.data || error.message });
-  }
-};
-
-
-const AWS = require('aws-sdk');
-AWS.config.update({
-  accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY,
-});
-const s3 = new AWS.S3();
 
 const deleteAllUserImagesFromS3 = async (userId) => {
   const Bucket = 'duga-user-photo';
@@ -120,7 +50,7 @@ const deleteAllUserImagesFromS3 = async (userId) => {
   }
 };
 
-exports.deleteUser = async (req, res) => {
+const deleteUser = async (req, res) => {
   const userId = req.auth.user.id;
 
   const auth0UserId = req.auth.user.auth0Id
@@ -181,3 +111,5 @@ exports.deleteUser = async (req, res) => {
   }
 };
 
+
+module.exports = deleteUser;
