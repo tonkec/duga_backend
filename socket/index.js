@@ -2,14 +2,17 @@ const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
+const PhotoComment = require("../models").PhotoComment;
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
 const PhotoLikes = require("../models").PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
+const normalizeS3Key = require("../utils/normalizeS3Key");
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
+const { API_BASE_URL } = require('../consts/apiBaseUrl');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -90,15 +93,39 @@ const SocketServer = (server, app) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId } = data.data;
+        const { userId, uploadId, id } = data.data;
         const parsedUploadId = parseInt(uploadId);
-        if (isNaN(parsedUploadId)) {
-          console.error("❌ Invalid uploadId:", uploadId);
+        const parsedCommentId = parseInt(id);
+
+        if (isNaN(parsedUploadId) || isNaN(parsedCommentId)) {
+          console.error("❌ Invalid uploadId or commentId:", uploadId, id);
           return;
         }
-    
-        io.emit("receive-comment", { data: data.data});
-    
+
+        // 🔍 Fetch the comment with relations
+        const comment = await PhotoComment.findByPk(parsedCommentId, {
+          include: [
+            { model: User, as: 'user', attributes: ['id', 'username'] },
+            { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+          ],
+        });
+
+        if (!comment) {
+          console.error("❌ Comment not found:", parsedCommentId);
+          return;
+        }
+
+        // ✅ Emit the full comment + securePhotoUrl
+        io.emit('receive-comment', {
+          data: {
+            ...comment.toJSON(),
+           securePhotoUrl: comment.imageUrl
+            ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(normalizeS3Key(comment.imageUrl))}`
+            : null
+          },
+        });
+
+        // 📤 Notify photo owner
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -106,9 +133,9 @@ const SocketServer = (server, app) => {
             type: sequelize.QueryTypes.SELECT,
           }
         );
-    
+
         const photoOwnerId = results?.userId;
-    
+
         if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
           const notification = await Notification.create({
             userId: photoOwnerId,
@@ -117,7 +144,7 @@ const SocketServer = (server, app) => {
             actionId: parsedUploadId,
             actionType: 'upload',
           });
-    
+
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
               io.to(sockId).emit('new_notification', {
@@ -136,6 +163,7 @@ const SocketServer = (server, app) => {
         console.error("🔥 Error in send-comment:", error);
       }
     });
+
 
     socket.on("markAsRead", async (data) => {
       const { userId, chatId } = data;
@@ -372,80 +400,95 @@ const SocketServer = (server, app) => {
     
   
     socket.on('message', async (message) => {
-      let sockets = setUsers(message.fromUser, socket);
-    
-      if (users.length > 0) {
-        if (users.has(message.fromUser.id)) {
-          sockets = users.get(message.fromUser.id).sockets;
-        }
+  let sockets = setUsers(message.fromUser, socket);
+
+  if (users.length > 0 && users.has(message.fromUser.id)) {
+    sockets = users.get(message.fromUser.id).sockets;
+  }
+
+  message.toUserId.forEach((id) => {
+    if (users.has(id)) {
+      sockets = [...sockets, ...users.get(id).sockets];
+    }
+  });
+
+  try {
+    let finalMessagePhotoUrl = null;
+
+    if (message.messagePhotoUrl) {
+      finalMessagePhotoUrl = normalizeS3Key(message.messagePhotoUrl);
+    }
+
+    const msg = {
+      type: message.type,
+      fromUserId: message.fromUser.id,
+      chatId: message.chatId,
+      message: message.message,
+      messagePhotoUrl: finalMessagePhotoUrl,
+    };
+
+    const savedMessage = await Message.create(msg);
+
+    // Prepare outgoing socket message
+    message.User = message.fromUser;
+    message.fromUserId = message.fromUser.id;
+    message.id = savedMessage.id;
+    message.message = savedMessage.message;
+    message.createdAt = savedMessage.createdAt;
+    message.type = savedMessage.type;
+
+    // Send secure URL for rendering image on frontend
+    message.messagePhotoUrl = finalMessagePhotoUrl;
+    if (finalMessagePhotoUrl) {
+      const fullKey = `${process.env.NODE_ENV}/${finalMessagePhotoUrl}`;
+      message.securePhotoUrl = `/uploads/files/${encodeURIComponent(fullKey)}`;
+    }
+
+    delete message.fromUser;
+
+    // Notify recipients
+    for (const recipientId of message.toUserId) {
+      if (!recipientId) {
+        console.warn('⚠️ Skipping null or invalid recipientId:', recipientId);
+        continue;
       }
-    
-      message.toUserId.forEach((id) => {
-        if (users.has(id)) {
-          sockets = [...sockets, ...users.get(id).sockets];
-        }
+
+      const notification = await Notification.create({
+        userId: recipientId,
+        type: 'message',
+        content: `Nova poruka od ${message.User.username || 'someone'}`,
+        actionId: savedMessage.chatId,
+        actionType: 'message',
+        chatId: savedMessage.chatId,
       });
-    
-      try {
-        const msg = {
-          type: message.type,
-          fromUserId: message.fromUser.id,
-          chatId: message.chatId,
-          message: message.message,
-          messagePhotoUrl: message.messagePhotoUrl,
-        };
-    
-        const savedMessage = await Message.create(msg);
-    
-        message.User = message.fromUser;
-        message.fromUserId = message.fromUser.id;
-        message.id = savedMessage.id;
-        message.message = savedMessage.message;
-        message.createdAt = savedMessage.createdAt;
-        message.type = savedMessage.type;
-        message.messagePhotoUrl = savedMessage.messagePhotoUrl;
-        delete message.fromUser;
-        for (const recipientId of message.toUserId) {
-          if (!recipientId) {
-            console.warn('⚠️ Skipping null or invalid recipientId:', recipientId);
-            continue;
-          }
 
-          const notification = await Notification.create({
-            userId: recipientId,
-            type: 'message',
-            content: `Nova poruka od ${message.User.username || 'someone'}`,
-            actionId: savedMessage.chatId,
-            actionType: 'message',
-            chatId: savedMessage.chatId,
+      if (users.has(recipientId)) {
+        users.get(recipientId).sockets.forEach((sockId) => {
+          io.to(sockId).emit('new_notification', {
+            id: notification.id,
+            type: notification.type,
+            content: notification.content,
+            actionId: notification.actionId,
+            actionType: notification.actionType,
+            isRead: notification.isRead,
+            createdAt: notification.createdAt,
+            chatId: notification.chatId,
           });
-
-          if (users.has(recipientId)) {
-            users.get(recipientId).sockets.forEach((sockId) => {
-              io.to(sockId).emit('new_notification', {
-                id: notification.id,
-                type: notification.type,
-                content: notification.content,
-                actionId: notification.actionId,
-                actionType: notification.actionType,
-                isRead: notification.isRead,
-                createdAt: notification.createdAt,
-                chatId: notification.chatId,
-              });
-            });
-          }
-        }
-
-    
-        sockets.forEach((socket) => {
-          io.to(socket).emit('received', message);
         });
-    
-      } catch (e) {
-        console.log(e);
       }
+    }
+
+    // Broadcast message
+    sockets.forEach((sockId) => {
+      io.to(sockId).emit('received', message);
     });
-    
+
+  } catch (e) {
+    console.error('❌ Error in socket message handler:', e);
+  }
+});
+
+
 
     socket.on('typing', (data) => {
       data.toUserId.forEach((id) => {

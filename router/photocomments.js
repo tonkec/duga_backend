@@ -1,6 +1,5 @@
 const express = require('express');
 const router = express.Router();
-
 const { Upload, User, PhotoComment } = require('../models');
 const { checkJwt } = require('../middleware/auth');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
@@ -10,33 +9,10 @@ const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../utils/s3');
 const allowedMimeTypes = require("../consts/allowedFileTypes");
-const { extractKeyFromUrl } = require('../utils/secureUploadUrl');
 const {API_BASE_URL }= require("../consts/apiBaseUrl");
-
-function addSecureUrlsToList(items, baseUrl, originalField = 'url', newField = 'secureUrl') {
-  return items.map((item) => {
-    const plain = item.toJSON ? item.toJSON() : item;
-    const originalUrl = plain[originalField];
-
-    if (!originalUrl) {
-      console.warn(`⚠️ Skipping item with missing ${originalField}`);
-      plain[newField] = null;
-      return plain;
-    }
-
-    const key = extractKeyFromUrl(originalUrl);
-    console.log('🔍 Extracting key from URL:', originalUrl);
-
-    if (key) {
-      plain[newField] = `${baseUrl}/uploads/files/${encodeURIComponent(key)}`;
-    } else {
-      console.warn('🚨 Could not generate secure URL for comment:', originalUrl);
-      plain[newField] = null;
-    }
-
-    return plain;
-  });
-}
+const { addSecureUrlsToList } = require("../utils/secureUploadUrl");
+const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
+const normalizeS3Key = require("../utils/normalizeS3Key");
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -49,8 +25,8 @@ const uploadCommentImage = multer({
         id: "commentImageResized",
         key: function (req, file, cb) {
           const timestamp = Date.now();
-          const filename = `${file.originalname}`;
-          const path = `${process.env.NODE_ENV}/comment/${timestamp}/${filename}`;
+          const cleanedFilename = removeSpacesAndDashes(file.originalname.toLowerCase().trim());
+          const path = `${process.env.NODE_ENV}/comment/${timestamp}/${cleanedFilename}`;
           cb(null, path);
         },
         transform: function (req, file, cb) {
@@ -59,7 +35,7 @@ const uploadCommentImage = multer({
       },
     ],
   }),
-  limits: { fileSize: 1 * 1024 * 1024 },
+  limits: { fileSize: 1 * 1024 * 1024 }, // 1MB
   fileFilter: (req, file, cb) => {
     if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
@@ -70,6 +46,7 @@ const uploadCommentImage = multer({
     }
   },
 });
+
 
 router.post(
   '/add-comment',
@@ -90,20 +67,26 @@ router.post(
 
       const s3Key = req.file?.transforms?.[0]?.key ?? null;
       let commentImageUpload = null;
+      let imageUrl = null;
 
       if (s3Key) {
+        const cleanedName = removeSpacesAndDashes(req.file.originalname.toLowerCase().trim());
+        const normalizedKey = normalizeS3Key(s3Key); // Removes env and sanitizes
+
         commentImageUpload = await Upload.create({
-          url: s3Key,
-          name: req.file.originalname,
+          url: s3Key, // full key with env prefix for Upload table
+          name: cleanedName,
           userId,
         });
+
+        imageUrl = normalizedKey; // sanitized key (without env) for PhotoComment
       }
 
       const photoComment = await PhotoComment.create({
         userId,
         uploadId,
         comment,
-        imageUrl: commentImageUpload?.url || null,
+        imageUrl,
       });
 
       if (taggedUserIds && typeof taggedUserIds === 'string') {
@@ -120,7 +103,17 @@ router.post(
         ],
       });
 
-      return res.status(201).send({ data: fullComment });
+      // Build securePhotoUrl from imageUrl
+      const securePhotoUrl = imageUrl
+        ? `${process.env.API_BASE_URL}/uploads/files/${encodeURIComponent(`${process.env.NODE_ENV}/${imageUrl}`)}`
+        : null;
+
+      return res.status(201).send({
+        data: {
+          ...fullComment.toJSON(),
+          securePhotoUrl,
+        },
+      });
     } catch (error) {
       if (error.code === 'LIMIT_FILE_SIZE') {
         return res.status(400).json({ message: 'Image too big' });
@@ -156,13 +149,7 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
       ],
     });
 
-    const commentsWithSecureUrls = addSecureUrlsToList(
-      photoComments,
-      API_BASE_URL,
-      'imageUrl',
-      'secureImageUrl'
-    );
-
+    const commentsWithSecureUrls = addSecureUrlsToList(photoComments, API_BASE_URL, 'imageUrl');
     return res.status(200).send(commentsWithSecureUrls);
   } catch (error) {
     console.error('❌ Error fetching comments:', error);
@@ -234,8 +221,7 @@ router.get("/latest", [checkJwt], async (req, res) => {
     const commentsWithSecureUrls = addSecureUrlsToList(
       photoComments,
       API_BASE_URL,
-      'imageUrl',
-      'secureImageUrl'
+      'imageUrl'
     );
 
     res.status(200).json(commentsWithSecureUrls);
@@ -254,14 +240,25 @@ router.delete(
 
       if (photoComment.imageUrl) {
         const bucket = 'duga-user-photo';
-        const s3Url = new URL(photoComment.imageUrl);
-        const key = decodeURIComponent(s3Url.pathname.slice(1));
+        const envPrefix = `${process.env.NODE_ENV}/`;
 
+        // Normalize and add env prefix for S3 key
+        const normalizedKey = normalizeS3Key(photoComment.imageUrl);
+        const s3Key = `${envPrefix}${normalizedKey}`;
+
+        // Delete from S3
         try {
-          await s3.deleteObject({ Bucket: bucket, Key: key }).promise();
+          await s3.deleteObject({ Bucket: bucket, Key: s3Key }).promise();
           console.log('✅ Comment image deleted from S3');
         } catch (err) {
           console.warn('⚠️ Failed to delete comment image from S3:', err);
+        }
+
+        // Also delete the Upload record
+        const upload = await Upload.findOne({ where: { url: s3Key } });
+        if (upload) {
+          await upload.destroy();
+          console.log('✅ Upload record deleted');
         }
       }
 
@@ -270,7 +267,7 @@ router.delete(
 
       return res.status(200).send({
         commentId: req.params.id,
-        message: 'Comment and image deleted successfully',
+        message: 'Comment, image, and upload deleted successfully',
       });
     } catch (error) {
       console.error('❌ Error deleting comment:', error);
