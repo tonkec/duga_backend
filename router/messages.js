@@ -30,7 +30,6 @@ router.post(
   handleReadMessage
 );
 
-
 require('./messages/swagger/isReadMessage.swagger');
 router.get(
   "/is-read",
