@@ -1,6 +1,7 @@
 const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
+const allowedMimeTypes = require("../../../consts/allowedFileTypes");
 
 const uploadProfileImages = (s3) => {
   return multer({
