@@ -81,7 +81,6 @@ router.get('/files/*', checkJwt, async (req, res) => {
   }
 });
 
-
 router.delete('/delete-photo', [checkJwt], async (req, res) => {
   const { url } = req.body;
 
@@ -95,7 +94,7 @@ router.delete('/delete-photo', [checkJwt], async (req, res) => {
         const u = new URL(inputUrl);
         return decodeURIComponent(u.pathname.slice(1));
       } catch {
-        return inputUrl; // already a key
+        return inputUrl;
       }
     };
 
@@ -106,35 +105,24 @@ router.delete('/delete-photo', [checkJwt], async (req, res) => {
 
     let deletedModels = [];
 
-    // Uploads
-    const uploadMatches = await Upload.findAll({
-      where: {
-        url: s3Key,
-      },
-    });
+    // 🔍 Uploads
+    const uploadMatches = await Upload.findAll({ where: { url: s3Key } });
     for (const match of uploadMatches) {
       await match.destroy();
       deletedModels.push('Upload');
     }
 
-    // PhotoComments
-    const commentMatches = await PhotoComment.findAll({
-      where: {
-        imageUrl: removeSpacesAndDashes(key)
-      },
-    });
+    // 🔍 PhotoComments
+    const sanitizedKey = removeSpacesAndDashes(key);
+    const commentMatches = await PhotoComment.findAll({ where: { imageUrl: sanitizedKey } });
     for (const match of commentMatches) {
       await match.setTaggedUsers([]);
       await match.destroy();
       deletedModels.push('PhotoComment');
     }
 
-    // Messages
-    const messageMatches = await Message.findAll({
-      where: {
-        messagePhotoUrl: removeSpacesAndDashes(key)
-      },
-    });
+    // 🔍 Messages
+    const messageMatches = await Message.findAll({ where: { messagePhotoUrl: sanitizedKey } });
     for (const match of messageMatches) {
       await match.destroy();
       deletedModels.push('Message');
@@ -144,13 +132,30 @@ router.delete('/delete-photo', [checkJwt], async (req, res) => {
       return res.status(404).json({ error: 'No matching records found for this photo.' });
     }
 
-    // Delete file from S3
-    await s3
-      .deleteObject({
-        Bucket: 'duga-user-photo',
-        Key: s3Key,
-      })
-      .promise();
+    // 🧹 Delete original + thumbnail from S3 if they exist
+    const lastSlashIndex = key.lastIndexOf('/');
+    const path = key.substring(0, lastSlashIndex);
+    const filename = key.substring(lastSlashIndex + 1);
+    const thumbnailKey = `${process.env.NODE_ENV}/${path}/thumbnail-${filename}`;
+
+    const deleteIfExists = async (Key) => {
+      try {
+        await s3.headObject({ Bucket: 'duga-user-photo', Key }).promise();
+        await s3.deleteObject({ Bucket: 'duga-user-photo', Key }).promise();
+        console.log(`✅ Deleted ${Key} from S3`);
+      } catch (err) {
+        if (err.code !== 'NotFound') {
+          console.warn(`⚠️ Failed to delete ${Key}:`, err);
+        } else {
+          console.log(`ℹ️ Skipping deletion, ${Key} does not exist`);
+        }
+      }
+    };
+
+    await Promise.all([
+      deleteIfExists(s3Key),
+      deleteIfExists(thumbnailKey),
+    ]);
 
     return res.status(200).json({
       message: `Photo and associated records (${[...new Set(deletedModels)].join(', ')}) deleted successfully.`,
