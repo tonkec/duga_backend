@@ -1,9 +1,9 @@
 require('dotenv').config();
+const { Op } = require('sequelize');
 const Upload = require('../models').Upload;
 const PhotoComment = require('../models').PhotoComment;
 const Message = require('../models').Message;
 const { checkJwt } = require('../middleware/auth');
-const { Op } = require('sequelize');
 const router = require('express').Router();
 const User = require('../models').User;
 const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
@@ -14,7 +14,8 @@ const attachCurrentUser = require('../middleware/attachCurrentUser');
 const MAX_NUMBER_OF_FILES = 5;
 const withAccessCheck = require('../middleware/accessCheck');
 const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
-const {API_BASE_URL} = require("../consts/apiBaseUrl");
+const { API_BASE_URL } = require("../consts/apiBaseUrl");
+const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
 
 AWS.config.update({
   accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
@@ -41,7 +42,7 @@ router.get('/files/*', checkJwt, async (req, res) => {
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);
   console.log('🔍 Requested key:', key);
-
+  
   try {
     let file = await Upload.findOne({ where: { url: key} });
 
@@ -70,12 +71,22 @@ router.get('/files/*', checkJwt, async (req, res) => {
       console.log('❌ Not found in Upload, Comment, or Message');
       return res.status(404).json({ message: 'File not found in DB' });
     }
+
+    const normalizedKey = removeSpacesAndDashes(key).startsWith(`${process.env.NODE_ENV}/`)
+  ? key
+  : `${process.env.NODE_ENV}/${removeSpacesAndDashes(key)}`;
     const s3Stream = s3
       .getObject({
         Bucket: 'duga-user-photo',
-        Key: messageWithImage ? `${process.env.NODE_ENV}/${key}` : key
+        Key: normalizedKey.toLowerCase()
       })
       .createReadStream();
+    
+    
+    s3Stream.on('error', (err) => {
+      console.error('❌ Stream error:', err); // Log here!
+      res.status(404).json({ message: 'Image not found on S3' });
+    });
 
     res.setHeader('Content-Type', 'image/png'); 
     return s3Stream.pipe(res);
@@ -122,36 +133,82 @@ router.delete('/delete-photo',  [
   }
 
   try {
-    // Extract S3 Bucket Key from URL
-    const bucketKey = url; // `url` contains the S3 key, e.g., "user/4/profile-photo/filename.jpg"
-
-    // Delete photo from S3
-    const params = {
-      Bucket: 'duga-user-photo',
-      Key: bucketKey, // The key extracted from `url`
+    const extractKeyFromUrl = (inputUrl) => {
+      try {
+        const u = new URL(inputUrl);
+        return decodeURIComponent(u.pathname.slice(1));
+      } catch {
+        return inputUrl;
+      }
     };
 
-    await s3.deleteObject(params).promise();
+    const fullKey = extractKeyFromUrl(url);
+    const envPrefix = `${process.env.NODE_ENV}/`;
+    const key = fullKey.startsWith(envPrefix) ? fullKey.slice(envPrefix.length) : fullKey;
+    const s3Key = `${process.env.NODE_ENV}/${key}`;
 
-    // Optionally, delete the photo record from the database
-    const deletedPhoto = await Upload.destroy({
-      where: { url },
-    });
+    let deletedModels = [];
 
-    if (!deletedPhoto) {
-      return res.status(404).json({ error: 'Photo not found in the database.' });
+    // 🔍 Uploads
+    const uploadMatches = await Upload.findAll({ where: { url: s3Key } });
+    for (const match of uploadMatches) {
+      await match.destroy();
+      deletedModels.push('Upload');
     }
 
-    res.status(200).json({ message: 'Photo deleted successfully.' });
+    // 🔍 PhotoComments
+    const sanitizedKey = removeSpacesAndDashes(key);
+    const commentMatches = await PhotoComment.findAll({ where: { imageUrl: sanitizedKey } });
+    for (const match of commentMatches) {
+      await match.setTaggedUsers([]);
+      await match.destroy();
+      deletedModels.push('PhotoComment');
+    }
+
+    // 🔍 Messages
+    const messageMatches = await Message.findAll({ where: { messagePhotoUrl: sanitizedKey } });
+    for (const match of messageMatches) {
+      await match.destroy();
+      deletedModels.push('Message');
+    }
+
+    if (deletedModels.length === 0) {
+      return res.status(404).json({ error: 'No matching records found for this photo.' });
+    }
+
+    // 🧹 Delete original + thumbnail from S3 if they exist
+    const lastSlashIndex = key.lastIndexOf('/');
+    const path = key.substring(0, lastSlashIndex);
+    const filename = key.substring(lastSlashIndex + 1);
+    const thumbnailKey = `${process.env.NODE_ENV}/${path}/thumbnail-${filename}`;
+
+    const deleteIfExists = async (Key) => {
+      try {
+        await s3.headObject({ Bucket: 'duga-user-photo', Key }).promise();
+        await s3.deleteObject({ Bucket: 'duga-user-photo', Key }).promise();
+        console.log(`✅ Deleted ${Key} from S3`);
+      } catch (err) {
+        if (err.code !== 'NotFound') {
+          console.warn(`⚠️ Failed to delete ${Key}:`, err);
+        } else {
+          console.log(`ℹ️ Skipping deletion, ${Key} does not exist`);
+        }
+      }
+    };
+
+    await Promise.all([
+      deleteIfExists(s3Key),
+      deleteIfExists(thumbnailKey),
+    ]);
+
+    return res.status(200).json({
+      message: `Photo and associated records (${[...new Set(deletedModels)].join(', ')}) deleted successfully.`,
+    });
   } catch (error) {
-    console.error('Error deleting photo:', error);
-    res.status(500).json({ error });
+    console.error('❌ Error deleting photo:', error);
+    return res.status(500).json({ error: 'Server error during deletion.' });
   }
 });
-
-const removeSpacesAndDashes = (str) => {
-  return str.replace(/[\s-]/g, '');
-};
 
 /**
  * @swagger
@@ -192,6 +249,7 @@ router.post(
           
           const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
 
+          console.log(key)
           const uploadRecord = await Upload.create({
             name: file.originalname,
             url: key,
@@ -203,9 +261,9 @@ router.post(
             id: uploadRecord.id,
             originalName: file.originalname,
             key,
-            secureUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
+            secureUrl: `/uploads/files/${encodeURIComponent(key)}`,
             thumbnailUrl: thumbnailKey
-              ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(thumbnailKey)}`
+              ? `/uploads/files/${encodeURIComponent(thumbnailKey)}`
               : null,
           };
         })
@@ -428,53 +486,22 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const [uploads, photoComments, chatPhotos] = await Promise.all([
-      Upload.findAll({
-        where: { userId },
-        attributes: ['id', 'url', 'description', 'createdAt'],
-      }),
-      PhotoComment.findAll({
-        where: {
-          userId,
-          imageUrl: { [Op.ne]: null },
-        },
-        attributes: ['id', 'imageUrl', 'comment', 'createdAt'],
-      }),
-      Message.findAll({
-        where: {
-          fromUserId: userId,
-          messagePhotoUrl: {
-            [Op.and]: [
-              { [Op.ne]: null },
-              { [Op.notILike]: '%.gif' },
-              { [Op.notILike]: '%giphy%' }, 
-            ],
-          },
-        },
-        attributes: ['id', 'messagePhotoUrl', 'createdAt'],
-      }),
-    ]);
+    const uploads = await Upload.findAll({
+      where: { userId },
+      attributes: ['id', 'url', 'description', 'createdAt'],
+    });
 
-    const normalizedUploads = uploads.map(photo => ({
-      ...photo.toJSON(),
-      url: photo.url,
-      type: 'upload',
-    }));
-
-    const normalizedComments = photoComments.map(photo => ({
-      ...photo.toJSON(),
-      url: photo.imageUrl,
-      type: 'comment',
-    }));
-
-    const normalizedMessages = chatPhotos.map(photo => ({
-      ...photo.toJSON(),
-      url: photo.messagePhotoUrl,
-      type: 'message',
-    }));
-
-    const allPhotos = [...normalizedUploads, ...normalizedComments, ...normalizedMessages];
-    allPhotos.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+    const allPhotos = uploads
+      .map(upload => {
+        const key = upload.url;
+        return {
+          ...upload.toJSON(),
+          type: 'upload',
+          originalField: 'url',
+          securePhotoUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
+        };
+      })
+      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     return res.status(200).json(allPhotos);
   } catch (error) {
@@ -503,7 +530,6 @@ router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
  */
 router.get("/profile-photo/:id", async (req, res) => {
   const { id } = req.params;
-  console.log(id)
 
   try {
     const upload = await Upload.findOne({
@@ -518,7 +544,7 @@ router.get("/profile-photo/:id", async (req, res) => {
       return res.json({ securePhotoUrl: null });
     }
 
-    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url'); // or 'messagePhotoUrl', depending on your column
+    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url'); 
     return res.json({ securePhotoUrl: secureUpload.securePhotoUrl });
   } catch (error) {
     console.error('Error fetching profile photo:', error);

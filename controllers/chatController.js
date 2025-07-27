@@ -69,7 +69,7 @@ exports.index = async (req, res) => {
 
 
     const chatsWithSecureUrls = result.Chats.map(chat => {
-      const updatedMessages = addSecureUrlsToList(chat.Messages, API_BASE_URL, 'messagePhotoUrl');
+    const updatedMessages = addSecureUrlsToList(chat.Messages, API_BASE_URL, 'messagePhotoUrl');
       return {
         ...chat.toJSON(),
         Messages: updatedMessages,
