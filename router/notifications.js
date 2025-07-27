@@ -24,5 +24,4 @@ router.put(
   handleMarkAllNotificationsAsRead
 );
 
-
 module.exports = router;

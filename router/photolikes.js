@@ -12,7 +12,6 @@ router.post('/upvote/:id', [checkJwt, attachCurrentUser], handleUpvoteUpload);
 require('./likes/swagger/downvote.swagger');
 router.post('/downvote/:id', [checkJwt, attachCurrentUser], handleDownvoteUpload);
 
-
 require('./likes/swagger/allLikes.swagger');
 router.get('/all-likes/:photoId', [checkJwt], handleGetAllUploadLikes);
 
