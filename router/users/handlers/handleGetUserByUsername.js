@@ -1,4 +1,5 @@
 const User = require('../../../models').User;
+const { Op } = require('sequelize');
 
 const handleGetUserByUsername = async (req, res) => {
   try {
