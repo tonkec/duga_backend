@@ -1,313 +1,55 @@
 require('dotenv').config();
-const { Op } = require('sequelize');
 const Upload = require('../models').Upload;
-const PhotoComment = require('../models').PhotoComment;
-const Message = require('../models').Message;
+const User = require('../models').User;
 const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
-const User = require('../models').User;
-const uploadMultiple = require('../controllers/uploadsController').uploadMultiple;
-const uploadMessageImage = require('../controllers/uploadsController').uploadMessageImage;
-const getImages = require('../controllers/uploadsController').getImages;
-const AWS = require('aws-sdk');
-const attachCurrentUser = require('../middleware/attachCurrentUser');
-const MAX_NUMBER_OF_FILES = 5;
 const withAccessCheck = require('../middleware/accessCheck');
-const addSecureUrlsToList = require('../utils/secureUploadUrl').addSecureUrlsToList;
-const { API_BASE_URL } = require("../consts/apiBaseUrl");
-const removeSpacesAndDashes = require("../utils/removeSpacesAndDashes");
+const handleDeletePhotoRequest = require("./uploads/handlers/handleDeletePhotoRequest");
+const handleGetPhotoById = require("./uploads/handlers/handleGetPhotoById");
+const handleGetProfilePhoto = require('./uploads/handlers/handleGetProfilePhoto');
+const handleGetLatestPhotos = require('./uploads/handlers/handleGetLatestPhotos');
+const handleMessagePhotoUpload = require('./uploads/handlers/handleMessagePhotoUpload');
+const uploadMessageImage = require("./uploads/s3/uploadMessageImage");
+const handleProfilePhotosUpload = require('./uploads/handlers/handleProfilePhotosUpload');
+const uploadProfileImages = require('./uploads/s3/uploadProfileImages');
+const handleGetUserPhotos = require('./uploads/handlers/handleGetUserPhotos');
+const attachCurrentUser = require("./../middleware/attachCurrentUser");
+const handleStreamS3FileRequest = require('./uploads/handlers/handleStreamS3FileRequest');
+const s3 = require("./../utils/s3");
+const MAX_NUMBER_OF_FILES = require("../consts/maxNumberOfFiles");
+const handleGetAllUserUploads = require('./uploads/handlers/handleGetAllUserUploads');
 
-AWS.config.update({
-  accessKeyId: process.env.AWS_S3_ACCESS_KEY_ID,
-  secretAccessKey: process.env.AWS_S3_SECRET_ACCESS_KEY,
-});
+require('./uploads/swagger/deletePhoto.swagger');
+router.delete('/delete-photo', [
+  checkJwt,
+  withAccessCheck(Upload, async (req) => {
+    const { url } = req.body;
+    if (!url) return null;
+    return await Upload.findOne({ where: { url } });
+  }),
+], handleDeletePhotoRequest);
 
-const s3 = new AWS.S3();
+require('./uploads/swagger/getPhotoById.swagger');
+router.get("/photo/:id", [checkJwt], handleGetPhotoById);
 
-/**
- * @swagger
- * /uploads/files/*:
- *   get:
- *     summary: Stream image files from S3 bucket
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: File stream initiated
- *       404:
- *         description: File not found in DB
- */
-router.get('/files/*', checkJwt, async (req, res) => {
-  const rawKey = req.params[0];
-  const key = decodeURIComponent(rawKey);
-  console.log('🔍 Requested key:', key);
-  
-  try {
-    let file = await Upload.findOne({ where: { url: key} });
+require('./uploads/swagger/getProfilePhoto.swagger');
+router.get("/profile-photo/:id", [checkJwt], handleGetProfilePhoto);
 
-    if (!file) {
-      console.log('🔍 Not found in Upload. Checking PhotoComment.imageUrl...');
-      const commentWithImage = await PhotoComment.findOne({ where: { imageUrl: key } });
+require('./uploads/swagger/getLatestPhotos.swagger');
+router.get('/latest', [checkJwt], handleGetLatestPhotos);
 
-      if (commentWithImage) {
-        console.log('✅ Found in PhotoComment.imageUrl');
-        file = { url: commentWithImage.imageUrl };
-      }
-    }
-
-    let messageWithImage;
-    if (!file) {
-      console.log('🔍 Not found in Comment. Checking Message.messagePhotoUrl...');
-      messageWithImage = await Message.findOne({ where: { messagePhotoUrl: key } });
-
-      if (messageWithImage) {
-        console.log('✅ Found in Message.messagePhotoUrl');
-        file = { url: messageWithImage.messagePhotoUrl };
-      }
-    }
-
-    if (!file) {
-      console.log('❌ Not found in Upload, Comment, or Message');
-      return res.status(404).json({ message: 'File not found in DB' });
-    }
-
-    const normalizedKey = removeSpacesAndDashes(key).startsWith(`${process.env.NODE_ENV}/`)
-  ? key
-  : `${process.env.NODE_ENV}/${removeSpacesAndDashes(key)}`;
-    const s3Stream = s3
-      .getObject({
-        Bucket: 'duga-user-photo',
-        Key: normalizedKey.toLowerCase()
-      })
-      .createReadStream();
-    
-    
-    s3Stream.on('error', (err) => {
-      console.error('❌ Stream error:', err); // Log here!
-      res.status(404).json({ message: 'Image not found on S3' });
-    });
-
-    res.setHeader('Content-Type', 'image/png'); 
-    return s3Stream.pipe(res);
-  } catch (err) {
-    console.error('🔥 S3 fetch failed:', err);
-  }
-});
-
-/**
- * @swagger
- * /uploads/delete-photo:
- *   delete:
- *     summary: Delete a photo from S3 and database
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               url:
- *                 type: string
- *     responses:
- *       200:
- *         description: Photo deleted successfully
- *       404:
- *         description: Photo not found
- */
-router.delete('/delete-photo',  [
-    checkJwt,
-    withAccessCheck(Upload, async (req) => {
-      const { url } = req.body;
-      if (!url) return null;
-      return await Upload.findOne({ where: { url } });
-    }),
-  ], async (req, res) => {
-  const { url } = req.body;
-
-  if (!url) {
-    return res.status(400).json({ error: 'Photo URL is required.' });
-  }
-
-  try {
-    const extractKeyFromUrl = (inputUrl) => {
-      try {
-        const u = new URL(inputUrl);
-        return decodeURIComponent(u.pathname.slice(1));
-      } catch {
-        return inputUrl;
-      }
-    };
-
-    const fullKey = extractKeyFromUrl(url);
-    const envPrefix = `${process.env.NODE_ENV}/`;
-    const key = fullKey.startsWith(envPrefix) ? fullKey.slice(envPrefix.length) : fullKey;
-    const s3Key = `${process.env.NODE_ENV}/${key}`;
-
-    let deletedModels = [];
-
-    // 🔍 Uploads
-    const uploadMatches = await Upload.findAll({ where: { url: s3Key } });
-    for (const match of uploadMatches) {
-      await match.destroy();
-      deletedModels.push('Upload');
-    }
-
-    // 🔍 PhotoComments
-    const sanitizedKey = removeSpacesAndDashes(key);
-    const commentMatches = await PhotoComment.findAll({ where: { imageUrl: sanitizedKey } });
-    for (const match of commentMatches) {
-      await match.setTaggedUsers([]);
-      await match.destroy();
-      deletedModels.push('PhotoComment');
-    }
-
-    // 🔍 Messages
-    const messageMatches = await Message.findAll({ where: { messagePhotoUrl: sanitizedKey } });
-    for (const match of messageMatches) {
-      await match.destroy();
-      deletedModels.push('Message');
-    }
-
-    if (deletedModels.length === 0) {
-      return res.status(404).json({ error: 'No matching records found for this photo.' });
-    }
-
-    // 🧹 Delete original + thumbnail from S3 if they exist
-    const lastSlashIndex = key.lastIndexOf('/');
-    const path = key.substring(0, lastSlashIndex);
-    const filename = key.substring(lastSlashIndex + 1);
-    const thumbnailKey = `${process.env.NODE_ENV}/${path}/thumbnail-${filename}`;
-
-    const deleteIfExists = async (Key) => {
-      try {
-        await s3.headObject({ Bucket: 'duga-user-photo', Key }).promise();
-        await s3.deleteObject({ Bucket: 'duga-user-photo', Key }).promise();
-        console.log(`✅ Deleted ${Key} from S3`);
-      } catch (err) {
-        if (err.code !== 'NotFound') {
-          console.warn(`⚠️ Failed to delete ${Key}:`, err);
-        } else {
-          console.log(`ℹ️ Skipping deletion, ${Key} does not exist`);
-        }
-      }
-    };
-
-    await Promise.all([
-      deleteIfExists(s3Key),
-      deleteIfExists(thumbnailKey),
-    ]);
-
-    return res.status(200).json({
-      message: `Photo and associated records (${[...new Set(deletedModels)].join(', ')}) deleted successfully.`,
-    });
-  } catch (error) {
-    console.error('❌ Error deleting photo:', error);
-    return res.status(500).json({ error: 'Server error during deletion.' });
-  }
-});
-
-/**
- * @swagger
- * /uploads/message-photos:
- *   post:
- *     summary: Upload message-related photos
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               avatars:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: binary
- *     responses:
- *       200:
- *         description: Upload successful
- */
+require('./uploads/swagger/uploadMessagePhotos.swagger');
 router.post(
-  "/message-photos",
-  [checkJwt, attachCurrentUser, uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES)],
-  async (req, res) => {
-    try {
-      if (!req.files?.length) {
-        return res.status(400).json({ message: 'No files uploaded' });
-      }
-
-      const uploaded = await Promise.all(
-        req.files.map(async (file) => {
-          const key = file.transforms?.find((t) => t.id === 'original')?.key;
-          
-          const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
-
-          console.log(key)
-          const uploadRecord = await Upload.create({
-            name: file.originalname,
-            url: key,
-            filetype: file.mimetype,
-            userId: req.auth.user.id, 
-          });
-
-          return {
-            id: uploadRecord.id,
-            originalName: file.originalname,
-            key,
-            secureUrl: `/uploads/files/${encodeURIComponent(key)}`,
-            thumbnailUrl: thumbnailKey
-              ? `/uploads/files/${encodeURIComponent(thumbnailKey)}`
-              : null,
-          };
-        })
-      );
-
-      return res.status(200).json({ message: 'Upload successful', files: uploaded });
-    } catch (error) {
-      if (error.code === 'INVALID_FILE_TYPE') {
-        return res.status(400).json({ message: error.message });
-      }
-
-      console.error('❌ Upload error:', error);
-      return res.status(500).json({ message: 'Something went wrong' });
-    }
-  }
+  '/message-photos',
+  [
+    checkJwt,
+    attachCurrentUser,
+    uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES),
+  ],
+  handleMessagePhotoUpload
 );
 
-
-/**
- * @swagger
- * /uploads/photos:
- *   post:
- *     summary: Upload user photos with descriptions
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         multipart/form-data:
- *           schema:
- *             type: object
- *             properties:
- *               avatars:
- *                 type: array
- *                 items:
- *                   type: string
- *                   format: binary
- *               text:
- *                 type: string
- *     responses:
- *       200:
- *         description: Upload and metadata update successful
- */
+require('./uploads/swagger/uploadProfilePhotos.swagger');
 router.post(
   '/photos',
   [
@@ -317,240 +59,18 @@ router.post(
       const userId = req.auth.user.id;
       return await User.findOne({ where: { id: userId, auth0Id: req.auth.sub } });
     }),
-    uploadMultiple(s3).array('avatars', MAX_NUMBER_OF_FILES),
+    uploadProfileImages(s3).array('avatars', MAX_NUMBER_OF_FILES),
   ],
-  async function (req, res) {
-    try {
-      const descriptions = JSON.parse(req.body.text);
-
-      if (req.files.length) {
-        await Promise.all(
-          req.files.map(async (file) => {
-            const match = descriptions.find(
-              (d) => d.imageId === removeSpacesAndDashes(file.originalname)
-            );
-            await Upload.create({
-              name: removeSpacesAndDashes(file.originalname),
-              url: file.transforms[1].key,
-              description: match?.description || null,
-              userId: req.user.id,
-            });
-          })
-        );
-      } else {
-        await Upload.update(
-          { isProfilePhoto: false },
-          { where: { userId: req.user.id } }
-        );
-
-        await Promise.all(
-          descriptions.map(async (description) => {
-            const [rowsUpdated] = await Upload.update(
-              {
-                description: description.description,
-                isProfilePhoto: description.isProfilePhoto,
-              },
-              {
-                where: {
-                  name: removeSpacesAndDashes(description.imageId),
-                  userId: req.user.id,
-                },
-              }
-            );
-            if (rowsUpdated === 0) {
-              console.warn('No records updated');
-            }
-          })
-        );
-      }
-
-      return res.status(200).json({ message: 'Upload successful' });
-    } catch (e) {
-      console.error('Upload error:', e);
-      return res.status(500).json({ message: e.message });
-    }
-  }
+  handleProfilePhotosUpload
 );
 
-/**
- * @swagger
- * /uploads/user/{id}:
- *   get:
- *     summary: Get uploads by user ID
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: List of uploads by user
- */
-router.get('/user/:id', [checkJwt], getImages);
+require('./uploads/swagger/getUserPhotos.swagger');
+router.get('/user-photos', [checkJwt, attachCurrentUser], handleGetUserPhotos);
 
-/**
- * @swagger
- * /uploads/photo/{id}:
- *   get:
- *     summary: Get a single upload by ID with secure URL
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Upload data with secure URL
- */
-router.get("/photo/:id", [checkJwt], async (req, res) => {
-  try {
-    const upload = await Upload.findOne({
-      where: {
-        id: req.params.id,
-      },
-    });
+require('./uploads/swagger/files.swagger');
+router.get('/files/*', checkJwt, handleStreamS3FileRequest);
 
-    if (!upload) {
-      return res.status(404).send({
-        message: 'Upload not found',
-      });
-    }
-
-    const plainUpload = upload.toJSON();
-    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL)[0].securePhotoUrl;
-
-    return res.status(200).send({
-      ...plainUpload,
-      secureUrl,
-    });
-  } catch (error) {
-    console.error('❌ Error fetching photo:', error);
-    return res.status(500).send({
-      message: 'Error occurred while fetching photo',
-    });
-  }
-});
-
-/**
- * @swagger
- * /uploads/latest:
- *   get:
- *     summary: Get latest 3 uploads
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: List of recent uploads
- */
-router.get('/latest', [checkJwt], async (req, res) => {
-  try {
-    const uploads = await Upload.findAll({
-      limit: 3,
-      order: [['createdAt', 'DESC']],
-    });
-
-    const result = addSecureUrlsToList(uploads, API_BASE_URL);
-    return res.status(200).json(result);
-  } catch (e) {
-    console.log(e)
-    return res.status(500).json({ message: e.message });
-  }
-});
-
-/**
- * @swagger
- * /uploads/user-photos:
- *   get:
- *     summary: Get all images uploaded, commented, or messaged by user
- *     tags: [Uploads]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Combined list of user photos
- */
-router.get("/user-photos", [checkJwt, attachCurrentUser], async (req, res) => {
-  try {
-    const userId = req.auth?.user?.id;
-
-    if (!userId) {
-      return res.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const uploads = await Upload.findAll({
-      where: { userId },
-      attributes: ['id', 'url', 'description', 'createdAt'],
-    });
-
-    const allPhotos = uploads
-      .map(upload => {
-        const key = upload.url;
-        return {
-          ...upload.toJSON(),
-          type: 'upload',
-          originalField: 'url',
-          securePhotoUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
-        };
-      })
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-    return res.status(200).json(allPhotos);
-  } catch (error) {
-    console.error('Error fetching user photos:', error);
-    return res.status(500).json({
-      message: 'Error occurred while fetching user photos',
-    });
-  }
-});
-
-/**
- * @swagger
- * /uploads/profile-photo/{id}:
- *   get:
- *     summary: Get user profile photo
- *     tags: [Uploads]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: Secure profile photo URL
- */
-router.get("/profile-photo/:id", async (req, res) => {
-  const { id } = req.params;
-
-  try {
-    const upload = await Upload.findOne({
-      where: {
-        userId: id,
-        isProfilePhoto: true,
-      },
-      order: [['createdAt', 'DESC']],
-    });
-
-    if (!upload) {
-      return res.json({ securePhotoUrl: null });
-    }
-
-    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url'); 
-    return res.json({ securePhotoUrl: secureUpload.securePhotoUrl });
-  } catch (error) {
-    console.error('Error fetching profile photo:', error);
-    return res.status(500).json({ error: 'Failed to fetch profile photo' });
-  }
-});
-
+require('./uploads/swagger/getAllUserUploads.swagger');
+router.get('/user/:id', [checkJwt], handleGetAllUserUploads);
 
 module.exports = router;
