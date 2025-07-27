@@ -47,7 +47,39 @@ const uploadCommentImage = multer({
   },
 });
 
-
+/**
+ * @swagger
+ * /comments/add-comment:
+ *   post:
+ *     summary: Add a comment to an upload
+ *     tags: [PhotoComments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               uploadId:
+ *                 type: string
+ *               comment:
+ *                 type: string
+ *               taggedUserIds:
+ *                 type: string
+ *                 description: JSON stringified array of user IDs
+ *               commentImage:
+ *                 type: string
+ *                 format: binary
+ *     responses:
+ *       201:
+ *         description: Comment created
+ *       400:
+ *         description: Bad request or image too large
+ *       500:
+ *         description: Server error
+ */
 router.post(
   '/add-comment',
   [
@@ -129,6 +161,26 @@ router.post(
   }
 );
 
+/**
+ * @swagger
+ * /comments/get-comments/{uploadId}:
+ *   get:
+ *     summary: Get all comments for a specific upload
+ *     tags: [PhotoComments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: uploadId
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: List of comments
+ *       500:
+ *         description: Server error
+ */
 router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
@@ -159,6 +211,39 @@ router.get('/get-comments/:uploadId', [checkJwt], async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /comments/update-comment/{id}:
+ *   put:
+ *     summary: Update a specific comment
+ *     tags: [PhotoComments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               comment:
+ *                 type: string
+ *               taggedUserIds:
+ *                 type: array
+ *                 items:
+ *                   type: number
+ *     responses:
+ *       200:
+ *         description: Comment updated
+ *       500:
+ *         description: Server error
+ */
 router.put(
   '/update-comment/:id',
   [
@@ -198,6 +283,20 @@ router.put(
   }
 );
 
+/**
+ * @swagger
+ * /comments/latest:
+ *   get:
+ *     summary: Get the latest 5 comments
+ *     tags: [PhotoComments]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of latest comments
+ *       500:
+ *         description: Server error
+ */
 router.get("/latest", [checkJwt], async (req, res) => {
   try {
     const photoComments = await PhotoComment.findAll({
@@ -231,6 +330,26 @@ router.get("/latest", [checkJwt], async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /comments/delete-comment/{id}:
+ *   delete:
+ *     summary: Delete a specific comment and its image (if exists)
+ *     tags: [PhotoComments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - name: id
+ *         in: path
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Comment deleted
+ *       500:
+ *         description: Server error
+ */
 router.delete(
   '/delete-comment/:id',
   [checkJwt, withAccessCheck(PhotoComment)],
