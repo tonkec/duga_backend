@@ -3,7 +3,6 @@ const s3 = require('../../../utils/s3');
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
 const {API_BASE_URL} = require("../../../consts/apiBaseUrl");
 
-
 const handleGetAllUserUploads = async (req, res) => {
   try {
     const userId = req.params.id;
