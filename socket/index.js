@@ -40,7 +40,6 @@ const SocketServer = (server, app) => {
 
   app.set('io', io);
 
-
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
     if (!token) {
@@ -69,7 +68,7 @@ const SocketServer = (server, app) => {
 
   io.on('connection', (socket) => {
     console.log('New client connected');
-    socket.on('join', async () => {
+    socket.on('join', async () => { 
       const auth0Id = socket.user?.sub;
       const user = await User.findOne({ where: { auth0Id } });
       const userId = user.id;
