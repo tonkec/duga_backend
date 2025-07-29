@@ -20,7 +20,7 @@ const handleGetUserByUsername = async (req, res) => {
     });
 
     if (!users.length) {
-      return res.status(404).json({ error: 'No users found' });
+      return res.json([]);
     }
 
     return res.json({ users });
