@@ -7,6 +7,7 @@ const handleUpdateUser = require('./users/handlers/handleUpdateUser');
 const handleGetUserById = require("./users/handlers/handleGetUserById");
 const handleGetUserOnlineStatus = require('./users/handlers/handleGetUserOnlineStatus');
 const handleGetCurrentUser = require('./users/handlers/handleGetCurrentUser');
+const handleGetUsersByUsername = require("./users/handlers/handleGetUsersByUsername");
 
 require('./users/swagger/updateUser.swagger');
 router.post('/update-user', [checkJwt, attachCurrentUser], handleUpdateUser);
@@ -25,5 +26,8 @@ router.get('/current-user', [checkJwt, attachCurrentUser], handleGetCurrentUser)
 
 require('./users/swagger/userById.swagger');
 router.get('/:id', [checkJwt], handleGetUserById);
+
+require('./users/swagger/usersByUsername.swagger');
+router.post('/by-usernames', [checkJwt], handleGetUsersByUsername);
 
 module.exports = router;
