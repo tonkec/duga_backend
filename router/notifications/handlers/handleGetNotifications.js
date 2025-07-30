@@ -11,6 +11,7 @@ const handleGetNotifications = async (req, res) => {
     const notifications = await Notification.findAll({
       where: { userId },
       order: [['createdAt', 'DESC']],
+      limit: 10,
     });
 
     return res.status(200).json(notifications);
