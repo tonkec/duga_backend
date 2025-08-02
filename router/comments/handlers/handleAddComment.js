@@ -15,7 +15,7 @@ const handleAddComment = async (req, res) => {
       const cleanedName = removeSpacesAndDashes(
         req.file.originalname.toLowerCase().trim()
       );
-      const normalizedKey = normalizeS3Key(s3Key); // Removes env and sanitizes
+      const normalizedKey = normalizeS3Key(s3Key); 
 
       commentImageUpload = await Upload.create({
         url: s3Key,
@@ -23,7 +23,7 @@ const handleAddComment = async (req, res) => {
         userId,
       });
 
-      imageUrl = normalizedKey; // key without env prefix for PhotoComment
+      imageUrl = normalizedKey;
     }
 
     const photoComment = await PhotoComment.create({
