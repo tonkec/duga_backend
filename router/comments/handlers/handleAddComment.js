@@ -23,7 +23,7 @@ const handleAddComment = async (req, res) => {
         userId,
       });
 
-      imageUrl = normalizedKey; // key without env prefix for PhotoComment
+      imageUrl = normalizedKey; 
     }
 
     const photoComment = await PhotoComment.create({
