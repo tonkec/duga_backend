@@ -157,6 +157,25 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         unique: true,
       },
+       accept_privacy: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: null,
+    },
+    accept_terms: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: null,
+    },
+    onboarding_done: {
+      type: DataTypes.BOOLEAN,
+      allowNull: true,
+      defaultValue: false,
+    },
+    first_login_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     },
     {
       sequelize,
