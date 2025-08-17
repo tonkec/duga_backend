@@ -18,11 +18,6 @@ router.post(
     checkJwt,
     attachCurrentUser,
     uploadCommentImage.single('commentImage'),
-    withAccessCheck(Upload, async (req) => {
-      const { uploadId } = req.body;
-      if (!uploadId) return null;
-      return await Upload.findOne({ where: { id: uploadId } });
-    }),
   ],
   handleAddComment
 );
