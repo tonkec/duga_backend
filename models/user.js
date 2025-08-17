@@ -134,7 +134,11 @@ module.exports = (sequelize, DataTypes) => {
       sexuality: DataTypes.STRING,
       location: DataTypes.STRING,
       age: DataTypes.INTEGER,
-      username: DataTypes.STRING,
+      username: {
+        type: DataTypes.STRING,
+        allowNull: true,
+        unique: true,  
+      },
       status: {
         type: DataTypes.ENUM('online', 'offline'),
         allowNull: false,
