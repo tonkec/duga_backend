@@ -2,12 +2,12 @@ const User = require('../../../models').User;
 
 const handlePostLogin = async (req, res) => {
     const sub = req?.auth?.sub;
-    console.log(req.auth)
   if (!sub) {
     return res.status(401).json({ ok: false, errors: ["unauthorized"] });
   }
 
-  const { username, age, acceptPrivacy, acceptTerms } = req.body ?? {};
+    const { username, age, acceptPrivacy, acceptTerms } = req.body.data ?? {};
+    
 
    if (!username || typeof username !== "string" || username.length < 3) {
     return res.status(400).json({ ok: false, errors: ["invalid_username"] });
@@ -30,7 +30,7 @@ const handlePostLogin = async (req, res) => {
   }
 
   try {
-    const user = await User.findOne({ where: { auth0_user_id: sub } });
+    const user = await User.findOne({ where: { auth0Id: sub } });
     if (!user) {
       return res.status(404).json({ ok: false, errors: ["user_not_found"] });
     }
