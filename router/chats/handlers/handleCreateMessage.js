@@ -1,6 +1,7 @@
 
 const ChatUser = require("./../../../models").ChatUser
 const { Chat } = require('./../../../models');
+const { User } = require('./../../../models');
 
 const handleCreateMessage = async (req, res) => {
   const { partnerId } = req.body;
