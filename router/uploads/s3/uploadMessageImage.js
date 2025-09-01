@@ -9,7 +9,30 @@ const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
 const BUCKET = 'duga-user-photo';
 const FIELD_NAME = 'avatars';
 const MAX_FILE_MB = 15;
-const EXPLICIT_BLOCK_THRESHOLD = 0.90; // block >= 90%
+
+// --- Policy thresholds (tune as needed) ---
+// --- Policy thresholds ---
+const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90);  // 90%
+const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); // 75%
+
+// Labels to block as explicit
+const EXPLICIT_LABELS = new Set([
+  'Explicit Nudity',
+  'Sexual Activity',
+  'Sexual Situations',
+  'Non-Explicit Nudity',
+  'Non-Explicit Nudity of Intimate parts and Kissing',
+  'Partially Exposed Female Breast',
+]);
+
+// Labels to block as suggestive
+const SUGGESTIVE_LABELS = new Set([
+  'Suggestive',
+  'Revealing Clothes',
+  'Implied Nudity',
+  'Swimwear or Underwear',
+  'Female Swimwear or Underwear',
+]);
 
 // Build Rekognition v2 from the SAME AWS config/creds as your S3 client
 const rekognition = new AWS.Rekognition();
@@ -24,7 +47,6 @@ const uploadMessageImage = (s3 /* your shared v2 S3 client */) => {
     storage: multer.memoryStorage(),
     limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: MAX_NUMBER_OF_FILES },
     fileFilter(req, file, cb) {
-      // Raster only for Rekognition
       if (['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.mimetype)) return cb(null, true);
       const err = new Error('Invalid file type. Only PNG, JPG, JPEG, and WEBP are allowed.');
       err.code = 'INVALID_FILE_TYPE';
@@ -56,33 +78,49 @@ const uploadMessageImage = (s3 /* your shared v2 S3 client */) => {
           MinConfidence: 60,
         }).promise();
 
-        const labels = (mod.ModerationLabels || []).map(l => ({
+        const rawLabels = mod.ModerationLabels || [];
+        const labels = rawLabels.map(l => ({
           name: l.Name,
           parent: l.ParentName,
           confidence: l.Confidence || 0
         }));
 
-        const explicit = labels.some(l =>
-          (l.name === 'Explicit Nudity' || (l.name || '').includes('Sexual')) &&
+        // ---- Decision logic ----
+        const hasExplicit = labels.some(l =>
+          (EXPLICIT_LABELS.has(l.name) || (l.name || '').includes('Sexual')) &&
           l.confidence >= EXPLICIT_BLOCK_THRESHOLD * 100
         );
 
-        if (explicit) {
+        const hasSuggestive = labels.some(l =>
+          (SUGGESTIVE_LABELS.has(l.name) || l.parent === 'Suggestive') &&
+          l.confidence >= SUGGESTIVE_BLOCK_THRESHOLD * 100
+        );
+
+        const decision = hasExplicit ? 'block-explicit' : (hasSuggestive ? 'block-suggestive' : 'allow');
+
+        // Helpful logs while tuning
+        console.log('🔎 moderation labels:', labels);
+        console.log('🔎 decision:', decision);
+
+        if (decision !== 'allow') {
           req.rejectedFiles.push({
             originalName: file.originalname,
-            reason: 'Image rejected due to explicit content',
+            reason: decision === 'block-explicit'
+              ? `Blocked: Explicit content ≥ ${EXPLICIT_BLOCK_THRESHOLD * 100}%`
+              : `Blocked: Suggestive content ≥ ${SUGGESTIVE_BLOCK_THRESHOLD * 100}%`,
             moderation: labels,
+            decision,
           });
           continue; // DO NOT upload
         }
 
-        // Build key (keep your pattern)
+        // ---- Allowed → build key & upload ----
         const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
         const base = removeSpacesAndDashes(path.basename(file.originalname, ext)).toLowerCase();
-        // keep original ext in the key (optional). If you prefer .jpg always, use `${base}.jpg`
+
+        // keep your existing env prefix (or drop env if you’ve standardized without it)
         const key = `${env}/chat/${body.chatId}/${body.timestamp}/${base}${ext}`;
 
-        // Upload to S3 (v2)
         await s3.putObject({
           Bucket: BUCKET,
           Key: key,
@@ -95,6 +133,7 @@ const uploadMessageImage = (s3 /* your shared v2 S3 client */) => {
         file.mimetype = 'image/jpeg';
         file.transforms = [{ id: 'original', key }];
         file.moderation = labels;
+        file.decision = decision;
 
         allowed.push(file);
       }
