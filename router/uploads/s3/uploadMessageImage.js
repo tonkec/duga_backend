@@ -4,10 +4,10 @@ const sharp = require('sharp');
 const path = require('path');
 const removeSpacesAndDashes = require("../../../utils/removeSpacesAndDashes");
 const AWS = require('aws-sdk'); // v2
+const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
 
 const BUCKET = 'duga-user-photo';
 const FIELD_NAME = 'avatars';
-const MAX_FILES = 10;
 const MAX_FILE_MB = 15;
 const EXPLICIT_BLOCK_THRESHOLD = 0.90; // block >= 90%
 
@@ -22,7 +22,7 @@ const uploadMessageImage = (s3 /* your shared v2 S3 client */) => {
   // 1) Buffer files in memory (no S3 yet)
   const memory = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: MAX_FILES },
+    limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: MAX_NUMBER_OF_FILES },
     fileFilter(req, file, cb) {
       // Raster only for Rekognition
       if (['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.mimetype)) return cb(null, true);
@@ -30,7 +30,7 @@ const uploadMessageImage = (s3 /* your shared v2 S3 client */) => {
       err.code = 'INVALID_FILE_TYPE';
       cb(err);
     },
-  }).array(FIELD_NAME, MAX_FILES);
+  }).array(FIELD_NAME, MAX_NUMBER_OF_FILES);
 
   // 2) Moderate -> upload allowed -> mimic transforms
   async function processAndUpload(req, res, next) {
