@@ -2,10 +2,20 @@ const Upload = require('../../../models').Upload;
 
 const handleMessagePhotoUpload = async (req, res) => {
   try {
+    const rejectedFiles = req.rejectedFiles || [];
+
+    // 1) Handle edge cases up front
+    if ((!req.files || req.files.length === 0) && rejectedFiles.length > 0) {
+      return res.status(400).json({
+        message: 'All uploads were rejected',
+        rejectedFiles,
+      });
+    }
     if (!req.files?.length) {
       return res.status(400).json({ message: 'No files uploaded' });
     }
 
+    // 2) Persist allowed files (unchanged logic)
     const uploaded = await Promise.all(
       req.files.map(async (file) => {
         const key = file.transforms?.find((t) => t.id === 'original')?.key;
@@ -16,7 +26,7 @@ const handleMessagePhotoUpload = async (req, res) => {
         const uploadRecord = await Upload.create({
           name: file.originalname,
           url: key,
-          filetype: file.mimetype,
+          filetype: file.mimetype, 
           userId: req.auth.user.id,
         });
 
@@ -32,7 +42,11 @@ const handleMessagePhotoUpload = async (req, res) => {
       })
     );
 
-    return res.status(200).json({ message: 'Upload successful', files: uploaded });
+    return res.status(200).json({
+      message: 'Upload successful',
+      files: uploaded,
+      rejectedFiles, 
+    });
   } catch (error) {
     if (error.code === 'INVALID_FILE_TYPE') {
       return res.status(400).json({ message: error.message });

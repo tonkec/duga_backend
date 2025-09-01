@@ -41,14 +41,9 @@ router.get('/latest', [checkJwt], handleGetLatestPhotos);
 require('./uploads/swagger/uploadMessagePhotos.swagger');
 router.post(
   '/message-photos',
-  [
-    checkJwt,
-    attachCurrentUser,
-    uploadMessageImage(s3).array('avatars', MAX_NUMBER_OF_FILES),
-  ],
+  [checkJwt, attachCurrentUser, ...uploadMessageImage(s3)],
   handleMessagePhotoUpload
 );
-
 require('./uploads/swagger/uploadProfilePhotos.swagger');
 router.post(
   '/photos',
