@@ -47,7 +47,7 @@ const handleGetAllMessages = async (req, res) => {
       const key = extractKeyFromUrl(messagePhotoUrl);
 
       if (key) {
-        plain.securePhotoUrl = `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`;
+        plain.securePhotoUrl = `${API_BASE_URL}/uploads/files/${key}`;
       } else {
         console.warn('🚨 Could not extract key from:', messagePhotoUrl);
         plain.securePhotoUrl = null;
