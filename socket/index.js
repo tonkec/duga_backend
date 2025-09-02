@@ -418,21 +418,19 @@ const SocketServer = (server, app) => {
               ? normalizeS3Key(message.messagePhotoUrl)
               : String(message.messagePhotoUrl);
 
-            // IMPORTANT: check Uploads table – if it doesn't exist, it was rejected by moderation.
             const upload = await Upload.findOne({
               where: { url: candidateKey, userId: message.fromUser.id },
             });
 
             if (!upload) {
-              // Don’t create a Message – image was rejected / never allowed
               socket.emit('message_rejected', {
                 reason: 'Image rejected by moderation. Message not sent.',
                 key: candidateKey,
               });
-              return; // stop here
+              return; 
             }
 
-            finalMessagePhotoUrl = upload.url; // exact DB key
+            finalMessagePhotoUrl = upload.url;
           }
 
           // --- 2) Create the message (text-only or with allowed image) ---
@@ -441,7 +439,7 @@ const SocketServer = (server, app) => {
             fromUserId: message.fromUser.id,
             chatId: message.chatId,
             message: message.message,
-            messagePhotoUrl: finalMessagePhotoUrl, // null if no image
+            messagePhotoUrl: finalMessagePhotoUrl, 
           };
 
           const savedMessage = await Message.create(msgPayload);
@@ -451,7 +449,7 @@ const SocketServer = (server, app) => {
             id: savedMessage.id,
             chatId: savedMessage.chatId,
             fromUserId: message.fromUser.id,
-            User: message.fromUser, // if clients expect it
+            User: message.fromUser, 
             type: savedMessage.type,
             message: savedMessage.message,
             createdAt: savedMessage.createdAt,
