@@ -14,6 +14,7 @@ const Upload = require('../models').Upload;
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
+const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -414,12 +415,14 @@ const SocketServer = (server, app) => {
           let finalMessagePhotoUrl = null;
 
           if (message.messagePhotoUrl) {
-            const candidateKey = normalizeS3Key
-              ? normalizeS3Key(message.messagePhotoUrl)
-              : String(message.messagePhotoUrl);
+              const envPrefix = `${process.env.NODE_ENV}/`;
+            const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
+              ? message.messagePhotoUrl
+              : `${envPrefix}${message.messagePhotoUrl}`;
+
 
             const upload = await Upload.findOne({
-              where: { url: candidateKey, userId: message.fromUser.id },
+              where: { url: removeSpacesAndDashes(candidateKey.toLowerCase()), userId: message.fromUser.id },
             });
 
             if (!upload) {
@@ -441,6 +444,8 @@ const SocketServer = (server, app) => {
             message: message.message,
             messagePhotoUrl: finalMessagePhotoUrl, 
           };
+
+          console.log(finalMessagePhotoUrl, "finalMessagePhotoUrl");
 
           const savedMessage = await Message.create(msgPayload);
 
