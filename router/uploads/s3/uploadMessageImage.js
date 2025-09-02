@@ -1,4 +1,3 @@
-// middleware/uploadMessageImage.js
 const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
@@ -37,7 +36,7 @@ const SUGGESTIVE_LABELS = new Set([
 // Build Rekognition v2 from the SAME AWS config/creds as your S3 client
 const rekognition = new AWS.Rekognition();
 
-const uploadMessageImage = (s3 /* your shared v2 S3 client */) => {
+const uploadMessageImage = (s3 ) => {
   if (!s3 || typeof s3.putObject !== 'function') {
     throw new Error('Expected an AWS SDK v2 S3 client');
   }

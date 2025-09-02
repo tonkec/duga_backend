@@ -9,6 +9,9 @@ const handleMessagePhotoUpload = async (req, res) => {
       return res.status(400).json({
         message: 'All uploads were rejected',
         rejectedFiles,
+        errors: [
+          ...rejectedFiles.map(f => ({ fileName: f.originalname, reason: f.reason || 'Rejected' }))
+        ]
       });
     }
     if (!req.files?.length) {
