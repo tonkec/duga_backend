@@ -1,35 +1,15 @@
-// handlers/handleProfilePhotoUpload.js
 const AWS = require('aws-sdk'); // v2
-const s3 = require('../../../utils/s3'); // shared v2 S3 client (inherits AWS.config)
+const s3 = require('../../../utils/s3'); 
 const sharp = require('sharp');
 const Upload = require('../../../models').Upload;
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
-
-const BUCKET = 'duga-user-photo';
-
-// --- Policy thresholds (tunable via env) ---
-const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90); // 90%
-const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); // 75%
-
-// Labels treated as explicit
-const EXPLICIT_LABELS = new Set([
-  'Explicit Nudity',
-  'Sexual Activity',
-  'Sexual Situations',
-  'Non-Explicit Nudity',
-  'Non-Explicit Nudity of Intimate parts and Kissing',
-  'Partially Exposed Female Breast',
-]);
-
-// Labels treated as suggestive
-const SUGGESTIVE_LABELS = new Set([
-  'Suggestive',
-  'Revealing Clothes',
-  'Implied Nudity',
-  'Swimwear or Underwear',
-  'Female Swimwear or Underwear',
-]);
-
+const {
+  BUCKET,
+  EXPLICIT_BLOCK_THRESHOLD,
+  SUGGESTIVE_BLOCK_THRESHOLD,
+  EXPLICIT_LABELS,
+  SUGGESTIVE_LABELS,
+} = require('../s3/rekognitionConfiguration');
 // Rekognition client (region/creds come from AWS.config)
 const rekognition = new AWS.Rekognition();
 

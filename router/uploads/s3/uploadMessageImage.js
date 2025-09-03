@@ -4,34 +4,15 @@ const path = require('path');
 const removeSpacesAndDashes = require("../../../utils/removeSpacesAndDashes");
 const AWS = require('aws-sdk'); // v2
 const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
-
-const BUCKET = 'duga-user-photo';
-const FIELD_NAME = 'avatars';
-const MAX_FILE_MB = 15;
-
-// --- Policy thresholds ---
-const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90); 
-const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); 
-
-// Labels to block as explicit
-const EXPLICIT_LABELS = new Set([
-  'Explicit Nudity',
-  'Sexual Activity',
-  'Sexual Situations',
-  'Non-Explicit Nudity',
-  'Non-Explicit Nudity of Intimate parts and Kissing',
-  'Partially Exposed Female Breast',
-]);
-
-// Labels to block as suggestive
-const SUGGESTIVE_LABELS = new Set([
-  'Suggestive',
-  'Revealing Clothes',
-  'Implied Nudity',
-  'Swimwear or Underwear',
-  'Female Swimwear or Underwear',
-]);
-
+const {
+  BUCKET,
+  FIELD_NAME,
+  MAX_FILE_MB,
+  EXPLICIT_BLOCK_THRESHOLD,
+  SUGGESTIVE_BLOCK_THRESHOLD,
+  EXPLICIT_LABELS,
+  SUGGESTIVE_LABELS,
+} = require('../s3/rekognitionConfiguration');
 // Build Rekognition v2 from the SAME AWS config/creds as your S3 client
 const rekognition = new AWS.Rekognition();
 
