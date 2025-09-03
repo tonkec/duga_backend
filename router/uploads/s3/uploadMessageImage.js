@@ -9,10 +9,9 @@ const BUCKET = 'duga-user-photo';
 const FIELD_NAME = 'avatars';
 const MAX_FILE_MB = 15;
 
-// --- Policy thresholds (tune as needed) ---
 // --- Policy thresholds ---
-const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90);  // 90%
-const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); // 75%
+const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90); 
+const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); 
 
 // Labels to block as explicit
 const EXPLICIT_LABELS = new Set([
@@ -36,7 +35,7 @@ const SUGGESTIVE_LABELS = new Set([
 // Build Rekognition v2 from the SAME AWS config/creds as your S3 client
 const rekognition = new AWS.Rekognition();
 
-const uploadMessageImage = (s3 ) => {
+const uploadMessageImage = (s3) => {
   if (!s3 || typeof s3.putObject !== 'function') {
     throw new Error('Expected an AWS SDK v2 S3 client');
   }
