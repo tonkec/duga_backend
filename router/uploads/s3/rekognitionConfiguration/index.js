@@ -1,6 +1,6 @@
 const BUCKET = 'duga-user-photo';
 const FIELD_NAME = 'avatars';
-const MAX_FILE_MB = 15;
+const MAX_FILE_MB = 2;
 
 const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90); 
 const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); 
