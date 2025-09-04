@@ -4,39 +4,19 @@ const path = require('path');
 const removeSpacesAndDashes = require("../../../utils/removeSpacesAndDashes");
 const AWS = require('aws-sdk'); // v2
 const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
-
-const BUCKET = 'duga-user-photo';
-const FIELD_NAME = 'avatars';
-const MAX_FILE_MB = 15;
-
-// --- Policy thresholds (tune as needed) ---
-// --- Policy thresholds ---
-const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90);  // 90%
-const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); // 75%
-
-// Labels to block as explicit
-const EXPLICIT_LABELS = new Set([
-  'Explicit Nudity',
-  'Sexual Activity',
-  'Sexual Situations',
-  'Non-Explicit Nudity',
-  'Non-Explicit Nudity of Intimate parts and Kissing',
-  'Partially Exposed Female Breast',
-]);
-
-// Labels to block as suggestive
-const SUGGESTIVE_LABELS = new Set([
-  'Suggestive',
-  'Revealing Clothes',
-  'Implied Nudity',
-  'Swimwear or Underwear',
-  'Female Swimwear or Underwear',
-]);
-
+const {
+  BUCKET,
+  FIELD_NAME,
+  MAX_FILE_MB,
+  EXPLICIT_BLOCK_THRESHOLD,
+  SUGGESTIVE_BLOCK_THRESHOLD,
+  EXPLICIT_LABELS,
+  SUGGESTIVE_LABELS,
+} = require('../s3/rekognitionConfiguration');
 // Build Rekognition v2 from the SAME AWS config/creds as your S3 client
 const rekognition = new AWS.Rekognition();
 
-const uploadMessageImage = (s3 ) => {
+const uploadMessageImage = (s3) => {
   if (!s3 || typeof s3.putObject !== 'function') {
     throw new Error('Expected an AWS SDK v2 S3 client');
   }
@@ -64,14 +44,12 @@ const uploadMessageImage = (s3 ) => {
 
       const allowed = [];
       for (const file of req.files) {
-        // Normalize/resize (strip EXIF); store as JPEG
         const normalized = await sharp(file.buffer)
           .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
           .toFormat('jpeg')
           .jpeg({ quality: 90 })
           .toBuffer();
 
-        // Rekognition moderation (v2)
         const mod = await rekognition.detectModerationLabels({
           Image: { Bytes: normalized },
           MinConfidence: 60,
@@ -84,7 +62,6 @@ const uploadMessageImage = (s3 ) => {
           confidence: l.Confidence || 0
         }));
 
-        // ---- Decision logic ----
         const hasExplicit = labels.some(l =>
           (EXPLICIT_LABELS.has(l.name) || (l.name || '').includes('Sexual')) &&
           l.confidence >= EXPLICIT_BLOCK_THRESHOLD * 100
@@ -97,7 +74,6 @@ const uploadMessageImage = (s3 ) => {
 
         const decision = hasExplicit ? 'block-explicit' : (hasSuggestive ? 'block-suggestive' : 'allow');
 
-        // Helpful logs while tuning
         console.log('🔎 moderation labels:', labels);
         console.log('🔎 decision:', decision);
 
@@ -110,10 +86,9 @@ const uploadMessageImage = (s3 ) => {
             moderation: labels,
             decision,
           });
-          continue; // DO NOT upload
+          continue; 
         }
 
-        // ---- Allowed → build key & upload ----
         const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
         const base = removeSpacesAndDashes(path.basename(file.originalname, ext)).toLowerCase();
 
@@ -124,11 +99,10 @@ const uploadMessageImage = (s3 ) => {
           Bucket: BUCKET,
           Key: key,
           Body: normalized,
-          ContentType: 'image/jpeg', // stored as JPEG even if key ends with .png
+          ContentType: 'image/jpeg', 
           ACL: 'private',
         }).promise();
 
-        // Mimic multer-s3-transform shape so your handler works unchanged
         file.mimetype = 'image/jpeg';
         file.transforms = [{ id: 'original', key }];
         file.moderation = labels;
