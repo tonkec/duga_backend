@@ -1,5 +1,5 @@
 const BUCKET = 'duga-user-photo';
-const FIELD_NAME = 'avatars';
+const UPLOAD_MESSAGE_IMAGE_FIELD_NAME = 'avatars';
 const MAX_FILE_MB = 2;
 
 const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90); 
@@ -15,7 +15,6 @@ const EXPLICIT_LABELS = new Set([
   'Partially Exposed Female Breast',
 ]);
 
-// Labels to block as suggestive
 const SUGGESTIVE_LABELS = new Set([
   'Suggestive',
   'Revealing Clothes',
@@ -26,7 +25,7 @@ const SUGGESTIVE_LABELS = new Set([
 
 module.exports = {
   BUCKET,
-  FIELD_NAME,
+  UPLOAD_MESSAGE_IMAGE_FIELD_NAME,
   MAX_FILE_MB,
   EXPLICIT_BLOCK_THRESHOLD,
   SUGGESTIVE_BLOCK_THRESHOLD,
