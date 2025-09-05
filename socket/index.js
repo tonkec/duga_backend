@@ -9,10 +9,12 @@ const Notification = require('../models').Notification;
 const PhotoLikes = require("../models").PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
 const normalizeS3Key = require("../utils/normalizeS3Key");
+const Upload = require('../models').Upload;
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
+const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -398,95 +400,111 @@ const SocketServer = (server, app) => {
     });
     
   
-    socket.on('message', async (message) => {
-  let sockets = setUsers(message.fromUser, socket);
+     socket.on('message', async (message) => {
+        let sockets = setUsers(message.fromUser, socket);
 
-  if (users.length > 0 && users.has(message.fromUser.id)) {
-    sockets = users.get(message.fromUser.id).sockets;
-  }
-
-  message.toUserId.forEach((id) => {
-    if (users.has(id)) {
-      sockets = [...sockets, ...users.get(id).sockets];
-    }
-  });
-
-  try {
-    let finalMessagePhotoUrl = null;
-
-    if (message.messagePhotoUrl) {
-      finalMessagePhotoUrl = normalizeS3Key(message.messagePhotoUrl);
-    }
-
-    const msg = {
-      type: message.type,
-      fromUserId: message.fromUser.id,
-      chatId: message.chatId,
-      message: message.message,
-      messagePhotoUrl: finalMessagePhotoUrl,
-    };
-
-    const savedMessage = await Message.create(msg);
-
-    // Prepare outgoing socket message
-    message.User = message.fromUser;
-    message.fromUserId = message.fromUser.id;
-    message.id = savedMessage.id;
-    message.message = savedMessage.message;
-    message.createdAt = savedMessage.createdAt;
-    message.type = savedMessage.type;
-
-    // Send secure URL for rendering image on frontend
-    message.messagePhotoUrl = finalMessagePhotoUrl;
-    if (finalMessagePhotoUrl) {
-      const fullKey = `${process.env.NODE_ENV}/${finalMessagePhotoUrl}`;
-      message.securePhotoUrl = `/uploads/files/${encodeURIComponent(fullKey)}`;
-    }
-
-    delete message.fromUser;
-
-    // Notify recipients
-    for (const recipientId of message.toUserId) {
-      if (!recipientId) {
-        console.warn('⚠️ Skipping null or invalid recipientId:', recipientId);
-        continue;
-      }
-
-      const notification = await Notification.create({
-        userId: recipientId,
-        type: 'message',
-        content: `Nova poruka od ${message.User.username || 'someone'}`,
-        actionId: savedMessage.chatId,
-        actionType: 'message',
-        chatId: savedMessage.chatId,
-      });
-
-      if (users.has(recipientId)) {
-        users.get(recipientId).sockets.forEach((sockId) => {
-          io.to(sockId).emit('new_notification', {
-            id: notification.id,
-            type: notification.type,
-            content: notification.content,
-            actionId: notification.actionId,
-            actionType: notification.actionType,
-            isRead: notification.isRead,
-            createdAt: notification.createdAt,
-            chatId: notification.chatId,
-          });
+        if (users.length > 0 && users.has(message.fromUser.id)) {
+          sockets = users.get(message.fromUser.id).sockets;
+        }
+        message.toUserId.forEach((id) => {
+          if (users.has(id)) sockets = [...sockets, ...users.get(id).sockets];
         });
-      }
-    }
 
-    // Broadcast message
-    sockets.forEach((sockId) => {
-      io.to(sockId).emit('received', message);
-    });
+        try {
+          // --- 1) Validate referenced image (if any) ---
+          let finalMessagePhotoUrl = null;
 
-  } catch (e) {
-    console.error('❌ Error in socket message handler:', e);
-  }
-});
+          if (message.type === 'gif') {
+            finalMessagePhotoUrl = message.messagePhotoUrl;
+          } else if (message.messagePhotoUrl) {
+            const envPrefix = `${process.env.NODE_ENV}/`;
+            const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
+              ? message.messagePhotoUrl
+              : `${envPrefix}${message.messagePhotoUrl}`;
 
+            const upload = await Upload.findOne({
+              where: {
+                url: removeSpacesAndDashes(candidateKey.toLowerCase()),
+                userId: message.fromUser.id,
+              },
+            });
+
+            if (!upload) {
+              socket.emit('message_rejected', {
+                reason: 'Image rejected by moderation. Message not sent.',
+                key: candidateKey,
+              });
+              return;
+            }
+
+            finalMessagePhotoUrl = upload.url;
+          }
+          // --- 2) Create the message (text-only or with allowed image) ---
+          const msgPayload = {
+            type: message.type,
+            fromUserId: message.fromUser.id,
+            chatId: message.chatId,
+            message: message.message,
+            messagePhotoUrl: finalMessagePhotoUrl, 
+          };
+
+
+          const savedMessage = await Message.create(msgPayload);
+
+          // --- 3) Prepare outgoing socket message for clients ---
+          const outbound = {
+            id: savedMessage.id,
+            chatId: savedMessage.chatId,
+            fromUserId: message.fromUser.id,
+            User: message.fromUser, 
+            type: savedMessage.type,
+            message: savedMessage.message,
+            createdAt: savedMessage.createdAt,
+            messagePhotoUrl: finalMessagePhotoUrl,
+            securePhotoUrl: finalMessagePhotoUrl
+              ? `/uploads/files/${encodeURIComponent(finalMessagePhotoUrl)}`
+              : null,
+            toUserId: message.toUserId,
+          };
+
+          // --- 4) Notify recipients (unchanged) ---
+          for (const recipientId of message.toUserId) {
+            if (!recipientId) continue;
+
+            const notification = await Notification.create({
+              userId: recipientId,
+              type: 'message',
+              content: `Nova poruka od ${message.fromUser.username || 'someone'}`,
+              actionId: savedMessage.chatId,
+              actionType: 'message',
+              chatId: savedMessage.chatId,
+            });
+
+            if (users.has(recipientId)) {
+              users.get(recipientId).sockets.forEach((sockId) => {
+                io.to(sockId).emit('new_notification', {
+                  id: notification.id,
+                  type: notification.type,
+                  content: notification.content,
+                  actionId: notification.actionId,
+                  actionType: notification.actionType,
+                  isRead: notification.isRead,
+                  createdAt: notification.createdAt,
+                  chatId: notification.chatId,
+                });
+              });
+            }
+          }
+
+          // --- 5) Broadcast message to all sockets in this convo ---
+          sockets.forEach((sockId) => {
+            io.to(sockId).emit('received', outbound);
+          });
+        } catch (e) {
+          console.error('❌ Error in socket message handler:', e);
+          socket.emit('message_error', { message: 'Failed to send message' });
+        }
+      });
 
 
     socket.on('typing', (data) => {

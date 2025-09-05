@@ -22,7 +22,6 @@ const withAccessCheck = (model, lookupFn = null) => {
     if (!resource) {
       return res.status(404).json({ error: 'Resource not found' });
     }
-
     const hasAccess = await canAccess(user, resource);
     if (!hasAccess) {
       return res.status(403).json({ error: 'Forbidden' });
