@@ -414,15 +414,19 @@ const SocketServer = (server, app) => {
           // --- 1) Validate referenced image (if any) ---
           let finalMessagePhotoUrl = null;
 
-          if (message.messagePhotoUrl) {
-              const envPrefix = `${process.env.NODE_ENV}/`;
+          if (message.type === 'gif') {
+            finalMessagePhotoUrl = message.messagePhotoUrl;
+          } else if (message.messagePhotoUrl) {
+            const envPrefix = `${process.env.NODE_ENV}/`;
             const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
               ? message.messagePhotoUrl
               : `${envPrefix}${message.messagePhotoUrl}`;
 
-
             const upload = await Upload.findOne({
-              where: { url: removeSpacesAndDashes(candidateKey.toLowerCase()), userId: message.fromUser.id },
+              where: {
+                url: removeSpacesAndDashes(candidateKey.toLowerCase()),
+                userId: message.fromUser.id,
+              },
             });
 
             if (!upload) {
@@ -430,12 +434,11 @@ const SocketServer = (server, app) => {
                 reason: 'Image rejected by moderation. Message not sent.',
                 key: candidateKey,
               });
-              return; 
+              return;
             }
 
             finalMessagePhotoUrl = upload.url;
           }
-
           // --- 2) Create the message (text-only or with allowed image) ---
           const msgPayload = {
             type: message.type,
@@ -445,7 +448,6 @@ const SocketServer = (server, app) => {
             messagePhotoUrl: finalMessagePhotoUrl, 
           };
 
-          console.log(finalMessagePhotoUrl, "finalMessagePhotoUrl");
 
           const savedMessage = await Message.create(msgPayload);
 
