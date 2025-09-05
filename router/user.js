@@ -7,10 +7,7 @@ const handleUpdateUser = require('./users/handlers/handleUpdateUser');
 const handleGetUserById = require("./users/handlers/handleGetUserById");
 const handleGetUserOnlineStatus = require('./users/handlers/handleGetUserOnlineStatus');
 const handleGetCurrentUser = require('./users/handlers/handleGetCurrentUser');
-<<<<<<< HEAD
 const handleGetUsersByUsername = require("./users/handlers/handleGetUsersByUsername");
-=======
->>>>>>> master
 const handlePostLogin = require('./users/handlers/handlePostLogin');
 
 require('./users/swagger/updateUser.swagger');
