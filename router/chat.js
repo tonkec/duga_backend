@@ -1,7 +1,6 @@
 
 const ChatUser = require("./../models").ChatUser
 const router = require('express').Router();
-const { Chat } = require('../models');
 const { checkJwt } = require('../middleware/auth');
 const withAccessCheck = require("../middleware/accessCheck");
 const attachCurrentUser = require('../middleware/attachCurrentUser');
