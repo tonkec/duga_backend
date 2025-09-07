@@ -3,7 +3,7 @@ const canAccess = require('./../utils/canAccess');
 
 const withAccessCheck = (model, lookupFn = null) => {
   return async (req, res, next) => {
-    const user = await User.findOne({ where: { auth0Id: req.auth.sub } });
+    const user = await User.findOne({ where: { auth0Id: req?.auth?.sub } });
     if (!user) {
       return res.status(401).json({ error: 'User not found' });
     }
