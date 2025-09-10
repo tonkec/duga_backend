@@ -398,6 +398,10 @@ const SocketServer = (server, app) => {
         console.error("🔥 Error in downvote-upload:", err);
       }
     });
+
+    socket.on("deleteChat", ({ chatId, partnerId }) => {
+      io.emit("chatDeleted", { chatId, partnerId });
+    });
     
   
      socket.on('message', async (message) => {
