@@ -399,8 +399,8 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on("deleteChat", ({ chatId, partnerId }) => {
-      io.emit("chatDeleted", { chatId, partnerId });
+    socket.on("deleteChat", ({ chatId}) => {
+      io.emit("chatDeleted", { chatId });
     });
     
   
