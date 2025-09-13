@@ -1,6 +1,6 @@
 const { Upload } = require('../../../models');
-const { normalizeS3Key } = require('../../../utils/normalizeS3Key');
 const s3 = require('../../../utils/s3');
+const normalizeS3Key = require('../../../utils/normalizeS3Key');
 
 const handleDeleteComment = async (req, res) => {
   try {
