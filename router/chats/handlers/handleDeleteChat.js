@@ -1,5 +1,6 @@
 const models = require('../../../models');
 const Chat = models.Chat;
+const User = models.User;
 
 const handleDeleteChat = async (req, res) => {
   const { id } = req.params;

@@ -13,7 +13,6 @@ const {
   EXPLICIT_LABELS,
   SUGGESTIVE_LABELS,
 } = require('../s3/rekognitionConfiguration');
-
 const rekognition = new AWS.Rekognition();
 
 const uploadMessageImage = (s3) => {

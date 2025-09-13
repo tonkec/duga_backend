@@ -36,13 +36,15 @@ const deletePhotoAndAssociations = async (url) => {
     await match.destroy();
     deletedModels.push('PhotoComment');
   }
-
   // Messages
-  const messageMatches = await Message.findAll({ where: { messagePhotoUrl: sanitizedKey } });
+  const messageMatches = await Message.findAll({ where: { messagePhotoUrl: `${process.env.NODE_ENV}/${sanitizedKey}` } });
+  console.log(messageMatches, "MSG MATCHES")
   for (const match of messageMatches) {
     await match.destroy();
     deletedModels.push('Message');
   }
+
+  console.log(deletedModels, "MODELS")
 
   // Delete original + thumbnail from S3
   const lastSlashIndex = key.lastIndexOf('/');

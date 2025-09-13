@@ -12,7 +12,6 @@ const handleUpdateUser = async (req, res) => {
         sexuality: req.body.data.sexuality ? req.body.data.sexuality : null,
         gender: req.body.data.gender ? req.body.data.gender : null,
         location: req.body.data.location ? req.body.data.location : null,
-        age: req.body.data.age ? req.body.data.age : null,
         lookingFor: req.body.data.lookingFor ? req.body.data.lookingFor : null,
         relationshipStatus: req.body.data.relationshipStatus ? req.body.data.relationshipStatus : null,
         cigarettes: req.body.data.cigarettes ? req.body.data.cigarettes : null,

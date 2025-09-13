@@ -1,7 +1,6 @@
 
 const ChatUser = require("./../models").ChatUser
 const router = require('express').Router();
-const { Chat } = require('../models');
 const { checkJwt } = require('../middleware/auth');
 const withAccessCheck = require("../middleware/accessCheck");
 const attachCurrentUser = require('../middleware/attachCurrentUser');
@@ -24,6 +23,6 @@ require('./chats/swagger/createMessage.swagger');
 router.post('/create', [checkJwt, attachCurrentUser], handleCreateMessage);
 
 require('./chats/swagger/deleteChat.swagger');
-router.delete('/:id', [checkJwt, withAccessCheck(Chat)], handleDeleteChat);
+router.delete('/:id', [checkJwt], handleDeleteChat);
 
 module.exports = router;
