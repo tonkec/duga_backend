@@ -50,7 +50,7 @@ router.post(
       // run the upload and handle any Multer errors
       uploadMsg[0](req, res, (err) => {
         if (!err) return next();
-
+        console.error('❌ Upload error middleware:', err);
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
         }
@@ -80,7 +80,6 @@ router.post(
     (req, res, next) => {
       upload(req, res, (err) => {
         if (!err) return next();
-
         if (err.code === 'LIMIT_FILE_SIZE') {
           return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
         }
