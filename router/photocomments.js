@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Upload, PhotoComment } = require('../models');
+const { PhotoComment } = require('../models');
 const { checkJwt } = require('../middleware/auth');
 const attachCurrentUser = require('../middleware/attachCurrentUser');
 const withAccessCheck = require('../middleware/accessCheck');
@@ -10,6 +10,8 @@ const handleGetComments = require("./comments/handlers/handleGetComments");
 const handleUpdateComment = require("./comments/handlers/handleUpdateComment");
 const handleGetLatestComments = require("./comments/handlers/handleGetLatestComments");
 const handleDeleteComment = require("./comments/handlers/handleDeleteComment");
+const upload = uploadCommentImage.single('commentImage');
+const LIMIT_FILE_SIZE = require('../consts/limitFileSize');
 
 require('./comments/swagger/addComment.swagger');
 router.post(
@@ -17,11 +19,25 @@ router.post(
   [
     checkJwt,
     attachCurrentUser,
-    uploadCommentImage.single('commentImage'),
+    (req, res, next) => {
+      upload(req, res, (err) => {
+        if (!err) return next();
+
+        if (err.code === 'LIMIT_FILE_SIZE') {
+          return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
+        }
+
+        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+          return res.status(413).json({errors: [{ reason: `Nepodržan format` }] });
+        }
+
+        // Custom or unknown errors
+        return res.status(400).json({ message: err.message || 'Upload error.' });
+      });
+    },
   ],
   handleAddComment
 );
-
 require('./comments/swagger/getComments.swagger');
 router.get('/get-comments/:uploadId', [checkJwt], handleGetComments);
 
