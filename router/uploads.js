@@ -19,7 +19,49 @@ const s3 = require("./../utils/s3");
 const MAX_NUMBER_OF_FILES = require("../consts/maxNumberOfFiles");
 const handleGetAllUserUploads = require('./uploads/handlers/handleGetAllUserUploads');
 const LIMIT_FILE_SIZE = require('../consts/limitFileSize');
-const uploadMsg = uploadMessageImage(s3);
+const uploadStack = uploadMessageImage(s3); // could be array or single fn
+
+function runUploadStack(stack) {
+  const mws = Array.isArray(stack) ? stack : [stack];
+
+  return (req, res, next) => {
+    let i = 0;
+
+    const step = (err) => {
+      if (err) return handleMulterError(err, req, res, next);
+      const mw = mws[i++];
+      if (!mw) return next();          // all good, proceed
+      try {
+        mw(req, res, step);            // run next upload middleware
+      } catch (e) {
+        handleMulterError(e, req, res, next);
+      }
+    };
+
+    step();
+  };
+}
+
+function handleMulterError(err, req, res, next) {
+  // Known Multer error codes:
+  // LIMIT_FILE_SIZE, LIMIT_FILE_COUNT, LIMIT_FIELD_COUNT,
+  // LIMIT_UNEXPECTED_FILE, LIMIT_PART_COUNT, LIMIT_FIELD_KEY, LIMIT_FIELD_VALUE
+  if (err.code === 'LIMIT_FILE_SIZE') {
+     return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
+  }
+  if (err.code === 'LIMIT_FILE_COUNT') {
+    return res.status(413).json({errors: [{ reason: `Previše datoteka` }] });
+  }
+  if (err.code === 'LIMIT_UNEXPECTED_FILE') {
+    return res.status(413).json({errors: [{ reason: `Nepodržan format` }] });
+  }
+
+  if (err.message) {
+    return res.status(400).json({ message: err.message });
+  }
+
+  return next(err);
+}
 
 require('./uploads/swagger/deletePhoto.swagger');
 router.delete('/delete-photo', [
@@ -43,26 +85,7 @@ router.get('/latest', [checkJwt], handleGetLatestPhotos);
 require('./uploads/swagger/uploadMessagePhotos.swagger');
 router.post(
   '/message-photos',
-  [
-    checkJwt,
-    attachCurrentUser,
-    (req, res, next) => {
-      // run the upload and handle any Multer errors
-      uploadMsg[0](req, res, (err) => {
-        if (!err) return next();
-        console.error('❌ Upload error middleware:', err);
-        if (err.code === 'LIMIT_FILE_SIZE') {
-          return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
-        }
-
-        if (err.code === 'LIMIT_UNEXPECTED_FILE') {
-          return res.status(413).json({errors: [{ reason: `Nepodržan format` }] });
-        }
-
-        return res.status(400).json({ message: err.message || 'Upload error.' });
-      });
-    },
-  ],
+  [checkJwt, attachCurrentUser, runUploadStack(uploadStack)],
   handleMessagePhotoUpload
 );
 require('./uploads/swagger/uploadProfilePhotos.swagger');
