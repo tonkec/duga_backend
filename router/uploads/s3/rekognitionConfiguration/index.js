@@ -1,6 +1,5 @@
 const BUCKET = 'duga-user-photo';
 const FIELD_NAME = 'avatars';
-const MAX_FILE_MB = 2;
 
 const EXPLICIT_BLOCK_THRESHOLD = Number(process.env.EXPLICIT_BLOCK_THRESHOLD ?? 0.90); 
 const SUGGESTIVE_BLOCK_THRESHOLD = Number(process.env.SUGGESTIVE_BLOCK_THRESHOLD ?? 0.75); 
@@ -27,7 +26,6 @@ const SUGGESTIVE_LABELS = new Set([
 module.exports = {
   BUCKET,
   FIELD_NAME,
-  MAX_FILE_MB,
   EXPLICIT_BLOCK_THRESHOLD,
   SUGGESTIVE_BLOCK_THRESHOLD,
   EXPLICIT_LABELS,

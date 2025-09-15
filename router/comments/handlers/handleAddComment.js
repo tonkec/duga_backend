@@ -61,11 +61,11 @@ const handleAddComment = async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ message: 'Image too big' });
+      return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
     }
 
     if (error.message?.includes('Invalid file type')) {
-      return res.status(400).json({ message: error.message });
+      return res.status(413).json({errors: [{ reason: `Nepodržan format` }] });
     }
 
     console.error('❌ Error adding comment:', error);

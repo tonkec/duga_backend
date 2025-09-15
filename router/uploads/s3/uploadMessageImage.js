@@ -7,12 +7,12 @@ const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
 const {
   BUCKET,
   FIELD_NAME,
-  MAX_FILE_MB,
   EXPLICIT_BLOCK_THRESHOLD,
   SUGGESTIVE_BLOCK_THRESHOLD,
   EXPLICIT_LABELS,
   SUGGESTIVE_LABELS,
 } = require('../s3/rekognitionConfiguration');
+const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
 // Build Rekognition v2 from the SAME AWS config/creds as your S3 client
 const rekognition = new AWS.Rekognition();
 
@@ -24,7 +24,7 @@ const uploadMessageImage = (s3) => {
   // 1) Buffer files in memory (no S3 yet)
   const memory = multer({
     storage: multer.memoryStorage(),
-    limits: { fileSize: MAX_FILE_MB * 1024 * 1024, files: MAX_NUMBER_OF_FILES },
+    limits: { fileSize: LIMIT_FILE_SIZE, files: MAX_NUMBER_OF_FILES },
     fileFilter(req, file, cb) {
       if (['image/jpeg', 'image/jpg', 'image/png', 'image/webp'].includes(file.mimetype)) return cb(null, true);
       const err = new Error('Invalid file type. Only PNG, JPG, JPEG, and WEBP are allowed.');
