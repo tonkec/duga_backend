@@ -26,6 +26,10 @@ const handleMessagePhotoUpload = async (req, res) => {
 
         console.log('🧩 Uploading key:', key);
 
+        if (!key) {
+          throw { code: 'MISSING_KEY', message: 'Missing key in upload' };
+        }
+
         const uploadRecord = await Upload.create({
           name: file.originalname,
           url: key,

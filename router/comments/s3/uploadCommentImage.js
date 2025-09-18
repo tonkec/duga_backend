@@ -4,6 +4,7 @@ const sharp = require('sharp');
 const s3 = require('../../../utils/s3');
 const allowedMimeTypes = require("./../../../consts/allowedFileTypes");
 const removeSpacesAndDashes = require("../../../utils/removeSpacesAndDashes");
+const LIMIT_FILE_SIZE = require("../../../consts/limitFileSize");
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -26,7 +27,7 @@ const uploadCommentImage = multer({
       },
     ],
   }),
-  limits: { fileSize: 1 * 1024 * 1024 }, // 1MB
+  limits: { fileSize: LIMIT_FILE_SIZE},
   fileFilter: (req, file, cb) => {
     if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
