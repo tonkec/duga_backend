@@ -256,15 +256,12 @@ const SocketServer = (server, app) => {
 
         const userId = user.id;
 
-        // Update status u bazi
         await User.update({ status: 'offline' }, { where: { id: userId } });
 
-        // Ako je korisnik registrovan u memoriji socket servera, ažuriraj i to
         if (users.has(userId)) {
           users.get(userId).status = 'offline';
         }
 
-        // Obavijesti sve korisnike koji imaju ovog usera u kontaktima/chat listi
         const chatters = await getChatters(userId);
         chatters.forEach((id) => {
           if (users.has(id)) {
@@ -274,7 +271,6 @@ const SocketServer = (server, app) => {
           }
         });
 
-        // Takođe obavijesti sve aktivne socket konekcije samog korisnika (ako ih ima više)
         if (users.has(userId)) {
           users.get(userId).sockets.forEach((sockId) => {
             io.to(sockId).emit('status-update', { userId, status: 'offline' });
