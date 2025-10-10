@@ -244,7 +244,44 @@ const SocketServer = (server, app) => {
           io.to(sockId).emit('status-update', { userId, status });
         });
       }
-    });  
+    });
+
+    socket.on('disconnect', async () => {
+      try {
+        const auth0Id = socket.user?.sub;
+        if (!auth0Id) return;
+
+        const user = await User.findOne({ where: { auth0Id } });
+        if (!user) return;
+
+        const userId = user.id;
+
+        await User.update({ status: 'offline' }, { where: { id: userId } });
+
+        if (users.has(userId)) {
+          users.get(userId).status = 'offline';
+        }
+
+        const chatters = await getChatters(userId);
+        chatters.forEach((id) => {
+          if (users.has(id)) {
+            users.get(id).sockets.forEach((sockId) => {
+              io.to(sockId).emit('status-update', { userId, status: 'offline' });
+            });
+          }
+        });
+
+        if (users.has(userId)) {
+          users.get(userId).sockets.forEach((sockId) => {
+            io.to(sockId).emit('status-update', { userId, status: 'offline' });
+          });
+        }
+
+        console.log(`User ${userId} set to offline (disconnect)`);
+      } catch (err) {
+        console.error('Error setting user offline on disconnect:', err);
+      }
+    });
     
     socket.on("delete-comment", async (data) => {
       io.emit("remove-comment", data);
