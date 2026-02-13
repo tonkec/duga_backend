@@ -399,11 +399,16 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on("deleteChat", ({ chatId}) => {
+    socket.on("deleteChat", ({ chatId }) => {
+      console.log("Chat deleted:", chatId);
       io.emit("chatDeleted", { chatId });
     });
+
+    socket.on("createChat", () => {
+      io.emit("chatCreated");
+    });
     
-  
+
      socket.on('message', async (message) => {
         let sockets = setUsers(message.fromUser, socket);
 
