@@ -400,7 +400,6 @@ const SocketServer = (server, app) => {
     });
 
     socket.on("deleteChat", ({ chatId }) => {
-      console.log("Chat deleted:", chatId);
       io.emit("chatDeleted", { chatId });
     });
 
