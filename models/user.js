@@ -180,6 +180,14 @@ module.exports = (sequelize, DataTypes) => {
       type: DataTypes.DATE,
       allowNull: true,
     },
+    activeSessionIdHash: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    activeSessionStartedAt: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
     },
     {
       sequelize,

@@ -1,8 +1,7 @@
 const Message = require('../models').Message;
-const { checkJwt } = require('../middleware/auth');
 const router = require('express').Router();
 const withAccessCheck = require('../middleware/accessCheck');   
-const attachCurrentUser = require('../middleware/attachCurrentUser');
+const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
 const { Chat, ChatUser } = require('../models');
 const handleReadMessage = require('./messages/handlers/handleReadMessage');
 const handleGetIsReadMessage = require('./messages/handlers/handleGetIsReadMessage');
@@ -11,7 +10,7 @@ require('./messages/swagger/readMessage.swagger');
 router.post(
   '/read-message',
   [
-    checkJwt,
+    ...authenticatedAppSession,
     withAccessCheck(Message, async (req) => {
       const messageId = Number(req.body.id);
       if (!messageId) return null;
@@ -34,8 +33,7 @@ require('./messages/swagger/isReadMessage.swagger');
 router.get(
   "/is-read",
   [
-    checkJwt,
-    attachCurrentUser,
+    ...authenticatedAppSession,
     withAccessCheck(Message, async (req) => {
       const messageId = Number(req.query.id);
       if (!messageId) return null;

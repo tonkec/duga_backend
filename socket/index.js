@@ -17,6 +17,7 @@ const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
 const { attachSecureUrl } = require('../utils/secureUploadUrl');
 const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
+const { hashSessionId } = require('../utils/appSession');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -56,6 +57,37 @@ const parseCommentSocketPayload = (data) => {
   };
 };
 
+const userSessionSockets = new Map();
+
+const trackSessionSocket = (userId, sessionId, socketId) => {
+  if (!sessionId) return;
+
+  if (!userSessionSockets.has(userId)) {
+    userSessionSockets.set(userId, new Map());
+  }
+
+  const sessions = userSessionSockets.get(userId);
+  const sockets = sessions.get(sessionId) || new Set();
+  sockets.add(socketId);
+  sessions.set(sessionId, sockets);
+};
+
+const untrackSessionSocket = (userId, sessionId, socketId) => {
+  const sessions = userSessionSockets.get(userId);
+  if (!sessions) return;
+
+  const sockets = sessions.get(sessionId);
+  if (!sockets) return;
+
+  sockets.delete(socketId);
+  if (!sockets.size) {
+    sessions.delete(sessionId);
+  }
+  if (!sessions.size) {
+    userSessionSockets.delete(userId);
+  }
+};
+
 const SocketServer = (server, app) => {
   const io = socketIo(server, {
     cors: {
@@ -66,11 +98,28 @@ const SocketServer = (server, app) => {
   });
 
   app.set('io', io);
+  app.set('revokeUserSessionsExcept', (userId, activeSessionId) => {
+    const sessions = userSessionSockets.get(userId);
+    if (!sessions) return;
+
+    sessions.forEach((socketIds, sessionId) => {
+      if (sessionId === activeSessionId) return;
+
+      socketIds.forEach((socketId) => {
+        io.to(socketId).emit('session-revoked');
+        io.sockets.sockets.get(socketId)?.disconnect(true);
+      });
+    });
+  });
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
+    const sessionId = socket.handshake.auth?.sessionId;
     if (!token) {
       return next(new Error('Missing token'));
+    }
+    if (!sessionId) {
+      return next(new Error('Missing app session'));
     }
 
    jwt.verify(
@@ -81,14 +130,29 @@ const SocketServer = (server, app) => {
       issuer: `https://${AUTH0_DOMAIN}/`,
       algorithms: ['RS256'],
     },
-    (err, decoded) => {
+    async (err, decoded) => {
       if (err) {
         console.error('❌ JWT verification failed:', err.message);
         return next(new Error('Unauthorized'));
       }
 
-      socket.user = decoded;
-      next();
+      try {
+        const user = await User.findOne({ where: { auth0Id: decoded.sub } });
+        if (!user) {
+          return next(new Error('Unauthorized'));
+        }
+
+        if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
+          return next(new Error('Session revoked'));
+        }
+
+        socket.user = decoded;
+        socket.appUser = user;
+        socket.appSessionId = sessionId;
+        next();
+      } catch (error) {
+        next(error);
+      }
     }
   );
 });
@@ -96,10 +160,10 @@ const SocketServer = (server, app) => {
   io.on('connection', (socket) => {
     console.log('New client connected');
     socket.on('join', async () => { 
-      const auth0Id = socket.user?.sub;
-      const user = await User.findOne({ where: { auth0Id } });
+      const user = socket.appUser || await User.findOne({ where: { auth0Id: socket.user?.sub } });
       const userId = user.id;
       setUsers(user, socket);
+      trackSessionSocket(user.id, socket.appSessionId, socket.id);
       const chatters = await getChatters(userId);
       chatters.forEach((chatterId) => {
         if (users.has(chatterId)) {
@@ -286,37 +350,6 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on('disconnect', async () => {
-      try {
-        const auth0Id = socket.user?.sub;
-        if (!auth0Id) return;
-
-        const user = await User.findOne({ where: { auth0Id } });
-        if (!user) return;
-
-        const userId = user.id;
-
-        await User.update({ status: 'offline' }, { where: { id: userId } });
-
-        if (users.has(userId)) {
-          users.get(userId).status = 'offline';
-        }
-
-        const chatters = await getChatters(userId);
-        chatters.forEach((id) => {
-          if (users.has(id)) {
-            users.get(id).sockets.forEach((sockId) => {
-              io.to(sockId).emit('status-update', { userId, status: 'offline' });
-            });
-          }
-        });
-
-        console.log(`User ${userId} set to offline (disconnect)`);
-      } catch (err) {
-        console.error('Error setting user offline on disconnect:', err);
-      }
-    });
-    
     socket.on("delete-comment", async (data) => {
       try {
         const { commentId, uploadId } = parseCommentSocketPayload(data);
@@ -792,6 +825,8 @@ const SocketServer = (server, app) => {
       if (userSockets.has(socket.id)) {
         const user = users.get(userSockets.get(socket.id));
         if (user) {
+          untrackSessionSocket(user.id, socket.appSessionId, socket.id);
+
           if (user.sockets.length > 1) {
             user.sockets = user.sockets.filter((sock) => {
               if (sock !== socket.id) return true;
@@ -802,6 +837,7 @@ const SocketServer = (server, app) => {
             users.set(user.id, user);
           } else {
             const chatters = await getChatters(user.id);
+            await User.update({ status: 'offline' }, { where: { id: user.id } });
 
             for (let i = 0; i < chatters.length; i++) {
               if (users.has(chatters[i])) {

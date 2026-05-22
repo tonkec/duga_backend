@@ -1,9 +1,8 @@
 
 const ChatUser = require("./../models").ChatUser
 const router = require('express').Router();
-const { checkJwt } = require('../middleware/auth');
+const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
 const withAccessCheck = require("../middleware/accessCheck");
-const attachCurrentUser = require('../middleware/attachCurrentUser');
 const handleGetAllChats = require("./chats/handlers/handleGetAllChats");
 const handleGetCurrentChat = require("./chats/handlers/handleGetCurrentChat");
 const handleGetAllMessages = require("./chats/handlers/handleGetAllMessages");
@@ -11,18 +10,18 @@ const handleCreateMessage = require("./chats/handlers/handleCreateMessage");
 const handleDeleteChat = require("./chats/handlers/handleDeleteChat")
 
 require('./chats/swagger/allChats.swagger');
-router.get('/', [checkJwt, attachCurrentUser], handleGetAllChats);
+router.get('/', authenticatedAppSession, handleGetAllChats);
 
 require('./chats/swagger/currentChat.swagger');
-router.get('/current-chat/:id', [checkJwt, withAccessCheck(ChatUser)], handleGetCurrentChat);
+router.get('/current-chat/:id', [...authenticatedAppSession, withAccessCheck(ChatUser)], handleGetCurrentChat);
 
 require('./chats/swagger/chatMessages.swagger');
-router.get('/messages', [checkJwt, attachCurrentUser], handleGetAllMessages);
+router.get('/messages', authenticatedAppSession, handleGetAllMessages);
 
 require('./chats/swagger/createMessage.swagger');
-router.post('/create', [checkJwt, attachCurrentUser], handleCreateMessage);
+router.post('/create', authenticatedAppSession, handleCreateMessage);
 
 require('./chats/swagger/deleteChat.swagger');
-router.delete('/:id', [checkJwt], handleDeleteChat);
+router.delete('/:id', authenticatedAppSession, handleDeleteChat);
 
 module.exports = router;

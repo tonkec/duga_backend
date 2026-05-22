@@ -1,8 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const { PhotoComment } = require('../models');
-const { checkJwt } = require('../middleware/auth');
-const attachCurrentUser = require('../middleware/attachCurrentUser');
+const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
 const withAccessCheck = require('../middleware/accessCheck');
 const uploadCommentImage = require("./comments/s3/uploadCommentImage")
 const handleAddComment = require("./comments/handlers/handleAddComment");
@@ -17,8 +16,7 @@ require('./comments/swagger/addComment.swagger');
 router.post(
   '/add-comment',
   [
-    checkJwt,
-    attachCurrentUser,
+    ...authenticatedAppSession,
     (req, res, next) => {
       upload(req, res, (err) => {
         if (!err) return next();
@@ -39,13 +37,13 @@ router.post(
   handleAddComment
 );
 require('./comments/swagger/getComments.swagger');
-router.get('/get-comments/:uploadId', [checkJwt], handleGetComments);
+router.get('/get-comments/:uploadId', authenticatedAppSession, handleGetComments);
 
 require('./comments/swagger/updateComment.swagger');
 router.put(
   '/update-comment/:id',
   [
-    checkJwt,
+    ...authenticatedAppSession,
     withAccessCheck(PhotoComment, async (req) => {
       const commentId = Number(req.params.id);
       if (!commentId) return null;
@@ -56,12 +54,12 @@ router.put(
 );
 
 require('./comments/swagger/latestComments.swagger');
-router.get("/latest", [checkJwt], handleGetLatestComments);
+router.get("/latest", authenticatedAppSession, handleGetLatestComments);
 
 require('./comments/swagger/deleteComment.swagger');
 router.delete(
   '/delete-comment/:id',
-  [checkJwt, withAccessCheck(PhotoComment)],
+  [...authenticatedAppSession, withAccessCheck(PhotoComment)],
   handleDeleteComment
 );
 

@@ -1,8 +1,8 @@
 const UserFollower = require('../models').UserFollower;
-const {checkJwt } = require('../middleware/auth');
+const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
 const router = require('express').Router();
 
-router.get('/:id', checkJwt, async (req, res) => {
+router.get('/:id', authenticatedAppSession, async (req, res) => {
   try {
     const followers = await UserFollower.findAll({
       where: {
@@ -16,7 +16,7 @@ router.get('/:id', checkJwt, async (req, res) => {
   }
 });
 
-router.post('/add', checkJwt, async (req, res) => {
+router.post('/add', authenticatedAppSession, async (req, res) => {
   try {
     // check if user is already following
     const isAlreadyFollowing = await UserFollower.findOne({
@@ -42,7 +42,7 @@ router.post('/add', checkJwt, async (req, res) => {
   }
 });
 
-router.post('/remove', checkJwt, async (req, res) => {
+router.post('/remove', authenticatedAppSession, async (req, res) => {
   try {
     const follower = await UserFollower.findOne({
       where: {
