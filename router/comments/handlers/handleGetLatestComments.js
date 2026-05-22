@@ -1,5 +1,6 @@
 const { PhotoComment, User } = require('../../../models');
 const { addSecureUrlsToList } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
 
 const handleGetLatestComments = async (req, res) => {
@@ -25,7 +26,9 @@ const handleGetLatestComments = async (req, res) => {
     const commentsWithSecureUrls = addSecureUrlsToList(
       photoComments,
       API_BASE_URL,
-      'imageUrl'
+      'imageUrl',
+      'securePhotoUrl',
+      getBearerToken(req)
     );
 
     return res.status(200).json(commentsWithSecureUrls);

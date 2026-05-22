@@ -14,6 +14,7 @@ const Upload = require('../models').Upload;
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
+const { attachSecureUrl } = require('../utils/secureUploadUrl');
 const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
@@ -121,7 +122,13 @@ const SocketServer = (server, app) => {
           data: {
             ...comment.toJSON(),
            securePhotoUrl: comment.imageUrl
-            ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(normalizeS3Key(comment.imageUrl))}`
+            ? attachSecureUrl(
+                API_BASE_URL,
+                comment.imageUrl.startsWith(`${process.env.NODE_ENV}/`)
+                  ? comment.imageUrl
+                  : `${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`,
+                socket.handshake.auth?.token
+              )
             : null
           },
         });
@@ -251,25 +258,27 @@ const SocketServer = (server, app) => {
         const auth0Id = socket.user?.sub;
         if (!auth0Id) return;
 
-        await User.update({ status: 'offline' }, { where: { id: auth0Id } });
+        const user = await User.findOne({ where: { auth0Id } });
+        if (!user) return;
 
-        // Update local users map
-        for (const [id, data] of users.entries()) {
-          if (data.user?.auth0Id === auth0Id) {
-            users.get(id).status = 'offline';
-          }
+        const userId = user.id;
+
+        await User.update({ status: 'offline' }, { where: { id: userId } });
+
+        if (users.has(userId)) {
+          users.get(userId).status = 'offline';
         }
 
-        const chatters = await getChatters(auth0Id);
+        const chatters = await getChatters(userId);
         chatters.forEach((id) => {
           if (users.has(id)) {
             users.get(id).sockets.forEach((sockId) => {
-              io.to(sockId).emit('status-update', { auth0Id, status: 'offline' });
+              io.to(sockId).emit('status-update', { userId, status: 'offline' });
             });
           }
         });
 
-        console.log(`User ${auth0Id} set to offline (disconnect)`);
+        console.log(`User ${userId} set to offline (disconnect)`);
       } catch (err) {
         console.error('Error setting user offline on disconnect:', err);
       }
@@ -495,7 +504,7 @@ const SocketServer = (server, app) => {
             createdAt: savedMessage.createdAt,
             messagePhotoUrl: finalMessagePhotoUrl,
             securePhotoUrl: finalMessagePhotoUrl
-              ? `/uploads/files/${encodeURIComponent(finalMessagePhotoUrl)}`
+              ? attachSecureUrl(API_BASE_URL, finalMessagePhotoUrl, socket.handshake.auth?.token)
               : null,
             toUserId: message.toUserId,
           };

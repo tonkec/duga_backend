@@ -1,6 +1,9 @@
 const { Upload, PhotoComment, User } = require('../../../models');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
 const normalizeS3Key = require('../../../utils/normalizeS3Key');
+const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 
 const handleAddComment = async (req, res) => {
   try {
@@ -48,9 +51,7 @@ const handleAddComment = async (req, res) => {
     });
 
     const securePhotoUrl = imageUrl
-      ? `${process.env.API_BASE_URL}/uploads/files/${encodeURIComponent(
-          `${process.env.NODE_ENV}/${imageUrl}`
-        )}`
+      ? attachSecureUrl(API_BASE_URL, `${process.env.NODE_ENV}/${imageUrl}`, getBearerToken(req))
       : null;
 
     return res.status(201).send({

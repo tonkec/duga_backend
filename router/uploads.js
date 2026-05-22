@@ -1,7 +1,8 @@
 require('dotenv').config();
 const Upload = require('../models').Upload;
 const User = require('../models').User;
-const { checkJwt } = require('../middleware/auth');
+const { checkJwt, checkJwtForFiles } = require('../middleware/auth');
+const authorizeFileAccess = require('../middleware/authorizeFileAccess');
 const router = require('express').Router();
 const withAccessCheck = require('../middleware/accessCheck');
 const handleDeletePhotoRequest = require("./uploads/handlers/handleDeletePhotoRequest");
@@ -126,7 +127,7 @@ require('./uploads/swagger/getUserPhotos.swagger');
 router.get('/user-photos', [checkJwt, attachCurrentUser], handleGetUserPhotos);
 
 require('./uploads/swagger/files.swagger');
-router.get('/files/*', checkJwt, handleStreamS3FileRequest);
+router.get('/files/*', [checkJwtForFiles, attachCurrentUser, authorizeFileAccess], handleStreamS3FileRequest);
 
 require('./uploads/swagger/getAllUserUploads.swagger');
 router.get('/user/:id', [checkJwt], handleGetAllUserUploads);
