@@ -1,20 +1,21 @@
 const { User } = require('../models');
+const canAccess = require('./canAccess');
+
+const getSocketUser = async (socket) => {
+  const auth0Id = socket.user?.sub;
+  if (!auth0Id) return null;
+  return User.findOne({ where: { auth0Id } });
+};
 
 const socketCanAccess = async ({ socket, model, resourceId }) => {
   try {
-    const auth0Id = socket.user?.sub;
-    if (!auth0Id) return false;
-
-    const user = await User.findOne({ where: { auth0Id } });
+    const user = await getSocketUser(socket);
     if (!user) return false;
 
     const resource = await model.findByPk(resourceId);
     if (!resource) return false;
 
-    if ('userId' in resource && resource.userId === user.id) return true;
-    // if (user.role === 'admin') return true;
-
-    return false;
+    return canAccess(user, resource);
   } catch (err) {
     console.error('❌ Error in socketCanAccess:', err);
     return false;
@@ -22,3 +23,4 @@ const socketCanAccess = async ({ socket, model, resourceId }) => {
 };
 
 module.exports = socketCanAccess;
+module.exports.getSocketUser = getSocketUser;

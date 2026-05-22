@@ -8,6 +8,7 @@ const userSockets = new Map();
 const Notification = require('../models').Notification;
 const PhotoLikes = require("../models").PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
+const getSocketUser = require('../utils/socketAccess').getSocketUser;
 const normalizeS3Key = require("../utils/normalizeS3Key");
 const Upload = require('../models').Upload;
 
@@ -31,6 +32,29 @@ function getKey(header, callback) {
     callback(null, signingKey);
   });
 }
+
+const formatCommentSocketPayload = (comment, accessToken) => ({
+  ...comment.toJSON(),
+  securePhotoUrl: comment.imageUrl
+    ? attachSecureUrl(
+        API_BASE_URL,
+        comment.imageUrl.startsWith(`${process.env.NODE_ENV}/`)
+          ? comment.imageUrl
+          : `${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`,
+        accessToken
+      )
+    : null,
+});
+
+const parseCommentSocketPayload = (data) => {
+  const payload = data?.data ?? data;
+  return {
+    payload,
+    commentId: parseInt(payload?.id ?? payload?.commentId, 10),
+    uploadId:
+      payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
+  };
+};
 
 const SocketServer = (server, app) => {
   const io = socketIo(server, {
@@ -95,16 +119,30 @@ const SocketServer = (server, app) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId, id } = data.data;
-        const parsedUploadId = parseInt(uploadId);
-        const parsedCommentId = parseInt(id);
+        const { commentId: parsedCommentId, uploadId: parsedUploadId } =
+          parseCommentSocketPayload(data);
 
         if (isNaN(parsedUploadId) || isNaN(parsedCommentId)) {
-          console.error("❌ Invalid uploadId or commentId:", uploadId, id);
+          console.error("❌ Invalid send-comment payload");
           return;
         }
 
-        // 🔍 Fetch the comment with relations
+        const user = await getSocketUser(socket);
+        if (!user) {
+          console.error("❌ Unauthorized send-comment: user not found");
+          return;
+        }
+
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoComment,
+          resourceId: parsedCommentId,
+        });
+        if (!hasAccess) {
+          console.error("❌ Forbidden send-comment");
+          return;
+        }
+
         const comment = await PhotoComment.findByPk(parsedCommentId, {
           include: [
             { model: User, as: 'user', attributes: ['id', 'username'] },
@@ -117,23 +155,18 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        // ✅ Emit the full comment + securePhotoUrl
+        if (parseInt(comment.uploadId, 10) !== parsedUploadId) {
+          console.error("❌ Comment uploadId mismatch on send-comment");
+          return;
+        }
+
         io.emit('receive-comment', {
-          data: {
-            ...comment.toJSON(),
-           securePhotoUrl: comment.imageUrl
-            ? attachSecureUrl(
-                API_BASE_URL,
-                comment.imageUrl.startsWith(`${process.env.NODE_ENV}/`)
-                  ? comment.imageUrl
-                  : `${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`,
-                socket.handshake.auth?.token
-              )
-            : null
-          },
+          data: formatCommentSocketPayload(
+            comment,
+            socket.handshake.auth?.token
+          ),
         });
 
-        // 📤 Notify photo owner
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -144,7 +177,7 @@ const SocketServer = (server, app) => {
 
         const photoOwnerId = results?.userId;
 
-        if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
+        if (photoOwnerId && parseInt(photoOwnerId, 10) !== parseInt(user.id, 10)) {
           const notification = await Notification.create({
             userId: photoOwnerId,
             type: 'comment',
@@ -285,12 +318,112 @@ const SocketServer = (server, app) => {
     });
     
     socket.on("delete-comment", async (data) => {
-      io.emit("remove-comment", data);
+      try {
+        const { commentId, uploadId } = parseCommentSocketPayload(data);
+
+        if (isNaN(commentId)) {
+          console.error("❌ Invalid delete-comment payload");
+          return;
+        }
+
+        const user = await getSocketUser(socket);
+        if (!user) {
+          console.error("❌ Unauthorized delete-comment: user not found");
+          return;
+        }
+
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoComment,
+          resourceId: commentId,
+        });
+        if (!hasAccess) {
+          console.error("❌ Forbidden delete-comment");
+          return;
+        }
+
+        const comment = await PhotoComment.findByPk(commentId);
+        if (!comment) {
+          console.error("❌ Comment not found:", commentId);
+          return;
+        }
+
+        if (
+          uploadId != null &&
+          !isNaN(uploadId) &&
+          parseInt(comment.uploadId, 10) !== uploadId
+        ) {
+          console.error("❌ Comment uploadId mismatch on delete-comment");
+          return;
+        }
+
+        io.emit("remove-comment", {
+          data: {
+            id: comment.id,
+            uploadId: comment.uploadId,
+          },
+        });
+      } catch (error) {
+        console.error("🔥 Error in delete-comment:", error);
+      }
     });
 
     socket.on('edit-comment', async (data) => {
-      io.emit("update-comment", data);
-    })
+      try {
+        const { commentId, uploadId } = parseCommentSocketPayload(data);
+
+        if (isNaN(commentId)) {
+          console.error("❌ Invalid edit-comment payload");
+          return;
+        }
+
+        const user = await getSocketUser(socket);
+        if (!user) {
+          console.error("❌ Unauthorized edit-comment: user not found");
+          return;
+        }
+
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoComment,
+          resourceId: commentId,
+        });
+        if (!hasAccess) {
+          console.error("❌ Forbidden edit-comment");
+          return;
+        }
+
+        const comment = await PhotoComment.findByPk(commentId, {
+          include: [
+            { model: User, as: 'user', attributes: ['id', 'username'] },
+            { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+          ],
+        });
+
+        if (!comment) {
+          console.error("❌ Comment not found:", commentId);
+          return;
+        }
+
+        if (
+          uploadId != null &&
+          !isNaN(uploadId) &&
+          parseInt(comment.uploadId, 10) !== uploadId
+        ) {
+          console.error("❌ Comment uploadId mismatch on edit-comment");
+          return;
+        }
+
+        io.emit("update-comment", {
+          data: formatCommentSocketPayload(
+            comment,
+            socket.handshake.auth?.token
+          ),
+        });
+      } catch (error) {
+        console.error("🔥 Error in edit-comment:", error);
+      }
+    });
 
     socket.on("upvote-upload", async (data) => {
       try {
