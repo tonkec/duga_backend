@@ -14,7 +14,7 @@ jest.mock('express-jwt', () => ({
   expressjwt: jest.fn(() => (req, res, next) => {
     const authHeader = req.headers.authorization;
 
-    if (authHeader === 'Bearer valid-auth0-token') {
+    if (authHeader === 'Bearer valid-auth0-token' || authHeader?.startsWith('Bearer eyJ')) {
       req.auth = { sub: 'auth0|user-1' };
       return next();
     }
@@ -138,17 +138,42 @@ describe('auth and session routes', () => {
     expect(response.body).toEqual({ ok: true, userId: 'user-1' });
   });
 
-  it('rejects RS256 token on API-only routes if expected', async () => {
+  it('accepts Auth0 RS256 token on app session routes', async () => {
+    const user = buildUser();
+
+    User.findOne.mockResolvedValue(user);
+
     const response = await request(app)
       .get('/protected')
       .set('Authorization', `Bearer ${buildRs256LikeToken()}`)
       .set(SESSION_HEADER, 'session-1');
 
-    expect(response.status).toBe(401);
-    expect(User.findOne).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true, userId: 'user-1' });
   });
 
-  it('handles SESSION_CONFLICT when starting a second session without force', async () => {
+  it('replaces a different active session by default', async () => {
+    const user = buildUser({ activeSessionIdHash: hashSessionId('other-session') });
+    const revokeUserSessionsExcept = jest.fn();
+
+    app.set('revokeUserSessionsExcept', revokeUserSessionsExcept);
+    User.findOne.mockResolvedValue(user);
+    User.findByPk.mockResolvedValue(user);
+
+    const response = await request(app)
+      .post('/sessions/start')
+      .set('Authorization', 'Bearer valid-auth0-token')
+      .set(SESSION_HEADER, 'session-1');
+
+    expect(response.status).toBe(200);
+    expect(response.body.ok).toBe(true);
+    expect(user.update).toHaveBeenCalledWith(
+      expect.objectContaining({ activeSessionIdHash: hashSessionId('session-1') })
+    );
+    expect(revokeUserSessionsExcept).toHaveBeenCalledWith('user-1', 'session-1');
+  });
+
+  it('handles SESSION_CONFLICT when replacing a session is explicitly disabled', async () => {
     const user = buildUser({ activeSessionIdHash: hashSessionId('other-session') });
 
     User.findOne.mockResolvedValue(user);
@@ -157,7 +182,8 @@ describe('auth and session routes', () => {
     const response = await request(app)
       .post('/sessions/start')
       .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, 'session-1')
+      .send({ force: false });
 
     expect(response.status).toBe(409);
     expect(response.body).toMatchObject({

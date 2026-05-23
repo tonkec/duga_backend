@@ -16,11 +16,11 @@ const handleStartSession = async (req, res) => {
     }
 
     const nextSessionHash = hashSessionId(sessionId);
-    const force = req.body?.force === true;
+    const shouldReplaceExistingSession = req.body?.force !== false;
     const hasDifferentActiveSession =
       user.activeSessionIdHash && user.activeSessionIdHash !== nextSessionHash;
 
-    if (hasDifferentActiveSession && !force) {
+    if (hasDifferentActiveSession && !shouldReplaceExistingSession) {
       return res.status(409).json({
         ok: false,
         code: SESSION_CONFLICT_CODE,
