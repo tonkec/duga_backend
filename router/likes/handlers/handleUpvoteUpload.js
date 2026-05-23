@@ -1,4 +1,4 @@
-const { PhotoLikes } = require('../../../models');
+const { Notification, PhotoLikes, Upload } = require('../../../models');
 
 const handleUpvoteUpload = async (req, res) => {
   try {
@@ -20,6 +20,17 @@ const handleUpvoteUpload = async (req, res) => {
       userId,
       photoId: uploadId,
     });
+
+    const upload = await Upload.findByPk(uploadId);
+    if (upload?.userId && Number(upload.userId) !== Number(userId)) {
+      await Notification.create({
+        userId: upload.userId,
+        type: 'like',
+        content: 'Netko je lajkao tvoju fotografiju.',
+        actionId: uploadId,
+        actionType: 'upload',
+      });
+    }
 
     const photoLikes = await PhotoLikes.findAll({
       where: {

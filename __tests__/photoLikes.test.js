@@ -4,17 +4,23 @@ const express = require('express');
 const request = require('supertest');
 
 jest.mock('../models', () => ({
+  Notification: {
+    create: jest.fn(),
+  },
   PhotoLikes: {
     create: jest.fn(),
     findAll: jest.fn(),
     findOne: jest.fn(),
+  },
+  Upload: {
+    findByPk: jest.fn(),
   },
   User: {
     findOne: jest.fn(),
   },
 }));
 
-const { PhotoLikes, User } = require('../models');
+const { Notification, PhotoLikes, Upload, User } = require('../models');
 const likesRouter = require('../router/photolikes');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
@@ -71,6 +77,8 @@ describe('photo likes routes', () => {
     PhotoLikes.findOne.mockResolvedValue(null);
     PhotoLikes.create.mockResolvedValue({ id: 1, userId: 'user-1', photoId: 101 });
     PhotoLikes.findAll.mockResolvedValue(likes);
+    Upload.findByPk.mockResolvedValue({ id: 101, userId: 'user-2' });
+    Notification.create.mockResolvedValue({ id: 900, userId: 'user-2', type: 'like' });
 
     const response = await authenticated(request(app).post('/likes/upvote/101'));
 

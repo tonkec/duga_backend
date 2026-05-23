@@ -5,6 +5,7 @@ const withAccessCheck = require('../middleware/accessCheck');
 const handleGetNotifications = require('./notifications/handlers/handleGetNotifications');
 const handleMarkNotificationAsRead = require('./notifications/handlers/handleMarkNotificationAsRead');
 const handleMarkAllNotificationsAsRead = require('./notifications/handlers/handleMarkAllNotificationsAsRead');
+const handleDeleteNotification = require('./notifications/handlers/handleDeleteNotification');
 
 require('./notifications/swagger/getNotifications.swagger');
 router.get('/', authenticatedAppSession, handleGetNotifications);
@@ -21,6 +22,12 @@ router.put(
   '/mark-all-read',
   authenticatedAppSession,
   handleMarkAllNotificationsAsRead
+);
+
+router.delete(
+  '/:id',
+  [...authenticatedAppSession, withAccessCheck(Notification)],
+  handleDeleteNotification
 );
 
 module.exports = router;

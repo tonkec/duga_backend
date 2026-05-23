@@ -8,8 +8,13 @@ const handleGetNotifications = async (req, res) => {
   }
 
   try {
+    const where = { userId };
+    if (req.query.unread === 'true') {
+      where.isRead = false;
+    }
+
     const notifications = await Notification.findAll({
-      where: { userId },
+      where,
       order: [['createdAt', 'DESC']],
       limit: 10,
     });

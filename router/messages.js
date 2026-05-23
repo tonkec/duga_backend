@@ -5,6 +5,11 @@ const { authenticatedAppSession } = require('../middleware/authenticatedAppSessi
 const { Chat, ChatUser } = require('../models');
 const handleReadMessage = require('./messages/handlers/handleReadMessage');
 const handleGetIsReadMessage = require('./messages/handlers/handleGetIsReadMessage');
+const handleCreateMessage = require('./messages/handlers/handleCreateMessage');
+const handleDeleteMessage = require('./messages/handlers/handleDeleteMessage');
+
+router.post('/', authenticatedAppSession, handleCreateMessage);
+router.delete('/:id', authenticatedAppSession, handleDeleteMessage);
 
 require('./messages/swagger/readMessage.swagger');
 router.post(
