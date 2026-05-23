@@ -644,7 +644,7 @@ describe('photo comments CRUD routes', () => {
     expect(response.body.data.userId).toBe('user-1');
   });
 
-  it('deletes a comment, its tags, and its image upload', async () => {
+  it('allows owner to delete comment', async () => {
     const existingComment = {
       id: 404,
       userId: 'user-1',
@@ -678,5 +678,87 @@ describe('photo comments CRUD routes', () => {
       commentId: '404',
       message: 'Comment, image, and upload deleted successfully',
     });
+  });
+
+  it('rejects unauthenticated user when deleting comment', async () => {
+    const response = await request(app).delete('/comments/delete-comment/404');
+
+    expect(response.status).toBe(401);
+    expect(PhotoComment.findByPk).not.toHaveBeenCalled();
+  });
+
+  it('rejects user who is not owner when deleting comment', async () => {
+    const existingComment = {
+      id: 404,
+      userId: 'user-1',
+      imageUrl: null,
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+
+    PhotoComment.findByPk.mockResolvedValue(existingComment);
+
+    const response = await request(app)
+      .delete('/comments/delete-comment/404')
+      .set({
+        ...authHeaders,
+        'x-test-user-id': 'user-2',
+      });
+
+    expect(response.status).toBe(403);
+    expect(existingComment.setTaggedUsers).not.toHaveBeenCalled();
+    expect(existingComment.destroy).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for missing comment when deleting', async () => {
+    PhotoComment.findByPk.mockResolvedValue(null);
+
+    const response = await request(app)
+      .delete('/comments/delete-comment/999')
+      .set(authHeaders);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ error: 'Resource not found' });
+  });
+
+  it('removes comment from DB when deleting', async () => {
+    const existingComment = {
+      id: 404,
+      userId: 'user-1',
+      imageUrl: null,
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+
+    PhotoComment.findByPk.mockResolvedValue(existingComment);
+
+    const response = await request(app)
+      .delete('/comments/delete-comment/404')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(existingComment.destroy).toHaveBeenCalledTimes(1);
+  });
+
+  it('also removes related mentions if needed when deleting', async () => {
+    const existingComment = {
+      id: 404,
+      userId: 'user-1',
+      imageUrl: null,
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+
+    PhotoComment.findByPk.mockResolvedValue(existingComment);
+
+    const response = await request(app)
+      .delete('/comments/delete-comment/404')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(existingComment.setTaggedUsers).toHaveBeenCalledWith([]);
+    expect(existingComment.setTaggedUsers.mock.invocationCallOrder[0]).toBeLessThan(
+      existingComment.destroy.mock.invocationCallOrder[0]
+    );
   });
 });
