@@ -84,6 +84,11 @@ async function deleteAllTransforms(file) {
   );
 }
 
+async function deleteUploadFromS3(upload) {
+  if (!upload?.url) return;
+  await s3.deleteObject({ Bucket: BUCKET, Key: normalizeKey(upload.url) }).promise();
+}
+
 const handleProfilePhotoUpload = async (req, res) => {
   try {
     const descriptions = req.body?.text ? JSON.parse(req.body.text) : [];
@@ -133,12 +138,34 @@ const handleProfilePhotoUpload = async (req, res) => {
           const match = descriptions.find(
             (d) => d.imageId === removeSpacesAndDashes(file.originalname)
           );
+          const isProfilePhoto = Boolean(match?.isProfilePhoto);
+
+          if (isProfilePhoto) {
+            const oldProfilePhoto = await Upload.findOne({
+              where: {
+                userId: req.user.id,
+                isProfilePhoto: true,
+              },
+              order: [['createdAt', 'DESC']],
+            });
+
+            if (oldProfilePhoto) {
+              await deleteUploadFromS3(oldProfilePhoto);
+              await oldProfilePhoto.destroy();
+            }
+
+            await Upload.update(
+              { isProfilePhoto: false },
+              { where: { userId: req.user.id } }
+            );
+          }
 
           await Upload.create({
             name: removeSpacesAndDashes(file.originalname),
             url: key, // store exact S3 key for later streaming
             description: match?.description || null,
             userId: req.user.id,
+            isProfilePhoto,
           });
 
           allowedCount += 1;
