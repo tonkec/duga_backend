@@ -1,9 +1,9 @@
 const attachCurrentUser = require('./attachCurrentUser');
-const { checkJwt, checkJwtForFiles } = require('./auth');
+const { checkApiJwt, checkApiJwtForFiles } = require('./apiJwt');
 const requireActiveSession = require('./requireActiveSession');
 
-const authenticatedAppSession = [checkJwt, attachCurrentUser, requireActiveSession];
-const authenticatedFileSession = [checkJwtForFiles, attachCurrentUser, requireActiveSession];
+const authenticatedAppSession = [checkApiJwt, attachCurrentUser, requireActiveSession];
+const authenticatedFileSession = [checkApiJwtForFiles, attachCurrentUser, requireActiveSession];
 
 module.exports = {
   authenticatedAppSession,
