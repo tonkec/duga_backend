@@ -6,7 +6,7 @@ const AWS = require('aws-sdk'); // v2
 const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
 const {
   BUCKET,
-  FIELD_NAME,
+  UPLOAD_MESSAGE_IMAGE_FIELD_NAME,
   EXPLICIT_BLOCK_THRESHOLD,
   SUGGESTIVE_BLOCK_THRESHOLD,
   EXPLICIT_LABELS,
@@ -31,7 +31,7 @@ const uploadMessageImage = (s3) => {
       err.code = 'INVALID_FILE_TYPE';
       cb(err);
     },
-  }).array(FIELD_NAME, MAX_NUMBER_OF_FILES);
+  }).array(UPLOAD_MESSAGE_IMAGE_FIELD_NAME, MAX_NUMBER_OF_FILES);
 
   // 2) Moderate -> upload allowed -> mimic transforms
   async function processAndUpload(req, res, next) {
