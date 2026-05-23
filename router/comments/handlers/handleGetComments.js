@@ -1,5 +1,6 @@
 const { PhotoComment, User } = require('../../../models');
 const addSecureUrlsToList = require('../../../utils/secureUploadUrl').addSecureUrlsToList;
+const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
 
 const handleGetComments = async (req, res) => {
@@ -22,7 +23,7 @@ const handleGetComments = async (req, res) => {
       ],
     });
 
-    const commentsWithSecureUrls = addSecureUrlsToList(photoComments, API_BASE_URL, 'imageUrl');
+    const commentsWithSecureUrls = addSecureUrlsToList(photoComments, API_BASE_URL, 'imageUrl', 'securePhotoUrl', getBearerToken(req));
     return res.status(200).send(commentsWithSecureUrls);
   } catch (error) {
     console.error('❌ Error fetching comments:', error);

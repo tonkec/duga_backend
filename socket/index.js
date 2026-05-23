@@ -8,13 +8,16 @@ const userSockets = new Map();
 const Notification = require('../models').Notification;
 const PhotoLikes = require("../models").PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
+const getSocketUser = require('../utils/socketAccess').getSocketUser;
 const normalizeS3Key = require("../utils/normalizeS3Key");
 const Upload = require('../models').Upload;
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
+const { attachSecureUrl } = require('../utils/secureUploadUrl');
 const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
+const { hashSessionId } = require('../utils/appSession');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -31,6 +34,60 @@ function getKey(header, callback) {
   });
 }
 
+const formatCommentSocketPayload = (comment, accessToken) => ({
+  ...comment.toJSON(),
+  securePhotoUrl: comment.imageUrl
+    ? attachSecureUrl(
+        API_BASE_URL,
+        comment.imageUrl.startsWith(`${process.env.NODE_ENV}/`)
+          ? comment.imageUrl
+          : `${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`,
+        accessToken
+      )
+    : null,
+});
+
+const parseCommentSocketPayload = (data) => {
+  const payload = data?.data ?? data;
+  return {
+    payload,
+    commentId: parseInt(payload?.id ?? payload?.commentId, 10),
+    uploadId:
+      payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
+  };
+};
+
+const userSessionSockets = new Map();
+
+const trackSessionSocket = (userId, sessionId, socketId) => {
+  if (!sessionId) return;
+
+  if (!userSessionSockets.has(userId)) {
+    userSessionSockets.set(userId, new Map());
+  }
+
+  const sessions = userSessionSockets.get(userId);
+  const sockets = sessions.get(sessionId) || new Set();
+  sockets.add(socketId);
+  sessions.set(sessionId, sockets);
+};
+
+const untrackSessionSocket = (userId, sessionId, socketId) => {
+  const sessions = userSessionSockets.get(userId);
+  if (!sessions) return;
+
+  const sockets = sessions.get(sessionId);
+  if (!sockets) return;
+
+  sockets.delete(socketId);
+  if (!sockets.size) {
+    sessions.delete(sessionId);
+  }
+  if (!sessions.size) {
+    userSessionSockets.delete(userId);
+  }
+};
+
 const SocketServer = (server, app) => {
   const io = socketIo(server, {
     cors: {
@@ -41,11 +98,28 @@ const SocketServer = (server, app) => {
   });
 
   app.set('io', io);
+  app.set('revokeUserSessionsExcept', (userId, activeSessionId) => {
+    const sessions = userSessionSockets.get(userId);
+    if (!sessions) return;
+
+    sessions.forEach((socketIds, sessionId) => {
+      if (sessionId === activeSessionId) return;
+
+      socketIds.forEach((socketId) => {
+        io.to(socketId).emit('session-revoked');
+        io.sockets.sockets.get(socketId)?.disconnect(true);
+      });
+    });
+  });
 
   io.use((socket, next) => {
     const token = socket.handshake.auth?.token;
+    const sessionId = socket.handshake.auth?.sessionId;
     if (!token) {
       return next(new Error('Missing token'));
+    }
+    if (!sessionId) {
+      return next(new Error('Missing app session'));
     }
 
    jwt.verify(
@@ -56,14 +130,29 @@ const SocketServer = (server, app) => {
       issuer: `https://${AUTH0_DOMAIN}/`,
       algorithms: ['RS256'],
     },
-    (err, decoded) => {
+    async (err, decoded) => {
       if (err) {
         console.error('❌ JWT verification failed:', err.message);
         return next(new Error('Unauthorized'));
       }
 
-      socket.user = decoded;
-      next();
+      try {
+        const user = await User.findOne({ where: { auth0Id: decoded.sub } });
+        if (!user) {
+          return next(new Error('Unauthorized'));
+        }
+
+        if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
+          return next(new Error('Session revoked'));
+        }
+
+        socket.user = decoded;
+        socket.appUser = user;
+        socket.appSessionId = sessionId;
+        next();
+      } catch (error) {
+        next(error);
+      }
     }
   );
 });
@@ -71,10 +160,10 @@ const SocketServer = (server, app) => {
   io.on('connection', (socket) => {
     console.log('New client connected');
     socket.on('join', async () => { 
-      const auth0Id = socket.user?.sub;
-      const user = await User.findOne({ where: { auth0Id } });
+      const user = socket.appUser || await User.findOne({ where: { auth0Id: socket.user?.sub } });
       const userId = user.id;
       setUsers(user, socket);
+      trackSessionSocket(user.id, socket.appSessionId, socket.id);
       const chatters = await getChatters(userId);
       chatters.forEach((chatterId) => {
         if (users.has(chatterId)) {
@@ -94,16 +183,30 @@ const SocketServer = (server, app) => {
 
     socket.on("send-comment", async (data) => {
       try {
-        const { userId, uploadId, id } = data.data;
-        const parsedUploadId = parseInt(uploadId);
-        const parsedCommentId = parseInt(id);
+        const { commentId: parsedCommentId, uploadId: parsedUploadId } =
+          parseCommentSocketPayload(data);
 
         if (isNaN(parsedUploadId) || isNaN(parsedCommentId)) {
-          console.error("❌ Invalid uploadId or commentId:", uploadId, id);
+          console.error("❌ Invalid send-comment payload");
           return;
         }
 
-        // 🔍 Fetch the comment with relations
+        const user = await getSocketUser(socket);
+        if (!user) {
+          console.error("❌ Unauthorized send-comment: user not found");
+          return;
+        }
+
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoComment,
+          resourceId: parsedCommentId,
+        });
+        if (!hasAccess) {
+          console.error("❌ Forbidden send-comment");
+          return;
+        }
+
         const comment = await PhotoComment.findByPk(parsedCommentId, {
           include: [
             { model: User, as: 'user', attributes: ['id', 'username'] },
@@ -116,17 +219,18 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        // ✅ Emit the full comment + securePhotoUrl
+        if (parseInt(comment.uploadId, 10) !== parsedUploadId) {
+          console.error("❌ Comment uploadId mismatch on send-comment");
+          return;
+        }
+
         io.emit('receive-comment', {
-          data: {
-            ...comment.toJSON(),
-           securePhotoUrl: comment.imageUrl
-            ? `${API_BASE_URL}/uploads/files/${encodeURIComponent(normalizeS3Key(comment.imageUrl))}`
-            : null
-          },
+          data: formatCommentSocketPayload(
+            comment,
+            socket.handshake.auth?.token
+          ),
         });
 
-        // 📤 Notify photo owner
         const [results] = await sequelize.query(
           `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
           {
@@ -137,7 +241,7 @@ const SocketServer = (server, app) => {
 
         const photoOwnerId = results?.userId;
 
-        if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
+        if (photoOwnerId && parseInt(photoOwnerId, 10) !== parseInt(user.id, 10)) {
           const notification = await Notification.create({
             userId: photoOwnerId,
             type: 'comment',
@@ -246,42 +350,113 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on('disconnect', async () => {
+    socket.on("delete-comment", async (data) => {
       try {
-        const auth0Id = socket.user?.sub;
-        if (!auth0Id) return;
+        const { commentId, uploadId } = parseCommentSocketPayload(data);
 
-        await User.update({ status: 'offline' }, { where: { id: auth0Id } });
-
-        // Update local users map
-        for (const [id, data] of users.entries()) {
-          if (data.user?.auth0Id === auth0Id) {
-            users.get(id).status = 'offline';
-          }
+        if (isNaN(commentId)) {
+          console.error("❌ Invalid delete-comment payload");
+          return;
         }
 
-        const chatters = await getChatters(auth0Id);
-        chatters.forEach((id) => {
-          if (users.has(id)) {
-            users.get(id).sockets.forEach((sockId) => {
-              io.to(sockId).emit('status-update', { auth0Id, status: 'offline' });
-            });
-          }
-        });
+        const user = await getSocketUser(socket);
+        if (!user) {
+          console.error("❌ Unauthorized delete-comment: user not found");
+          return;
+        }
 
-        console.log(`User ${auth0Id} set to offline (disconnect)`);
-      } catch (err) {
-        console.error('Error setting user offline on disconnect:', err);
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoComment,
+          resourceId: commentId,
+        });
+        if (!hasAccess) {
+          console.error("❌ Forbidden delete-comment");
+          return;
+        }
+
+        const comment = await PhotoComment.findByPk(commentId);
+        if (!comment) {
+          console.error("❌ Comment not found:", commentId);
+          return;
+        }
+
+        if (
+          uploadId != null &&
+          !isNaN(uploadId) &&
+          parseInt(comment.uploadId, 10) !== uploadId
+        ) {
+          console.error("❌ Comment uploadId mismatch on delete-comment");
+          return;
+        }
+
+        io.emit("remove-comment", {
+          data: {
+            id: comment.id,
+            uploadId: comment.uploadId,
+          },
+        });
+      } catch (error) {
+        console.error("🔥 Error in delete-comment:", error);
       }
-    });
-    
-    socket.on("delete-comment", async (data) => {
-      io.emit("remove-comment", data);
     });
 
     socket.on('edit-comment', async (data) => {
-      io.emit("update-comment", data);
-    })
+      try {
+        const { commentId, uploadId } = parseCommentSocketPayload(data);
+
+        if (isNaN(commentId)) {
+          console.error("❌ Invalid edit-comment payload");
+          return;
+        }
+
+        const user = await getSocketUser(socket);
+        if (!user) {
+          console.error("❌ Unauthorized edit-comment: user not found");
+          return;
+        }
+
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoComment,
+          resourceId: commentId,
+        });
+        if (!hasAccess) {
+          console.error("❌ Forbidden edit-comment");
+          return;
+        }
+
+        const comment = await PhotoComment.findByPk(commentId, {
+          include: [
+            { model: User, as: 'user', attributes: ['id', 'username'] },
+            { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+          ],
+        });
+
+        if (!comment) {
+          console.error("❌ Comment not found:", commentId);
+          return;
+        }
+
+        if (
+          uploadId != null &&
+          !isNaN(uploadId) &&
+          parseInt(comment.uploadId, 10) !== uploadId
+        ) {
+          console.error("❌ Comment uploadId mismatch on edit-comment");
+          return;
+        }
+
+        io.emit("update-comment", {
+          data: formatCommentSocketPayload(
+            comment,
+            socket.handshake.auth?.token
+          ),
+        });
+      } catch (error) {
+        console.error("🔥 Error in edit-comment:", error);
+      }
+    });
 
     socket.on("upvote-upload", async (data) => {
       try {
@@ -495,7 +670,7 @@ const SocketServer = (server, app) => {
             createdAt: savedMessage.createdAt,
             messagePhotoUrl: finalMessagePhotoUrl,
             securePhotoUrl: finalMessagePhotoUrl
-              ? `/uploads/files/${encodeURIComponent(finalMessagePhotoUrl)}`
+              ? attachSecureUrl(API_BASE_URL, finalMessagePhotoUrl, socket.handshake.auth?.token)
               : null,
             toUserId: message.toUserId,
           };
@@ -650,6 +825,8 @@ const SocketServer = (server, app) => {
       if (userSockets.has(socket.id)) {
         const user = users.get(userSockets.get(socket.id));
         if (user) {
+          untrackSessionSocket(user.id, socket.appSessionId, socket.id);
+
           if (user.sockets.length > 1) {
             user.sockets = user.sockets.filter((sock) => {
               if (sock !== socket.id) return true;
@@ -660,6 +837,7 @@ const SocketServer = (server, app) => {
             users.set(user.id, user);
           } else {
             const chatters = await getChatters(user.id);
+            await User.update({ status: 'offline' }, { where: { id: user.id } });
 
             for (let i = 0; i < chatters.length; i++) {
               if (users.has(chatters[i])) {

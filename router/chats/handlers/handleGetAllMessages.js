@@ -2,7 +2,8 @@ const models = require('../../../models');
 const User = models.User;
 const ChatUser = models.ChatUser;
 const Message = models.Message;
-const { extractKeyFromUrl } = require('../../../utils/secureUploadUrl');
+const { extractKeyFromUrl, attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
 
 const handleGetAllMessages = async (req, res) => {
@@ -36,6 +37,7 @@ const handleGetAllMessages = async (req, res) => {
   });
 
   // ✅ Add secureUrl for images
+  const accessToken = getBearerToken(req);
   const enrichedMessages = messages.rows.map((message) => {
     const plain = message.toJSON();
     const { messagePhotoUrl } = plain;
@@ -47,7 +49,7 @@ const handleGetAllMessages = async (req, res) => {
       const key = extractKeyFromUrl(messagePhotoUrl);
 
       if (key) {
-        plain.securePhotoUrl = `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`;
+        plain.securePhotoUrl = attachSecureUrl(API_BASE_URL, key, accessToken);
       } else {
         console.warn('🚨 Could not extract key from:', messagePhotoUrl);
         plain.securePhotoUrl = null;

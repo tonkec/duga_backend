@@ -1,4 +1,6 @@
 const Upload = require('../../../models').Upload;
+const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
 const {API_BASE_URL} = require("../../../consts/apiBaseUrl");
 
 const handleGetUserPhotos = async (req, res) => {
@@ -14,6 +16,7 @@ const handleGetUserPhotos = async (req, res) => {
       attributes: ['id', 'url', 'description', 'createdAt'],
     });
 
+    const accessToken = getBearerToken(req);
     const allPhotos = uploads
       .map(upload => {
         const key = upload.url;
@@ -21,7 +24,7 @@ const handleGetUserPhotos = async (req, res) => {
           ...upload.toJSON(),
           type: 'upload',
           originalField: 'url',
-          securePhotoUrl: `${API_BASE_URL}/uploads/files/${encodeURIComponent(key)}`,
+          securePhotoUrl: attachSecureUrl(API_BASE_URL, key, accessToken),
         };
       })
       .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));

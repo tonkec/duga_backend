@@ -1,5 +1,6 @@
 const Upload = require('../../../models').Upload;
 const addSecureUrlsToList = require('../../../utils/secureUploadUrl').addSecureUrlsToList;
+const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
 
 const handleGetPhotoById = async (req, res) => {
@@ -17,7 +18,7 @@ const handleGetPhotoById = async (req, res) => {
     }
 
     const plainUpload = upload.toJSON();
-    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL)[0].securePhotoUrl;
+    const secureUrl = addSecureUrlsToList([plainUpload], API_BASE_URL, 'url', 'securePhotoUrl', getBearerToken(req))[0].securePhotoUrl;
 
     return res.status(200).send({
       ...plainUpload,

@@ -1,6 +1,7 @@
 const { Upload } = require('../../../models');
 const s3 = require('../../../utils/s3'); 
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
 const {API_BASE_URL} = require("../../../consts/apiBaseUrl");
 
 const handleGetAllUserUploads = async (req, res) => {
@@ -20,7 +21,7 @@ const handleGetAllUserUploads = async (req, res) => {
       .filter((upload) => s3Keys.includes(upload.url))
       .map((upload) => {
         const plain = upload.toJSON();
-        const securePhotoUrl = attachSecureUrl(API_BASE_URL, plain.url);
+        const securePhotoUrl = attachSecureUrl(API_BASE_URL, plain.url, getBearerToken(req));
         return { ...plain, securePhotoUrl };
       });
 
