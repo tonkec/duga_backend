@@ -1,6 +1,6 @@
 'use strict';
 const { Model } = require('sequelize');
-const { config } = require('dotenv');
+const config = require('../config/app');
 module.exports = (sequelize, DataTypes) => {
   class User extends Model {
     /**
@@ -177,6 +177,14 @@ module.exports = (sequelize, DataTypes) => {
       defaultValue: false,
     },
     first_login_at: {
+      type: DataTypes.DATE,
+      allowNull: true,
+    },
+    activeSessionIdHash: {
+      type: DataTypes.STRING,
+      allowNull: true,
+    },
+    activeSessionStartedAt: {
       type: DataTypes.DATE,
       allowNull: true,
     },

@@ -4,7 +4,7 @@ const handleGetAllUsers = async (req, res) => {
   try {
    const users = await User.findAll({
       attributes: {
-        exclude: ['auth0Id'], 
+        exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'], 
       },
     });
     return res.json(users);

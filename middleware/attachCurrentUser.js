@@ -13,6 +13,8 @@ const attachCurrentUser = async (req, res, next) => {
       return res.status(401).json({ error: 'Unauthorized: user not found' });
     }
 
+    req.currentUser = user;
+    req.user = req.user || user;
     req.auth.user = {
       id: user.id,
       email: user.email,

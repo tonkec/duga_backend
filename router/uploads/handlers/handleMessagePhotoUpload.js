@@ -1,4 +1,7 @@
 const Upload = require('../../../models').Upload;
+const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 
 const handleMessagePhotoUpload = async (req, res) => {
   try {
@@ -19,12 +22,17 @@ const handleMessagePhotoUpload = async (req, res) => {
     }
 
     // 2) Persist allowed files (unchanged logic)
+    const accessToken = getBearerToken(req);
     const uploaded = await Promise.all(
       req.files.map(async (file) => {
         const key = file.transforms?.find((t) => t.id === 'original')?.key;
         const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
 
         console.log('🧩 Uploading key:', key);
+
+        if (!key) {
+          throw { code: 'MISSING_KEY', message: 'Missing key in upload' };
+        }
 
         const uploadRecord = await Upload.create({
           name: file.originalname,
@@ -37,9 +45,9 @@ const handleMessagePhotoUpload = async (req, res) => {
           id: uploadRecord.id,
           originalName: file.originalname,
           key,
-          secureUrl: `/uploads/files/${encodeURIComponent(key)}`,
+          secureUrl: attachSecureUrl(API_BASE_URL, key, accessToken),
           thumbnailUrl: thumbnailKey
-            ? `/uploads/files/${encodeURIComponent(thumbnailKey)}`
+            ? attachSecureUrl(API_BASE_URL, thumbnailKey, accessToken)
             : null,
         };
       })

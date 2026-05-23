@@ -1,14 +1,27 @@
-const attachSecureUrl = (baseUrl, fileKey) => {
-  return `${baseUrl}/uploads/files/${encodeURIComponent(fileKey)}`;
+const appendAccessToken = (url, accessToken) => {
+  if (!accessToken || !url) return url;
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}access_token=${encodeURIComponent(accessToken)}`;
 };
 
-const addSecureUrlsToList = (items, baseUrl, key = 'url', outputKey = 'securePhotoUrl') => {
+const attachSecureUrl = (baseUrl, fileKey, accessToken) => {
+  const url = `${baseUrl}/uploads/files/${encodeURIComponent(fileKey)}`;
+  return appendAccessToken(url, accessToken);
+};
+
+const addSecureUrlsToList = (
+  items,
+  baseUrl,
+  key = 'url',
+  outputKey = 'securePhotoUrl',
+  accessToken = null
+) => {
   return items.map((item) => {
     const plain = item.toJSON?.() || item;
     const value = plain[key];
 
     if (value && !value.startsWith('http')) {
-      plain[outputKey] = attachSecureUrl(baseUrl, value);
+      plain[outputKey] = attachSecureUrl(baseUrl, value, accessToken);
     } else {
       plain[outputKey] = null;
     }
@@ -33,6 +46,7 @@ const extractKeyFromUrl = (url) => {
 }
 
 module.exports = {
+  appendAccessToken,
   attachSecureUrl,
   addSecureUrlsToList,
   extractKeyFromUrl,

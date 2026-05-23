@@ -7,6 +7,7 @@ const { sequelize } = require('./../../../models');
 const handleCreateMessage = async (req, res) => {
   const { partnerId } = req.body;
   const id = req.auth.user.id;
+  let t;
 
   if (!partnerId || typeof partnerId !== 'number') {
     return res.status(400).json({ error: 'Invalid or missing partnerId' });
@@ -20,8 +21,6 @@ const handleCreateMessage = async (req, res) => {
   if (!partner) {
     return res.status(404).json({ error: 'Partner not found' });
   }
-
-  const t = await sequelize.transaction();
 
   try {
     const user = await User.findOne({
@@ -37,8 +36,10 @@ const handleCreateMessage = async (req, res) => {
     });
 
     if (user && user.Chats.length > 0) {
-      return res.status(403).json({ error: 'Chat with this user already exists' });
+      return res.status(200).json(user.Chats[0]);
     }
+
+    t = await sequelize.transaction();
 
     const chat = await Chat.create({ type: 'dual' }, { transaction: t });
 
@@ -79,7 +80,9 @@ const handleCreateMessage = async (req, res) => {
 
     return res.json([forCreator, forReceiver]);
   } catch (e) {
-    await t.rollback();
+    if (t) {
+      await t.rollback();
+    }
     return res.status(500).json({ error: e.message });
   }
 };

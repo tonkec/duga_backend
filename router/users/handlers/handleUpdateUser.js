@@ -1,33 +1,59 @@
 const User = require('../../../models').User;
 
+const PROFILE_FIELDS = {
+  firstName: 'firstName',
+  lastName: 'lastName',
+  bio: 'bio',
+  sexuality: 'sexuality',
+  gender: 'gender',
+  location: 'location',
+  lookingFor: 'lookingFor',
+  relationshipStatus: 'relationshipStatus',
+  cigarettes: 'cigarettes',
+  alcohol: 'alcohol',
+  sport: 'sport',
+  favoriteDay: 'favoriteDayOfWeek',
+  spirituality: 'spirituality',
+  embarasement: 'embarasement',
+  tooOldFor: 'tooOldFor',
+  makesMyDay: 'makesMyDay',
+  favoriteSong: 'favoriteSong',
+  favoriteMovie: 'favoriteMovie',
+  interests: 'interests',
+  languages: 'languages',
+  ending: 'ending',
+};
+
+const sanitizeUser = (user) => {
+  const {
+    password,
+    auth0Id,
+    activeSessionIdHash,
+    activeSessionStartedAt,
+    ...safeUser
+  } = user;
+
+  return safeUser;
+};
+
 const handleUpdateUser = async (req, res) => {
   const userId = req.auth.user.id;
 
   try {
+    const data = req.body?.data;
+    if (!data || typeof data !== 'object' || Array.isArray(data)) {
+      return res.status(400).json({ error: 'Profile data is required' });
+    }
+
+    const updateData = Object.entries(PROFILE_FIELDS).reduce((acc, [requestField, modelField]) => {
+      if (Object.prototype.hasOwnProperty.call(data, requestField)) {
+        acc[modelField] = data[requestField] ?? null;
+      }
+      return acc;
+    }, {});
+
     const [rows, result] = await User.update(
-      {
-        firstName: req.body.data.firstName ? req.body.data.firstName : null,
-        lastName: req.body.data.lastName ? req.body.data.lastName : null,
-        bio: req.body.data.bio ? req.body.data.bio : null,
-        sexuality: req.body.data.sexuality ? req.body.data.sexuality : null,
-        gender: req.body.data.gender ? req.body.data.gender : null,
-        location: req.body.data.location ? req.body.data.location : null,
-        lookingFor: req.body.data.lookingFor ? req.body.data.lookingFor : null,
-        relationshipStatus: req.body.data.relationshipStatus ? req.body.data.relationshipStatus : null,
-        cigarettes: req.body.data.cigarettes ? req.body.data.cigarettes : null,
-        alcohol: req.body.data.alcohol ? req.body.data.alcohol : null,
-        sport: req.body.data.sport ? req.body.data.sport : null,
-        favoriteDayOfWeek: req.body.data.favoriteDay ? req.body.data.favoriteDay : null,
-        spirituality: req.body.data.spirituality ? req.body.data.spirituality : null,
-        embarasement: req.body.data.embarasement ? req.body.data.embarasement : null,
-        tooOldFor: req.body.data.tooOldFor ? req.body.data.tooOldFor : null,
-        makesMyDay: req.body.data.makesMyDay ? req.body.data.makesMyDay : null,
-        favoriteSong: req.body.data.favoriteSong ? req.body.data.favoriteSong : null,
-        favoriteMovie: req.body.data.favoriteMovie ? req.body.data.favoriteMovie : null,
-        interests: req.body.data.interests ? req.body.data.interests : null,
-        languages: req.body.data.languages ? req.body.data.languages : null,
-        ending: req.body.data.ending ? req.body.data.ending : null,
-      },
+      updateData,
       {
         where: {
           id: userId,
@@ -37,7 +63,11 @@ const handleUpdateUser = async (req, res) => {
       }
     );
 
-    const { auth0Id, ...user } = result[0].get({ raw: true });
+    if (!rows || !result?.[0]) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    const user = sanitizeUser(result[0].get({ raw: true }));
     user.avatar = result[0].avatar;
 
     return res.send(user);

@@ -2,6 +2,7 @@ const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const allowedMimeTypes = require("../../../consts/allowedFileTypes");
+const LIMIT_FILE_SIZE = require("../../../consts/limitFileSize");
 
 const uploadProfileImages = (s3) => {
   return multer({
@@ -49,6 +50,7 @@ const uploadProfileImages = (s3) => {
         },
       ],
     }),
+    limits: { fileSize: LIMIT_FILE_SIZE},
     fileFilter: (req, file, cb) => {
       if (allowedMimeTypes.includes(file.mimetype)) {
         cb(null, true);

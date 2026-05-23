@@ -1,9 +1,19 @@
 const { PhotoComment, User } = require('../../../models');
 
+const MAX_COMMENT_LENGTH = 1000;
+
 const handleUpdateComment = async (req, res) => {
   try {
     const { comment, taggedUserIds } = req.body;
     const photoComment = req.resource;
+
+    if (typeof comment !== 'string' || comment.trim().length === 0) {
+      return res.status(400).json({ message: 'comment is required' });
+    }
+
+    if (comment.length > MAX_COMMENT_LENGTH) {
+      return res.status(400).json({ message: `comment must be ${MAX_COMMENT_LENGTH} characters or less` });
+    }
 
     photoComment.comment = comment;
     await photoComment.save();

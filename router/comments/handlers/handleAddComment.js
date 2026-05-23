@@ -1,9 +1,13 @@
-const { Upload, PhotoComment, User } = require('../../../models');
+const { Upload, PhotoComment, User, sequelize } = require('../../../models');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
 const normalizeS3Key = require('../../../utils/normalizeS3Key');
 const AWS = require('aws-sdk');
 const sharp = require('sharp');
 const s3 = require('../../../utils/s3');
+const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const getBearerToken = require('../../../utils/getBearerToken');
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
+const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
 const {
   BUCKET,
   EXPLICIT_BLOCK_THRESHOLD,
@@ -71,23 +75,53 @@ async function detectModerationByBytes(buffer) {
   return out.ModerationLabels || [];
 }
 
+const MAX_COMMENT_LENGTH = 1000;
+
 const handleAddComment = async (req, res) => {
   try {
     const { uploadId, comment, taggedUserIds } = req.body;
     const userId = req.auth.user.id;
 
+    if (!uploadId) {
+      return res.status(400).json({ message: 'uploadId is required' });
+    }
+
+    if (typeof comment !== 'string' || comment.trim().length === 0) {
+      return res.status(400).json({ message: 'comment is required' });
+    }
+
+    if (comment.length > MAX_COMMENT_LENGTH) {
+      return res.status(400).json({ message: `comment must be ${MAX_COMMENT_LENGTH} characters or less` });
+    }
+
+    let parsedTags = [];
+    if (taggedUserIds && typeof taggedUserIds === 'string') {
+      try {
+        parsedTags = JSON.parse(taggedUserIds);
+      } catch (error) {
+        return res.status(400).json({ message: 'taggedUserIds must be valid JSON' });
+      }
+
+      if (!Array.isArray(parsedTags)) {
+        return res.status(400).json({ message: 'taggedUserIds must be an array' });
+      }
+    } else if (Array.isArray(taggedUserIds)) {
+      parsedTags = taggedUserIds;
+    }
+
+    const upload = await Upload.findByPk(uploadId);
+    if (!upload) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
     const s3KeyRaw = req.file?.transforms?.[0]?.key ?? null;
+    const s3Key = s3KeyRaw ? normalizeKey(s3KeyRaw) : null;
     let imageUrl = null;
 
-    if (s3KeyRaw) {
-      const s3Key = normalizeKey(s3KeyRaw); 
-      const cleanedName = removeSpacesAndDashes(req.file.originalname.toLowerCase().trim());
-      const normalizedKeyForStreaming = normalizeS3Key(s3Key);
-
+    if (s3Key) {
       await waitForObjectExists(s3Key);
 
       const jpegBytes = await getModerationJpegBytes(s3Key);
-
       const labels = await detectModerationByBytes(jpegBytes);
       const decision = decide(labels);
       console.log('🔎 moderation labels for comment image:', labels);
@@ -95,7 +129,7 @@ const handleAddComment = async (req, res) => {
 
       if (decision !== 'allow') {
         await s3.deleteObject({ Bucket: BUCKET, Key: s3Key }).promise().catch(() => {});
-       return res.status(422).json({
+        return res.status(422).json({
           message: 'Comment image rejected by moderation',
           errors: [
             {
@@ -108,29 +142,37 @@ const handleAddComment = async (req, res) => {
           ],
         });
       }
-
-      await Upload.create({
-        url: s3Key,         
-        name: cleanedName,
-        userId,
-      });
-
-      imageUrl = normalizedKeyForStreaming;
     }
 
-    const photoComment = await PhotoComment.create({
-      userId,
-      uploadId,
-      comment,
-      imageUrl,
-    });
+    const photoComment = await sequelize.transaction(async (transaction) => {
+      if (s3Key) {
+        const cleanedName = removeSpacesAndDashes(
+          req.file.originalname.toLowerCase().trim()
+        );
+        const normalizedKey = normalizeS3Key(s3Key); // Removes env and sanitizes
 
-    if (taggedUserIds && typeof taggedUserIds === 'string') {
-      const parsed = JSON.parse(taggedUserIds);
-      if (Array.isArray(parsed) && parsed.length > 0) {
-        await photoComment.setTaggedUsers(parsed);
+        await Upload.create({
+          url: s3Key,
+          name: cleanedName,
+          userId,
+        }, { transaction });
+
+        imageUrl = normalizedKey;
       }
-    }
+
+      const createdComment = await PhotoComment.create({
+        userId,
+        uploadId,
+        comment,
+        imageUrl,
+      }, { transaction });
+
+      if (Array.isArray(parsedTags) && parsedTags.length > 0) {
+        await createdComment.setTaggedUsers(parsedTags, { transaction });
+      }
+
+      return createdComment;
+    });
 
     const fullComment = await PhotoComment.findByPk(photoComment.id, {
       include: [
@@ -140,9 +182,7 @@ const handleAddComment = async (req, res) => {
     });
 
     const securePhotoUrl = imageUrl
-      ? `${process.env.API_BASE_URL}/uploads/files/${encodeURIComponent(
-          `${process.env.NODE_ENV}/${imageUrl}`
-        )}`
+      ? attachSecureUrl(API_BASE_URL, `${process.env.NODE_ENV}/${imageUrl}`, getBearerToken(req))
       : null;
 
     return res.status(201).send({
@@ -153,10 +193,10 @@ const handleAddComment = async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(400).json({ message: 'Image too big' });
+      return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
     }
     if (error.message?.includes('Invalid file type')) {
-      return res.status(400).json({ message: error.message });
+      return res.status(413).json({errors: [{ reason: `Nepodržan format` }] });
     }
     console.error('❌ Error adding comment:', error);
     return res.status(500).json({ message: 'Something went wrong' });

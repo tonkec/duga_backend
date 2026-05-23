@@ -4,7 +4,7 @@ const handleGetUserById = async (req, res) => {
   try {
 
     const user = await User.findByPk(req.params.id, {
-      attributes: { exclude: ['auth0Id'] },
+      attributes: { exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'] },
     });
     
     if (!user) {
