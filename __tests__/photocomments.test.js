@@ -18,6 +18,9 @@ jest.mock('../models', () => ({
   User: {
     findOne: jest.fn(),
   },
+  sequelize: {
+    transaction: jest.fn((callback) => callback({ id: 'transaction' })),
+  },
 }));
 
 jest.mock('../middleware/authenticatedAppSession', () => ({
@@ -69,7 +72,7 @@ jest.mock('../utils/s3', () => ({
   })),
 }));
 
-const { PhotoComment, Upload } = require('../models');
+const { PhotoComment, Upload, sequelize } = require('../models');
 const s3 = require('../utils/s3');
 const commentsRouter = require('../router/photocomments');
 
@@ -93,6 +96,7 @@ describe('photo comments CRUD routes', () => {
   beforeEach(() => {
     app = buildApp();
     jest.clearAllMocks();
+    sequelize.transaction.mockImplementation((callback) => callback({ id: 'transaction' }));
 
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -136,13 +140,19 @@ describe('photo comments CRUD routes', () => {
       });
 
     expect(response.status).toBe(201);
-    expect(PhotoComment.create).toHaveBeenCalledWith({
-      userId: 'user-1',
-      uploadId: 'upload-1',
-      comment: 'Great photo',
-      imageUrl: null,
-    });
-    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(['user-2']);
+    expect(PhotoComment.create).toHaveBeenCalledWith(
+      {
+        userId: 'user-1',
+        uploadId: 'upload-1',
+        comment: 'Great photo',
+        imageUrl: null,
+      },
+      { transaction: { id: 'transaction' } }
+    );
+    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(
+      ['user-2'],
+      { transaction: { id: 'transaction' } }
+    );
     expect(response.body.data).toMatchObject({
       id: 101,
       userId: 'user-1',
@@ -222,7 +232,8 @@ describe('photo comments CRUD routes', () => {
 
     expect(response.status).toBe(201);
     expect(PhotoComment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'user-1' })
+      expect.objectContaining({ userId: 'user-1' }),
+      { transaction: { id: 'transaction' } }
     );
     expect(response.body.data.userId).toBe('user-1');
   });
@@ -272,7 +283,10 @@ describe('photo comments CRUD routes', () => {
       });
 
     expect(response.status).toBe(201);
-    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(['user-2']);
+    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(
+      ['user-2'],
+      { transaction: { id: 'transaction' } }
+    );
     expect(response.body.data.taggedUsers).toEqual([{ id: 'user-2', username: 'duga' }]);
   });
 
@@ -322,6 +336,141 @@ describe('photo comments CRUD routes', () => {
       comment: 'With author',
       user: { id: 'user-1', username: 'antonija' },
     });
+  });
+
+  it('prevents SQL injection / unsafe input by storing comment text as data', async () => {
+    const unsafeComment = "Nice photo'); DROP TABLE PhotoComments; --";
+    const createdComment = {
+      id: 105,
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    const fullComment = {
+      toJSON: () => ({
+        id: 105,
+        userId: 'user-1',
+        uploadId: 'upload-1',
+        comment: unsafeComment,
+        imageUrl: null,
+        user: { id: 'user-1', username: 'antonija' },
+        taggedUsers: [],
+      }),
+    };
+
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.create.mockResolvedValue(createdComment);
+    PhotoComment.findByPk.mockResolvedValue(fullComment);
+
+    const response = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({
+        uploadId: 'upload-1',
+        comment: unsafeComment,
+      });
+
+    expect(response.status).toBe(201);
+    expect(PhotoComment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ comment: unsafeComment }),
+      { transaction: { id: 'transaction' } }
+    );
+    expect(response.body.data.comment).toBe(unsafeComment);
+  });
+
+  it('validates comment length when creating a comment', async () => {
+    const response = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({
+        uploadId: 'upload-1',
+        comment: 'a'.repeat(1001),
+      });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ message: 'comment must be 1000 characters or less' });
+    expect(PhotoComment.create).not.toHaveBeenCalled();
+  });
+
+  it('handles DB errors gracefully when creating a comment', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.create.mockRejectedValue(new Error('database unavailable'));
+
+    const response = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({
+        uploadId: 'upload-1',
+        comment: 'Great photo',
+      });
+
+    expect(response.status).toBe(500);
+    expect(response.body).toMatchObject({ message: 'Something went wrong' });
+    expect(consoleErrorSpy).toHaveBeenCalled();
+  });
+
+  it('uses transactions when creating comment + mentions', async () => {
+    const createdComment = {
+      id: 106,
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    const fullComment = {
+      toJSON: () => ({
+        id: 106,
+        userId: 'user-1',
+        uploadId: 'upload-1',
+        comment: 'Hi @duga',
+        imageUrl: null,
+        user: { id: 'user-1', username: 'antonija' },
+        taggedUsers: [{ id: 'user-2', username: 'duga' }],
+      }),
+    };
+
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.create.mockResolvedValue(createdComment);
+    PhotoComment.findByPk.mockResolvedValue(fullComment);
+
+    const response = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({
+        uploadId: 'upload-1',
+        comment: 'Hi @duga',
+        taggedUserIds: JSON.stringify(['user-2']),
+      });
+
+    expect(response.status).toBe(201);
+    expect(sequelize.transaction).toHaveBeenCalledTimes(1);
+    expect(PhotoComment.create).toHaveBeenCalledWith(
+      expect.objectContaining({ comment: 'Hi @duga' }),
+      { transaction: { id: 'transaction' } }
+    );
+    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(
+      ['user-2'],
+      { transaction: { id: 'transaction' } }
+    );
+  });
+
+  it('returns consistent error codes for create validation, missing parent, and DB errors', async () => {
+    const validationResponse = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({ uploadId: 'upload-1', comment: '' });
+
+    Upload.findByPk.mockResolvedValueOnce(null);
+    const missingParentResponse = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({ uploadId: 'missing-upload', comment: 'Great photo' });
+
+    Upload.findByPk.mockResolvedValueOnce({ id: 'upload-1' });
+    PhotoComment.create.mockRejectedValueOnce(new Error('database unavailable'));
+    const dbErrorResponse = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({ uploadId: 'upload-1', comment: 'Great photo' });
+
+    expect(validationResponse.status).toBe(400);
+    expect(missingParentResponse.status).toBe(404);
+    expect(dbErrorResponse.status).toBe(500);
   });
 
   it('returns comments for specific post/profile', async () => {
@@ -557,6 +706,27 @@ describe('photo comments CRUD routes', () => {
 
     expect(response.status).toBe(400);
     expect(response.body).toMatchObject({ message: 'comment is required' });
+    expect(existingComment.save).not.toHaveBeenCalled();
+  });
+
+  it('validates comment length when updating a comment', async () => {
+    const existingComment = {
+      id: 303,
+      userId: 'user-1',
+      comment: 'Before',
+      save: jest.fn().mockResolvedValue(undefined),
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+
+    PhotoComment.findByPk.mockResolvedValue(existingComment);
+
+    const response = await request(app)
+      .put('/comments/update-comment/303')
+      .set(authHeaders)
+      .send({ comment: 'a'.repeat(1001) });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ message: 'comment must be 1000 characters or less' });
     expect(existingComment.save).not.toHaveBeenCalled();
   });
 
