@@ -10,6 +10,19 @@ const handleAddComment = async (req, res) => {
     const { uploadId, comment, taggedUserIds } = req.body;
     const userId = req.auth.user.id;
 
+    if (!uploadId) {
+      return res.status(400).json({ message: 'uploadId is required' });
+    }
+
+    if (typeof comment !== 'string' || comment.trim().length === 0) {
+      return res.status(400).json({ message: 'comment is required' });
+    }
+
+    const upload = await Upload.findByPk(uploadId);
+    if (!upload) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
     const s3Key = req.file?.transforms?.[0]?.key ?? null;
     let commentImageUpload = null;
     let imageUrl = null;
