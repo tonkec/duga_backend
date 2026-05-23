@@ -27,12 +27,14 @@ jest.mock('../middleware/authenticatedAppSession', () => ({
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
+      const userId = req.headers['x-test-user-id'] || 'user-1';
+
       req.auth = {
-        sub: 'auth0|user-1',
+        sub: `auth0|${userId}`,
         user: {
-          id: 'user-1',
-          email: 'user@example.com',
-          auth0Id: 'auth0|user-1',
+          id: userId,
+          email: `${userId}@example.com`,
+          auth0Id: `auth0|${userId}`,
         },
       };
       next();
@@ -46,6 +48,10 @@ jest.mock('../middleware/accessCheck', () => {
 
     if (!resource) {
       return res.status(404).json({ error: 'Resource not found' });
+    }
+
+    if (resource.userId && resource.userId !== req.auth.user.id) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     req.resource = resource;
@@ -463,7 +469,7 @@ describe('photo comments CRUD routes', () => {
     expect(PhotoComment.findAll).not.toHaveBeenCalled();
   });
 
-  it('updates a comment and replaces tagged users', async () => {
+  it('allows owner to update comment', async () => {
     const existingComment = {
       id: 303,
       userId: 'user-1',
@@ -499,6 +505,143 @@ describe('photo comments CRUD routes', () => {
       userId: 'user-1',
       comment: 'After',
     });
+  });
+
+  it('rejects unauthenticated user when updating comment', async () => {
+    const response = await request(app)
+      .put('/comments/update-comment/303')
+      .send({ comment: 'After' });
+
+    expect(response.status).toBe(401);
+    expect(PhotoComment.findByPk).not.toHaveBeenCalled();
+  });
+
+  it('rejects user who is not owner when updating comment', async () => {
+    const existingComment = {
+      id: 303,
+      userId: 'user-1',
+      comment: 'Before',
+      save: jest.fn().mockResolvedValue(undefined),
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+
+    PhotoComment.findByPk.mockResolvedValue(existingComment);
+
+    const response = await request(app)
+      .put('/comments/update-comment/303')
+      .set({
+        ...authHeaders,
+        'x-test-user-id': 'user-2',
+      })
+      .send({ comment: 'After' });
+
+    expect(response.status).toBe(403);
+    expect(existingComment.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects empty updated text', async () => {
+    const existingComment = {
+      id: 303,
+      userId: 'user-1',
+      comment: 'Before',
+      save: jest.fn().mockResolvedValue(undefined),
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+
+    PhotoComment.findByPk.mockResolvedValue(existingComment);
+
+    const response = await request(app)
+      .put('/comments/update-comment/303')
+      .set(authHeaders)
+      .send({ comment: '   ' });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toMatchObject({ message: 'comment is required' });
+    expect(existingComment.save).not.toHaveBeenCalled();
+  });
+
+  it('returns 404 for missing comment when updating', async () => {
+    PhotoComment.findByPk.mockResolvedValue(null);
+
+    const response = await request(app)
+      .put('/comments/update-comment/999')
+      .set(authHeaders)
+      .send({ comment: 'After' });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ error: 'Resource not found' });
+  });
+
+  it('updates only allowed fields', async () => {
+    const existingComment = {
+      id: 303,
+      userId: 'user-1',
+      uploadId: 'upload-1',
+      comment: 'Before',
+      imageUrl: 'comment/photo.jpg',
+      save: jest.fn().mockResolvedValue(undefined),
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    const updatedComment = {
+      id: 303,
+      userId: 'user-1',
+      uploadId: 'upload-1',
+      comment: 'After',
+      imageUrl: 'comment/photo.jpg',
+      taggedUsers: [],
+    };
+
+    PhotoComment.findByPk
+      .mockResolvedValueOnce(existingComment)
+      .mockResolvedValueOnce(updatedComment);
+
+    const response = await request(app)
+      .put('/comments/update-comment/303')
+      .set(authHeaders)
+      .send({
+        comment: 'After',
+        userId: 'user-2',
+        uploadId: 'upload-2',
+        imageUrl: 'comment/other.jpg',
+      });
+
+    expect(response.status).toBe(200);
+    expect(existingComment.comment).toBe('After');
+    expect(existingComment.userId).toBe('user-1');
+    expect(existingComment.uploadId).toBe('upload-1');
+    expect(existingComment.imageUrl).toBe('comment/photo.jpg');
+  });
+
+  it('does not change authorId when updating comment', async () => {
+    const existingComment = {
+      id: 303,
+      userId: 'user-1',
+      comment: 'Before',
+      save: jest.fn().mockResolvedValue(undefined),
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+    };
+    const updatedComment = {
+      id: 303,
+      userId: 'user-1',
+      comment: 'After',
+      taggedUsers: [],
+    };
+
+    PhotoComment.findByPk
+      .mockResolvedValueOnce(existingComment)
+      .mockResolvedValueOnce(updatedComment);
+
+    const response = await request(app)
+      .put('/comments/update-comment/303')
+      .set(authHeaders)
+      .send({
+        comment: 'After',
+        userId: 'user-2',
+      });
+
+    expect(response.status).toBe(200);
+    expect(existingComment.userId).toBe('user-1');
+    expect(response.body.data.userId).toBe('user-1');
   });
 
   it('deletes a comment, its tags, and its image upload', async () => {

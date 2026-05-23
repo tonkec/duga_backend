@@ -5,6 +5,10 @@ const handleUpdateComment = async (req, res) => {
     const { comment, taggedUserIds } = req.body;
     const photoComment = req.resource;
 
+    if (typeof comment !== 'string' || comment.trim().length === 0) {
+      return res.status(400).json({ message: 'comment is required' });
+    }
+
     photoComment.comment = comment;
     await photoComment.save();
 
