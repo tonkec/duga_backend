@@ -1,13 +1,25 @@
-const { PhotoComment, User } = require('../../../models');
+const { PhotoComment, User, Upload } = require('../../../models');
 const addSecureUrlsToList = require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
 
 const handleGetComments = async (req, res) => {
   try {
-    const photoComments = await PhotoComment.findAll({
+    const uploadId = req.params.uploadId;
+    const upload = await Upload.findByPk(uploadId);
+
+    if (!upload) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
+    const limit = Number.parseInt(req.query.limit, 10);
+    const page = Number.parseInt(req.query.page, 10);
+    const hasPagination = Number.isInteger(limit) && limit > 0;
+    const sortDirection = req.query.sort === 'oldest' ? 'ASC' : 'DESC';
+
+    const queryOptions = {
       where: { uploadId: req.params.uploadId },
-      order: [['createdAt', 'DESC']],
+      order: [['createdAt', sortDirection]],
       include: [
         {
           model: User,
@@ -21,7 +33,15 @@ const handleGetComments = async (req, res) => {
           attributes: ['id', 'username'],
         },
       ],
-    });
+    };
+
+    if (hasPagination) {
+      const safePage = Number.isInteger(page) && page > 0 ? page : 1;
+      queryOptions.limit = limit;
+      queryOptions.offset = (safePage - 1) * limit;
+    }
+
+    const photoComments = await PhotoComment.findAll(queryOptions);
 
     const commentsWithSecureUrls = addSecureUrlsToList(photoComments, API_BASE_URL, 'imageUrl', 'securePhotoUrl', getBearerToken(req));
     return res.status(200).send(commentsWithSecureUrls);

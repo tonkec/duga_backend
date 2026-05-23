@@ -318,7 +318,8 @@ describe('photo comments CRUD routes', () => {
     });
   });
 
-  it('lists comments for an upload newest first', async () => {
+  it('returns comments for specific post/profile', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
     PhotoComment.findAll.mockResolvedValue([
       {
         toJSON: () => ({
@@ -343,6 +344,7 @@ describe('photo comments CRUD routes', () => {
       .set(authHeaders);
 
     expect(response.status).toBe(200);
+    expect(Upload.findByPk).toHaveBeenCalledWith('upload-1');
     expect(PhotoComment.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { uploadId: 'upload-1' },
@@ -360,6 +362,105 @@ describe('photo comments CRUD routes', () => {
       comment: 'Older',
       securePhotoUrl: null,
     });
+  });
+
+  it('returns author info when reading comments', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.findAll.mockResolvedValue([
+      {
+        toJSON: () => ({
+          id: 203,
+          uploadId: 'upload-1',
+          comment: 'With author',
+          imageUrl: null,
+          user: { id: 'user-1', username: 'antonija' },
+        }),
+      },
+    ]);
+
+    const response = await request(app)
+      .get('/comments/get-comments/upload-1')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(PhotoComment.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        include: expect.arrayContaining([
+          expect.objectContaining({
+            as: 'user',
+            attributes: ['id', 'username'],
+          }),
+        ]),
+      })
+    );
+    expect(response.body[0]).toMatchObject({
+      id: 203,
+      user: { id: 'user-1', username: 'antonija' },
+    });
+  });
+
+  it('supports pagination when reading comments', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.findAll.mockResolvedValue([]);
+
+    const response = await request(app)
+      .get('/comments/get-comments/upload-1?page=3&limit=10')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(PhotoComment.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 10,
+        offset: 20,
+      })
+    );
+  });
+
+  it('sorts newest/oldest correctly when reading comments', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.findAll.mockResolvedValue([]);
+
+    const newestResponse = await request(app)
+      .get('/comments/get-comments/upload-1?sort=newest')
+      .set(authHeaders);
+    const oldestResponse = await request(app)
+      .get('/comments/get-comments/upload-1?sort=oldest')
+      .set(authHeaders);
+
+    expect(newestResponse.status).toBe(200);
+    expect(oldestResponse.status).toBe(200);
+    expect(PhotoComment.findAll).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ order: [['createdAt', 'DESC']] })
+    );
+    expect(PhotoComment.findAll).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ order: [['createdAt', 'ASC']] })
+    );
+  });
+
+  it('returns empty array if no comments', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    PhotoComment.findAll.mockResolvedValue([]);
+
+    const response = await request(app)
+      .get('/comments/get-comments/upload-1')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual([]);
+  });
+
+  it('returns 404 if parent entity does not exist when reading comments', async () => {
+    Upload.findByPk.mockResolvedValue(null);
+
+    const response = await request(app)
+      .get('/comments/get-comments/missing-upload')
+      .set(authHeaders);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ message: 'Upload not found' });
+    expect(PhotoComment.findAll).not.toHaveBeenCalled();
   });
 
   it('updates a comment and replaces tagged users', async () => {
