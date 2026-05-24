@@ -25,13 +25,11 @@ const PROFILE_FIELDS = {
 };
 
 const sanitizeUser = (user) => {
-  const {
-    password,
-    auth0Id,
-    activeSessionIdHash,
-    activeSessionStartedAt,
-    ...safeUser
-  } = user;
+  const safeUser = { ...user };
+  delete safeUser.password;
+  delete safeUser.auth0Id;
+  delete safeUser.activeSessionIdHash;
+  delete safeUser.activeSessionStartedAt;
 
   return safeUser;
 };

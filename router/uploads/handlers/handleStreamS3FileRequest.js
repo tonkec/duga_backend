@@ -1,7 +1,4 @@
 const streamS3File = require('../utils/streamS3File');
-function isHttpUrl(s) {
-  return /^https?:\/\//i.test(s);
-}
 const handleStreamS3FileRequest = async (req, res) => {
   const rawKey = req.params[0];
   const key = decodeURIComponent(rawKey);

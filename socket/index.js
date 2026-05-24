@@ -964,7 +964,7 @@ const SocketServer = (server, app) => {
 
 const getChatters = async (userId) => {
   try {
-    const [results, metadata] = await sequelize.query(`
+    const [results] = await sequelize.query(`
       select "cu"."userId" from "ChatUsers" as cu
       inner join (
           select "c"."id" from "Chats" as c
