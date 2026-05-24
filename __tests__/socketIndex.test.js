@@ -226,4 +226,57 @@ describe('SocketServer', () => {
     expect(oldSocket.disconnect).toHaveBeenCalledWith(true);
     expect(activeSocket.disconnect).not.toHaveBeenCalled();
   });
+
+  it('emits receive-comment when an authorized user sends a valid comment event', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({
+      token: 'event-token',
+      appUser: user,
+    });
+    const comment = {
+      id: 101,
+      uploadId: 5,
+      userId: user.id,
+      imageUrl: null,
+      toJSON: jest.fn(() => ({
+        id: 101,
+        uploadId: 5,
+        userId: user.id,
+        comment: 'Great photo',
+        imageUrl: null,
+        user: { id: user.id, username: user.username },
+        taggedUsers: [],
+      })),
+    };
+
+    socket.user = { sub: user.auth0Id };
+    models.User.findOne.mockResolvedValue(user);
+    models.PhotoComment.findByPk.mockResolvedValue(comment);
+    models.sequelize.query.mockResolvedValue([{ userId: user.id }]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['send-comment']({
+      data: {
+        id: comment.id,
+        uploadId: comment.uploadId,
+      },
+    });
+
+    expect(io.emit).toHaveBeenCalledWith('receive-comment', {
+      data: {
+        id: comment.id,
+        uploadId: comment.uploadId,
+        userId: user.id,
+        comment: 'Great photo',
+        imageUrl: null,
+        user: { id: user.id, username: user.username },
+        taggedUsers: [],
+        securePhotoUrl: null,
+      },
+    });
+    expect(models.Notification.create).not.toHaveBeenCalled();
+  });
 });
