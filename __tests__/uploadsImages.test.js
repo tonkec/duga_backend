@@ -5,11 +5,14 @@ process.env.APP_PORT = process.env.APP_PORT || '3000';
 const express = require('express');
 const request = require('supertest');
 
+const mockDetectModerationLabelsPromise = jest.fn().mockResolvedValue({ ModerationLabels: [] });
+const mockDetectModerationLabels = jest.fn(() => ({
+  promise: mockDetectModerationLabelsPromise,
+}));
+
 jest.mock('aws-sdk', () => ({
   Rekognition: jest.fn(() => ({
-    detectModerationLabels: jest.fn(() => ({
-      promise: jest.fn().mockResolvedValue({ ModerationLabels: [] }),
-    })),
+    detectModerationLabels: mockDetectModerationLabels,
   })),
 }));
 
@@ -143,6 +146,7 @@ describe('uploads and images routes', () => {
   beforeEach(() => {
     app = buildApp();
     jest.clearAllMocks();
+    mockDetectModerationLabelsPromise.mockResolvedValue({ ModerationLabels: [] });
 
     currentUser = buildUser();
     apiToken = signApiToken(currentUser);
@@ -212,6 +216,55 @@ describe('uploads and images routes', () => {
       description: 'New profile image',
       userId: 'user-1',
       isProfilePhoto: false,
+    });
+  });
+
+  it('checks profile photos with Rekognition before saving metadata', async () => {
+    Upload.findOne.mockResolvedValue(null);
+    Upload.create.mockResolvedValue({ id: 202 });
+
+    const response = await authenticated(request(app).post('/uploads/photos'));
+
+    expect(response.status).toBe(200);
+    expect(s3.headObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/profile.jpg',
+    });
+    expect(s3.getObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/profile.jpg',
+    });
+    expect(mockDetectModerationLabels).toHaveBeenCalledWith({
+      Image: { Bytes: Buffer.from('moderation-image') },
+      MinConfidence: 60,
+    });
+    expect(Upload.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'test/user/user-1/profile.jpg',
+        userId: 'user-1',
+      })
+    );
+  });
+
+  it('rejects profile photos blocked by Rekognition', async () => {
+    mockDetectModerationLabelsPromise.mockResolvedValueOnce({
+      ModerationLabels: [
+        { Name: 'Explicit Nudity', ParentName: '', Confidence: 95 },
+      ],
+    });
+
+    const response = await authenticated(request(app).post('/uploads/photos'));
+
+    expect(response.status).toBe(422);
+    expect(response.body.message).toBe('All images were rejected by moderation.');
+    expect(Upload.create).not.toHaveBeenCalled();
+    expect(s3.deleteObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/profile.jpg',
+    });
+    expect(s3.deleteObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/thumbnail-profile.jpg',
     });
   });
 
