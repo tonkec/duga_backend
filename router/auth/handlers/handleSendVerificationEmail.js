@@ -1,6 +1,20 @@
 const axios = require('axios');
 const { User } = require('../../../models');
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
+const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
+const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
+const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
+
+const getManagementApiToken = async () => {
+  const response = await axios.post(`https://${AUTH0_DOMAIN}/oauth/token`, {
+    client_id: CLIENT_ID,
+    client_secret: CLIENT_SECRET,
+    audience: MANAGEMENT_API_AUDIENCE,
+    grant_type: 'client_credentials',
+  });
+
+  return response.data.access_token;
+};
 
 const sendVerificationEmail = async (req, res) => {
   try {

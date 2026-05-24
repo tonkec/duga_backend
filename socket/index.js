@@ -3,6 +3,7 @@ const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
 const PhotoComment = require("../models").PhotoComment;
+const ChatUser = require('../models').ChatUser;
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
@@ -21,18 +22,60 @@ const { hashSessionId } = require('../utils/appSession');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
+const API_JWT_SECRET = process.env.API_JWT_SECRET || process.env.JWT_SECRET || 'duga-api-test-secret';
+
+const allowSocketOrigin = (origin, callback) => {
+  callback(null, origin || true);
+};
 
 const client = jwksClient({
   jwksUri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
 });
 
 function getKey(header, callback) {
+  if (!header.kid) {
+    return callback(new Error('No KID specified'));
+  }
+
   client.getSigningKey(header.kid, (err, key) => {
     if (err) return callback(err);
     const signingKey = key.getPublicKey();
     callback(null, signingKey);
   });
 }
+
+const verifySocketToken = (token) =>
+  new Promise((resolve, reject) => {
+    const decodedHeader = jwt.decode(token, { complete: true });
+
+    if (decodedHeader?.header?.alg === 'RS256') {
+      jwt.verify(
+        token,
+        getKey,
+        {
+          audience: AUTH0_AUDIENCE,
+          issuer: `https://${AUTH0_DOMAIN}/`,
+          algorithms: ['RS256'],
+        },
+        (err, decoded) => {
+          if (err) return reject(err);
+          resolve(decoded);
+        }
+      );
+      return;
+    }
+
+    try {
+      const decoded = jwt.verify(token, API_JWT_SECRET, { algorithms: ['HS256'] });
+      if (decoded.tokenUse !== 'api') {
+        reject(new Error('Invalid token use'));
+        return;
+      }
+      resolve(decoded);
+    } catch (error) {
+      reject(error);
+    }
+  });
 
 const formatCommentSocketPayload = (comment, accessToken) => ({
   ...comment.toJSON(),
@@ -55,6 +98,16 @@ const parseCommentSocketPayload = (data) => {
     uploadId:
       payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
   };
+};
+
+const joinSocketRooms = async (socket, user) => {
+  socket.join(`user:${user.id}`);
+
+  const memberships = await ChatUser.findAll({
+    where: { userId: user.id },
+    attributes: ['chatId'],
+  });
+  memberships.forEach(({ chatId }) => socket.join(`chat:${chatId}`));
 };
 
 const userSessionSockets = new Map();
@@ -91,9 +144,10 @@ const untrackSessionSocket = (userId, sessionId, socketId) => {
 const SocketServer = (server, app) => {
   const io = socketIo(server, {
     cors: {
-      origin: '*',
-      methods: 'GET, HEAD, PUT, PATCH, POST, DELETE',
-      allowedHeaders: ['Content-Type'],
+      origin: allowSocketOrigin,
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-duga-session-id'],
+      credentials: true,
     },
   });
 
@@ -112,7 +166,7 @@ const SocketServer = (server, app) => {
     });
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     const sessionId = socket.handshake.auth?.sessionId;
     if (!token) {
@@ -122,47 +176,39 @@ const SocketServer = (server, app) => {
       return next(new Error('Missing app session'));
     }
 
-   jwt.verify(
-    token,
-    getKey,
-    {
-      audience: AUTH0_AUDIENCE,
-      issuer: `https://${AUTH0_DOMAIN}/`,
-      algorithms: ['RS256'],
-    },
-    async (err, decoded) => {
-      if (err) {
-        console.error('❌ JWT verification failed:', err.message);
+    try {
+      const decoded = await verifySocketToken(token);
+      if (!decoded?.sub) {
         return next(new Error('Unauthorized'));
       }
 
-      try {
-        if (!decoded?.sub) {
-          return next(new Error('Unauthorized'));
-        }
-
-        const user = await User.findOne({ where: { auth0Id: decoded.sub } });
-        if (!user) {
-          return next(new Error('Unauthorized'));
-        }
-
-        if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
-          return next(new Error('Session revoked'));
-        }
-
-        socket.user = decoded;
-        socket.appUser = user;
-        socket.appSessionId = sessionId;
-        next();
-      } catch (error) {
-        next(error);
+      const user = await User.findOne({ where: { auth0Id: decoded.sub } });
+      if (!user) {
+        return next(new Error('Unauthorized'));
       }
+
+      if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
+        return next(new Error('Session revoked'));
+      }
+
+      socket.user = decoded;
+      socket.appUser = user;
+      socket.appSessionId = sessionId;
+      next();
+    } catch (err) {
+        console.error('❌ JWT verification failed:', err.message);
+        return next(new Error('Unauthorized'));
     }
-  );
-});
+  });
 
   io.on('connection', (socket) => {
     console.log('New client connected');
+    if (socket.appUser) {
+      joinSocketRooms(socket, socket.appUser).catch((error) => {
+        console.error('❌ Failed to join socket rooms:', error);
+      });
+    }
+
     socket.on('join', async () => { 
       const user = socket.appUser || await getSocketUser(socket);
       if (!user) {
@@ -172,6 +218,8 @@ const SocketServer = (server, app) => {
       const userId = user.id;
       setUsers(user, socket);
       trackSessionSocket(user.id, socket.appSessionId, socket.id);
+      await joinSocketRooms(socket, user);
+
       const chatters = await getChatters(userId);
       chatters.forEach((chatterId) => {
         if (users.has(chatterId)) {
@@ -618,16 +666,35 @@ const SocketServer = (server, app) => {
     
   
      socket.on('message', async (message) => {
-        let sockets = setUsers(message.fromUser, socket);
-
-        if (users.length > 0 && users.has(message.fromUser.id)) {
-          sockets = users.get(message.fromUser.id).sockets;
-        }
-        message.toUserId.forEach((id) => {
-          if (users.has(id)) sockets = [...sockets, ...users.get(id).sockets];
-        });
-
         try {
+          const sender = socket.appUser || await getSocketUser(socket);
+          const chatId = Number(message?.chatId);
+
+          if (!sender || !chatId) {
+            socket.emit('message_error', { message: 'Invalid message payload' });
+            return;
+          }
+
+          const chatMembers = await ChatUser.findAll({
+            where: { chatId },
+            attributes: ['userId'],
+          });
+          const memberIds = chatMembers.map(({ userId }) => userId);
+
+          if (!memberIds.includes(sender.id)) {
+            socket.emit('message_error', { message: 'You do not have access to this chat' });
+            return;
+          }
+
+          socket.join(`user:${sender.id}`);
+          socket.join(`chat:${chatId}`);
+          const sockets = new Set(users.get(sender.id)?.sockets || setUsers(sender, socket));
+          memberIds.forEach((id) => {
+            if (users.has(id)) {
+              users.get(id).sockets.forEach((sockId) => sockets.add(sockId));
+            }
+          });
+
           // --- 1) Validate referenced image (if any) ---
           let finalMessagePhotoUrl = null;
 
@@ -642,7 +709,7 @@ const SocketServer = (server, app) => {
             const upload = await Upload.findOne({
               where: {
                 url: removeSpacesAndDashes(candidateKey.toLowerCase()),
-                userId: message.fromUser.id,
+                userId: sender.id,
               },
             });
 
@@ -658,10 +725,10 @@ const SocketServer = (server, app) => {
           }
           // --- 2) Create the message (text-only or with allowed image) ---
           const msgPayload = {
-            type: message.type,
-            fromUserId: message.fromUser.id,
-            chatId: message.chatId,
-            message: message.message,
+            type: message.type || 'text',
+            fromUserId: sender.id,
+            chatId,
+            message: message.message || null,
             messagePhotoUrl: finalMessagePhotoUrl, 
           };
 
@@ -672,8 +739,8 @@ const SocketServer = (server, app) => {
           const outbound = {
             id: savedMessage.id,
             chatId: savedMessage.chatId,
-            fromUserId: message.fromUser.id,
-            User: message.fromUser, 
+            fromUserId: sender.id,
+            User: sender.toJSON ? sender.toJSON() : sender,
             type: savedMessage.type,
             message: savedMessage.message,
             createdAt: savedMessage.createdAt,
@@ -681,17 +748,17 @@ const SocketServer = (server, app) => {
             securePhotoUrl: finalMessagePhotoUrl
               ? attachSecureUrl(API_BASE_URL, finalMessagePhotoUrl, socket.handshake.auth?.token)
               : null,
-            toUserId: message.toUserId,
+            toUserId: memberIds.filter((id) => id !== sender.id),
           };
 
           // --- 4) Notify recipients (unchanged) ---
-          for (const recipientId of message.toUserId) {
+          for (const recipientId of memberIds.filter((id) => id !== sender.id)) {
             if (!recipientId) continue;
 
             const notification = await Notification.create({
               userId: recipientId,
               type: 'message',
-              content: `Nova poruka od ${message.fromUser.username || 'someone'}`,
+              content: `Nova poruka od ${sender.username || 'someone'}`,
               actionId: savedMessage.chatId,
               actionType: 'message',
               chatId: savedMessage.chatId,

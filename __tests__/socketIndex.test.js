@@ -1,0 +1,229 @@
+process.env.API_JWT_SECRET = 'test-api-secret';
+process.env.AUTH0_DOMAIN = 'auth.example.com';
+process.env.AUTH0_AUDIENCE = 'duga-api';
+process.env.NODE_ENV = 'test';
+
+const jwt = require('jsonwebtoken');
+const { hashSessionId } = require('../utils/appSession');
+
+const buildApp = () => {
+  const settings = {};
+
+  return {
+    set: jest.fn((key, value) => {
+      settings[key] = value;
+    }),
+    settings,
+  };
+};
+
+const buildSocket = ({
+  id = 'socket-1',
+  token = 'token',
+  sessionId = 'session-1',
+  appUser = null,
+} = {}) => {
+  const handlers = {};
+
+  return {
+    id,
+    appUser,
+    appSessionId: sessionId,
+    handshake: {
+      auth: { token, sessionId },
+    },
+    handlers,
+    join: jest.fn(),
+    on: jest.fn((event, handler) => {
+      handlers[event] = handler;
+    }),
+    emit: jest.fn(),
+    disconnect: jest.fn(),
+  };
+};
+
+const buildUser = (overrides = {}) => ({
+  id: 1,
+  auth0Id: 'auth0|user-1',
+  username: 'antonija',
+  activeSessionIdHash: hashSessionId('session-1'),
+  toJSON: jest.fn(() => ({ id: 1, username: 'antonija' })),
+  ...overrides,
+});
+
+const loadSocketServer = () => {
+  jest.resetModules();
+
+  const targetEmits = [];
+  const targetEmitters = new Map();
+  const io = {
+    use: jest.fn((handler) => {
+      io.middleware = handler;
+    }),
+    on: jest.fn((event, handler) => {
+      if (event === 'connection') {
+        io.connectionHandler = handler;
+      }
+    }),
+    emit: jest.fn(),
+    to: jest.fn((target) => {
+      if (!targetEmitters.has(target)) {
+        targetEmitters.set(target, {
+          emit: jest.fn((event, payload) => {
+            targetEmits.push({ target, event, payload });
+          }),
+        });
+      }
+
+      return targetEmitters.get(target);
+    }),
+    sockets: {
+      sockets: new Map(),
+    },
+    targetEmits,
+  };
+
+  const models = {
+    sequelize: {
+      query: jest.fn().mockResolvedValue([[], {}]),
+      QueryTypes: { SELECT: 'SELECT' },
+    },
+    Message: {
+      create: jest.fn(),
+    },
+    User: {
+      findOne: jest.fn(),
+      update: jest.fn(),
+    },
+    PhotoComment: {
+      findByPk: jest.fn(),
+    },
+    ChatUser: {
+      findAll: jest.fn().mockResolvedValue([]),
+    },
+    Notification: {
+      create: jest.fn(),
+      findByPk: jest.fn(),
+    },
+    PhotoLikes: {
+      findOne: jest.fn(),
+    },
+    Upload: {
+      findOne: jest.fn(),
+    },
+  };
+
+  jest.doMock('socket.io', () => jest.fn(() => io));
+  jest.doMock('jwks-rsa', () =>
+    jest.fn(() => ({
+      getSigningKey: jest.fn(),
+    }))
+  );
+  jest.doMock('../models', () => models);
+  jest.doMock('../utils/secureUploadUrl', () => ({
+    attachSecureUrl: jest.fn((baseUrl, key, token) => `${baseUrl}/${key}?token=${token}`),
+  }));
+
+  return {
+    SocketServer: require('../socket'),
+    io,
+    models,
+  };
+};
+
+describe('SocketServer', () => {
+  let consoleLogSpy;
+  let consoleErrorSpy;
+
+  beforeEach(() => {
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    jest.dontMock('socket.io');
+    jest.dontMock('jwks-rsa');
+    jest.dontMock('../models');
+    jest.dontMock('../utils/secureUploadUrl');
+  });
+
+  it('rejects socket connections without complete auth data', async () => {
+    const { SocketServer, io } = loadSocketServer();
+    SocketServer({}, buildApp());
+
+    const missingTokenNext = jest.fn();
+    await io.middleware(buildSocket({ token: null }), missingTokenNext);
+
+    expect(missingTokenNext).toHaveBeenCalledWith(expect.any(Error));
+    expect(missingTokenNext.mock.calls[0][0].message).toBe('Missing token');
+
+    const missingSessionNext = jest.fn();
+    await io.middleware(buildSocket({ sessionId: null }), missingSessionNext);
+
+    expect(missingSessionNext).toHaveBeenCalledWith(expect.any(Error));
+    expect(missingSessionNext.mock.calls[0][0].message).toBe('Missing app session');
+  });
+
+  it('authenticates HS256 API tokens with an active app session', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const token = jwt.sign(
+      { sub: user.auth0Id, tokenUse: 'api' },
+      process.env.API_JWT_SECRET,
+      { algorithm: 'HS256' }
+    );
+    const socket = buildSocket({ token, sessionId: 'session-1' });
+    const next = jest.fn();
+
+    models.User.findOne.mockResolvedValue(user);
+    SocketServer({}, buildApp());
+
+    await io.middleware(socket, next);
+
+    expect(next).toHaveBeenCalledWith();
+    expect(models.User.findOne).toHaveBeenCalledWith({ where: { auth0Id: user.auth0Id } });
+    expect(socket.user).toMatchObject({ sub: user.auth0Id, tokenUse: 'api' });
+    expect(socket.appUser).toBe(user);
+    expect(socket.appSessionId).toBe('session-1');
+  });
+
+  it('revokes sockets for other sessions of the same user', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const app = buildApp();
+    const user = buildUser();
+    const oldSocket = buildSocket({
+      id: 'socket-old',
+      sessionId: 'session-old',
+      appUser: user,
+    });
+    const activeSocket = buildSocket({
+      id: 'socket-active',
+      sessionId: 'session-active',
+      appUser: user,
+    });
+
+    models.ChatUser.findAll.mockResolvedValue([]);
+    models.sequelize.query.mockResolvedValue([[], {}]);
+
+    SocketServer({}, app);
+    io.sockets.sockets.set(oldSocket.id, oldSocket);
+    io.sockets.sockets.set(activeSocket.id, activeSocket);
+
+    io.connectionHandler(oldSocket);
+    await oldSocket.handlers.join();
+    io.connectionHandler(activeSocket);
+    await activeSocket.handlers.join();
+
+    app.settings.revokeUserSessionsExcept(user.id, 'session-active');
+
+    expect(io.targetEmits).toContainEqual({
+      target: oldSocket.id,
+      event: 'session-revoked',
+      payload: undefined,
+    });
+    expect(oldSocket.disconnect).toHaveBeenCalledWith(true);
+    expect(activeSocket.disconnect).not.toHaveBeenCalled();
+  });
+});
