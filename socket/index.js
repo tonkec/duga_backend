@@ -137,6 +137,10 @@ const SocketServer = (server, app) => {
       }
 
       try {
+        if (!decoded?.sub) {
+          return next(new Error('Unauthorized'));
+        }
+
         const user = await User.findOne({ where: { auth0Id: decoded.sub } });
         if (!user) {
           return next(new Error('Unauthorized'));
@@ -160,7 +164,11 @@ const SocketServer = (server, app) => {
   io.on('connection', (socket) => {
     console.log('New client connected');
     socket.on('join', async () => { 
-      const user = socket.appUser || await User.findOne({ where: { auth0Id: socket.user?.sub } });
+      const user = socket.appUser || await getSocketUser(socket);
+      if (!user) {
+        console.error('❌ Unauthorized join: user not found');
+        return;
+      }
       const userId = user.id;
       setUsers(user, socket);
       trackSessionSocket(user.id, socket.appSessionId, socket.id);
@@ -325,8 +333,11 @@ const SocketServer = (server, app) => {
     );
 
     socket.on('set-status', async ({ status }) => {
-      const auth0Id = socket.user?.sub;
-      const user = await User.findOne({ where: { auth0Id } });
+      const user = socket.appUser || await getSocketUser(socket);
+      if (!user) {
+        console.error('❌ Unauthorized set-status: user not found');
+        return;
+      }
       const userId = user.id;
       if (users.has(userId)) {
         users.get(userId).status = status;
@@ -462,13 +473,12 @@ const SocketServer = (server, app) => {
       try {
         const like = data[0];
         const { photoId } = like;
-        const auth0Id = socket.user?.sub;
-        const user = await User.findOne({ where: { auth0Id } });
-        const userId = user.id;
+        const user = socket.appUser || await getSocketUser(socket);
         if (!user) {
           console.error('User not found');
           return;
         }
+        const userId = user.id;
 
         const photoLike = await PhotoLikes.findOne({
           where: {
@@ -504,7 +514,7 @@ const SocketServer = (server, app) => {
         `,
         {
           replacements: {
-            uploadId: parseInt(parsedPhotoId),
+            parsedPhotoId,
             userId: parseInt(user.id),
           },
           type: sequelize.QueryTypes.SELECT,
@@ -547,8 +557,7 @@ const SocketServer = (server, app) => {
     socket.on("downvote-upload", async (likeData) => {
       try {
         const { uploadId } = likeData;
-        const auth0Id = socket.user?.sub;
-        const user = await User.findOne({ where: { auth0Id } });
+        const user = socket.appUser || await getSocketUser(socket);
         if (!user) {
           console.error('User not found');
           return;
@@ -587,7 +596,7 @@ const SocketServer = (server, app) => {
           `,
           {
             replacements: {
-              uploadId: parseInt(parsedPhotoId),
+              uploadId: parseInt(uploadId),
               userId: parseInt(user.id),
             },
             type: sequelize.QueryTypes.SELECT,
