@@ -14,4 +14,3 @@ module.exports = {
     await queryInterface.removeColumn('Notifications', 'actionId');
   },
 };
-

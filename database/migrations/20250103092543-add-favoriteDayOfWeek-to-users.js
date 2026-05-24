@@ -2,15 +2,15 @@
 
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
-  async up (queryInterface, Sequelize) {
+  async up(queryInterface, Sequelize) {
     await queryInterface.addColumn('Users', 'favoriteDayOfWeek', {
       type: Sequelize.STRING,
-      allowNull: true, 
-      defaultValue: null, 
+      allowNull: true,
+      defaultValue: null,
     });
   },
 
-  async down (queryInterface, Sequelize) {
+  async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn('Users', 'favoriteDayOfWeek');
-  }
+  },
 };

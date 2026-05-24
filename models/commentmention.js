@@ -3,8 +3,7 @@ const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
   class CommentMention extends Model {
-    static associate(models) {
-    }
+    static associate(models) {}
   }
 
   CommentMention.init(

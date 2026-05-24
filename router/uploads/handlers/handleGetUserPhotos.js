@@ -1,7 +1,7 @@
 const Upload = require('../../../models').Upload;
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
-const {API_BASE_URL} = require("../../../consts/apiBaseUrl");
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 
 const handleGetUserPhotos = async (req, res) => {
   try {
@@ -18,7 +18,7 @@ const handleGetUserPhotos = async (req, res) => {
 
     const accessToken = getBearerToken(req);
     const allPhotos = uploads
-      .map(upload => {
+      .map((upload) => {
         const key = upload.url;
         return {
           ...upload.toJSON(),

@@ -14,7 +14,9 @@ const handleDeletePhotoRequest = async (req, res) => {
     const deletedModels = await deletePhotoAndAssociations(url);
 
     if (deletedModels.length === 0) {
-      return res.status(404).json({ error: 'No matching records found for this photo.' });
+      return res
+        .status(404)
+        .json({ error: 'No matching records found for this photo.' });
     }
 
     return res.status(200).json({

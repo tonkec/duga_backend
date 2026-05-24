@@ -51,7 +51,12 @@ describe('users controller handlers', () => {
 
     expect(User.findAll).toHaveBeenCalledWith({
       attributes: {
-        exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'],
+        exclude: [
+          'password',
+          'auth0Id',
+          'activeSessionIdHash',
+          'activeSessionStartedAt',
+        ],
       },
     });
     expect(res.json).toHaveBeenCalledWith(users);
@@ -70,7 +75,12 @@ describe('users controller handlers', () => {
       1,
       expect.objectContaining({
         attributes: {
-          exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'],
+          exclude: [
+            'password',
+            'auth0Id',
+            'activeSessionIdHash',
+            'activeSessionStartedAt',
+          ],
         },
       })
     );
@@ -102,7 +112,12 @@ describe('users controller handlers', () => {
       '2',
       expect.objectContaining({
         attributes: {
-          exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'],
+          exclude: [
+            'password',
+            'auth0Id',
+            'activeSessionIdHash',
+            'activeSessionStartedAt',
+          ],
         },
       })
     );
@@ -202,7 +217,9 @@ describe('users controller handlers', () => {
     await handleUpdateUser(req, res);
 
     expect(res.status).toHaveBeenCalledWith(400);
-    expect(res.json).toHaveBeenCalledWith({ error: 'Profile data is required' });
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'Profile data is required',
+    });
     expect(User.update).not.toHaveBeenCalled();
   });
 
@@ -213,7 +230,10 @@ describe('users controller handlers', () => {
     await handlePostLogin(req, res);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ ok: false, errors: ['unauthorized'] });
+    expect(res.json).toHaveBeenCalledWith({
+      ok: false,
+      errors: ['unauthorized'],
+    });
   });
 
   it('post-login saves onboarding data for a valid user', async () => {
@@ -241,9 +261,7 @@ describe('users controller handlers', () => {
     };
     const res = buildResponse();
 
-    User.findOne
-      .mockResolvedValueOnce(null)
-      .mockResolvedValueOnce(user);
+    User.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(user);
 
     await handlePostLogin(req, res);
 

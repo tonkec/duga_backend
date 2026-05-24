@@ -46,20 +46,23 @@ jest.mock('../middleware/authenticatedAppSession', () => ({
 }));
 
 jest.mock('../middleware/accessCheck', () => {
-  return (model, lookupFn = null) => async (req, res, next) => {
-    const resource = lookupFn ? await lookupFn(req) : await model.findByPk(req.params.id);
+  return (model, lookupFn = null) =>
+    async (req, res, next) => {
+      const resource = lookupFn
+        ? await lookupFn(req)
+        : await model.findByPk(req.params.id);
 
-    if (!resource) {
-      return res.status(404).json({ error: 'Resource not found' });
-    }
+      if (!resource) {
+        return res.status(404).json({ error: 'Resource not found' });
+      }
 
-    if (resource.userId && resource.userId !== req.auth.user.id) {
-      return res.status(403).json({ error: 'Forbidden' });
-    }
+      if (resource.userId && resource.userId !== req.auth.user.id) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
 
-    req.resource = resource;
-    next();
-  };
+      req.resource = resource;
+      next();
+    };
 });
 
 jest.mock('../router/comments/s3/uploadCommentImage', () => ({
@@ -96,7 +99,9 @@ describe('photo comments CRUD routes', () => {
   beforeEach(() => {
     app = buildApp();
     jest.clearAllMocks();
-    sequelize.transaction.mockImplementation((callback) => callback({ id: 'transaction' }));
+    sequelize.transaction.mockImplementation((callback) =>
+      callback({ id: 'transaction' })
+    );
 
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -149,10 +154,9 @@ describe('photo comments CRUD routes', () => {
       },
       { transaction: { id: 'transaction' } }
     );
-    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(
-      ['user-2'],
-      { transaction: { id: 'transaction' } }
-    );
+    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(['user-2'], {
+      transaction: { id: 'transaction' },
+    });
     expect(response.body.data).toMatchObject({
       id: 101,
       userId: 'user-1',
@@ -163,12 +167,10 @@ describe('photo comments CRUD routes', () => {
   });
 
   it('requires auth to create a comment', async () => {
-    const response = await request(app)
-      .post('/comments/add-comment')
-      .send({
-        uploadId: 'upload-1',
-        comment: 'Great photo',
-      });
+    const response = await request(app).post('/comments/add-comment').send({
+      uploadId: 'upload-1',
+      comment: 'Great photo',
+    });
 
     expect(response.status).toBe(401);
     expect(PhotoComment.create).not.toHaveBeenCalled();
@@ -283,11 +285,12 @@ describe('photo comments CRUD routes', () => {
       });
 
     expect(response.status).toBe(201);
-    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(
-      ['user-2'],
-      { transaction: { id: 'transaction' } }
-    );
-    expect(response.body.data.taggedUsers).toEqual([{ id: 'user-2', username: 'duga' }]);
+    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(['user-2'], {
+      transaction: { id: 'transaction' },
+    });
+    expect(response.body.data.taggedUsers).toEqual([
+      { id: 'user-2', username: 'duga' },
+    ]);
   });
 
   it('returns created comment with author data', async () => {
@@ -386,7 +389,9 @@ describe('photo comments CRUD routes', () => {
       });
 
     expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ message: 'comment must be 1000 characters or less' });
+    expect(response.body).toMatchObject({
+      message: 'comment must be 1000 characters or less',
+    });
     expect(PhotoComment.create).not.toHaveBeenCalled();
   });
 
@@ -443,10 +448,9 @@ describe('photo comments CRUD routes', () => {
       expect.objectContaining({ comment: 'Hi @duga' }),
       { transaction: { id: 'transaction' } }
     );
-    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(
-      ['user-2'],
-      { transaction: { id: 'transaction' } }
-    );
+    expect(createdComment.setTaggedUsers).toHaveBeenCalledWith(['user-2'], {
+      transaction: { id: 'transaction' },
+    });
   });
 
   it('returns consistent error codes for create validation, missing parent, and DB errors', async () => {
@@ -462,7 +466,9 @@ describe('photo comments CRUD routes', () => {
       .send({ uploadId: 'missing-upload', comment: 'Great photo' });
 
     Upload.findByPk.mockResolvedValueOnce({ id: 'upload-1' });
-    PhotoComment.create.mockRejectedValueOnce(new Error('database unavailable'));
+    PhotoComment.create.mockRejectedValueOnce(
+      new Error('database unavailable')
+    );
     const dbErrorResponse = await request(app)
       .post('/comments/add-comment')
       .set(authHeaders)
@@ -510,7 +516,8 @@ describe('photo comments CRUD routes', () => {
     expect(response.body[0]).toMatchObject({
       id: 202,
       comment: 'Newest',
-      securePhotoUrl: 'http://localhost:3000/uploads/files/comment%2Fphoto.jpg?access_token=test-token',
+      securePhotoUrl:
+        'http://localhost:3000/uploads/files/comment%2Fphoto.jpg?access_token=test-token',
     });
     expect(response.body[1]).toMatchObject({
       id: 201,
@@ -726,7 +733,9 @@ describe('photo comments CRUD routes', () => {
       .send({ comment: 'a'.repeat(1001) });
 
     expect(response.status).toBe(400);
-    expect(response.body).toMatchObject({ message: 'comment must be 1000 characters or less' });
+    expect(response.body).toMatchObject({
+      message: 'comment must be 1000 characters or less',
+    });
     expect(existingComment.save).not.toHaveBeenCalled();
   });
 
@@ -927,8 +936,8 @@ describe('photo comments CRUD routes', () => {
 
     expect(response.status).toBe(200);
     expect(existingComment.setTaggedUsers).toHaveBeenCalledWith([]);
-    expect(existingComment.setTaggedUsers.mock.invocationCallOrder[0]).toBeLessThan(
-      existingComment.destroy.mock.invocationCallOrder[0]
-    );
+    expect(
+      existingComment.setTaggedUsers.mock.invocationCallOrder[0]
+    ).toBeLessThan(existingComment.destroy.mock.invocationCallOrder[0]);
   });
 });

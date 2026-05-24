@@ -36,10 +36,17 @@ function decide(labels) {
       l.Confidence >= SUGGESTIVE_BLOCK_THRESHOLD * 100
   );
 
-  return hasExplicit ? 'block-explicit' : hasSuggestive ? 'block-suggestive' : 'allow';
+  return hasExplicit
+    ? 'block-explicit'
+    : hasSuggestive
+      ? 'block-suggestive'
+      : 'allow';
 }
 
-async function waitForObjectExists(Key, { timeoutMs = 4000, intervalMs = 150 } = {}) {
+async function waitForObjectExists(
+  Key,
+  { timeoutMs = 4000, intervalMs = 150 } = {}
+) {
   const deadline = Date.now() + timeoutMs;
   let lastErr;
   while (Date.now() < deadline) {
@@ -91,7 +98,9 @@ const handleAddComment = async (req, res) => {
     }
 
     if (comment.length > MAX_COMMENT_LENGTH) {
-      return res.status(400).json({ message: `comment must be ${MAX_COMMENT_LENGTH} characters or less` });
+      return res.status(400).json({
+        message: `comment must be ${MAX_COMMENT_LENGTH} characters or less`,
+      });
     }
 
     let parsedTags = [];
@@ -99,11 +108,15 @@ const handleAddComment = async (req, res) => {
       try {
         parsedTags = JSON.parse(taggedUserIds);
       } catch (error) {
-        return res.status(400).json({ message: 'taggedUserIds must be valid JSON' });
+        return res
+          .status(400)
+          .json({ message: 'taggedUserIds must be valid JSON' });
       }
 
       if (!Array.isArray(parsedTags)) {
-        return res.status(400).json({ message: 'taggedUserIds must be an array' });
+        return res
+          .status(400)
+          .json({ message: 'taggedUserIds must be an array' });
       }
     } else if (Array.isArray(taggedUserIds)) {
       parsedTags = taggedUserIds;
@@ -128,7 +141,10 @@ const handleAddComment = async (req, res) => {
       console.log('🔎 decision:', decision, 'for', s3Key);
 
       if (decision !== 'allow') {
-        await s3.deleteObject({ Bucket: BUCKET, Key: s3Key }).promise().catch(() => {});
+        await s3
+          .deleteObject({ Bucket: BUCKET, Key: s3Key })
+          .promise()
+          .catch(() => {});
         return res.status(422).json({
           message: 'Comment image rejected by moderation',
           errors: [
@@ -151,21 +167,27 @@ const handleAddComment = async (req, res) => {
         );
         const normalizedKey = normalizeS3Key(s3Key); // Removes env and sanitizes
 
-        await Upload.create({
-          url: s3Key,
-          name: cleanedName,
-          userId,
-        }, { transaction });
+        await Upload.create(
+          {
+            url: s3Key,
+            name: cleanedName,
+            userId,
+          },
+          { transaction }
+        );
 
         imageUrl = normalizedKey;
       }
 
-      const createdComment = await PhotoComment.create({
-        userId,
-        uploadId,
-        comment,
-        imageUrl,
-      }, { transaction });
+      const createdComment = await PhotoComment.create(
+        {
+          userId,
+          uploadId,
+          comment,
+          imageUrl,
+        },
+        { transaction }
+      );
 
       if (Array.isArray(parsedTags) && parsedTags.length > 0) {
         await createdComment.setTaggedUsers(parsedTags, { transaction });
@@ -182,7 +204,11 @@ const handleAddComment = async (req, res) => {
     });
 
     const securePhotoUrl = imageUrl
-      ? attachSecureUrl(API_BASE_URL, `${process.env.NODE_ENV}/${imageUrl}`, getBearerToken(req))
+      ? attachSecureUrl(
+          API_BASE_URL,
+          `${process.env.NODE_ENV}/${imageUrl}`,
+          getBearerToken(req)
+        )
       : null;
 
     return res.status(201).send({
@@ -193,10 +219,16 @@ const handleAddComment = async (req, res) => {
     });
   } catch (error) {
     if (error.code === 'LIMIT_FILE_SIZE') {
-      return res.status(413).json({errors: [{ reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.` }] });
+      return res.status(413).json({
+        errors: [
+          {
+            reason: `Datoteka je veća od ${LIMIT_FILE_SIZE / (1024 * 1024)} MB.`,
+          },
+        ],
+      });
     }
     if (error.message?.includes('Invalid file type')) {
-      return res.status(413).json({errors: [{ reason: `Nepodržan format` }] });
+      return res.status(413).json({ errors: [{ reason: `Nepodržan format` }] });
     }
     console.error('❌ Error adding comment:', error);
     return res.status(500).json({ message: 'Something went wrong' });

@@ -16,7 +16,9 @@ const deletePhotoAndAssociations = async (url) => {
 
   const fullKey = extractKeyFromUrl(url);
   const envPrefix = `${process.env.NODE_ENV}/`;
-  const key = fullKey.startsWith(envPrefix) ? fullKey.slice(envPrefix.length) : fullKey;
+  const key = fullKey.startsWith(envPrefix)
+    ? fullKey.slice(envPrefix.length)
+    : fullKey;
   const s3Key = `${process.env.NODE_ENV}/${key}`;
   const sanitizedKey = removeSpacesAndDashes(key);
 
@@ -30,21 +32,25 @@ const deletePhotoAndAssociations = async (url) => {
   }
 
   // PhotoComments
-  const commentMatches = await PhotoComment.findAll({ where: { imageUrl: sanitizedKey } });
+  const commentMatches = await PhotoComment.findAll({
+    where: { imageUrl: sanitizedKey },
+  });
   for (const match of commentMatches) {
     await match.setTaggedUsers([]);
     await match.destroy();
     deletedModels.push('PhotoComment');
   }
   // Messages
-  const messageMatches = await Message.findAll({ where: { messagePhotoUrl: `${process.env.NODE_ENV}/${sanitizedKey}` } });
-  console.log(messageMatches, "MSG MATCHES")
+  const messageMatches = await Message.findAll({
+    where: { messagePhotoUrl: `${process.env.NODE_ENV}/${sanitizedKey}` },
+  });
+  console.log(messageMatches, 'MSG MATCHES');
   for (const match of messageMatches) {
     await match.destroy();
     deletedModels.push('Message');
   }
 
-  console.log(deletedModels, "MODELS")
+  console.log(deletedModels, 'MODELS');
 
   // Delete original + thumbnail from S3
   const lastSlashIndex = key.lastIndexOf('/');
@@ -71,4 +77,4 @@ const deletePhotoAndAssociations = async (url) => {
   return deletedModels;
 };
 
-module.exports = deletePhotoAndAssociations
+module.exports = deletePhotoAndAssociations;

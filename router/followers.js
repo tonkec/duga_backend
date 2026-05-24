@@ -1,5 +1,7 @@
 const UserFollower = require('../models').UserFollower;
-const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
+const {
+  authenticatedAppSession,
+} = require('../middleware/authenticatedAppSession');
 const router = require('express').Router();
 
 router.get('/:id', authenticatedAppSession, async (req, res) => {

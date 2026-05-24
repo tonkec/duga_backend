@@ -95,7 +95,11 @@ describe('message routes', () => {
 
     ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
     ChatUser.findAll.mockResolvedValue([{ userId: 1 }, { userId: 2 }]);
-    Notification.create.mockResolvedValue({ id: 900, userId: 2, type: 'message' });
+    Notification.create.mockResolvedValue({
+      id: 900,
+      userId: 2,
+      type: 'message',
+    });
     Message.create.mockResolvedValue(savedMessage);
 
     const response = await authenticated(request(app).post('/messages')).send({
@@ -119,7 +123,9 @@ describe('message routes', () => {
     });
 
     expect(response.status).toBe(403);
-    expect(response.body).toEqual({ error: 'You do not have access to this chat' });
+    expect(response.body).toEqual({
+      error: 'You do not have access to this chat',
+    });
     expect(Message.create).not.toHaveBeenCalled();
   });
 
@@ -179,7 +185,9 @@ describe('message routes', () => {
       ],
     });
 
-    const response = await authenticated(request(app).get('/chats/messages?id=101'));
+    const response = await authenticated(
+      request(app).get('/chats/messages?id=101')
+    );
 
     expect(response.status).toBe(200);
     expect(response.body.messages).toEqual([
@@ -198,7 +206,9 @@ describe('message routes', () => {
     ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
     Message.findAndCountAll.mockResolvedValue({ count: 25, rows: [] });
 
-    const response = await authenticated(request(app).get('/chats/messages?id=101&page=2'));
+    const response = await authenticated(
+      request(app).get('/chats/messages?id=101&page=2')
+    );
 
     expect(response.status).toBe(200);
     expect(Message.findAndCountAll).toHaveBeenCalledWith(
@@ -223,7 +233,9 @@ describe('message routes', () => {
     Message.findOne.mockResolvedValue(message);
     ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
 
-    const response = await authenticated(request(app).post('/messages/read-message')).send({
+    const response = await authenticated(
+      request(app).post('/messages/read-message')
+    ).send({
       id: 501,
     });
 
@@ -270,6 +282,9 @@ describe('message routes', () => {
 
     expect(response.status).toBe(201);
     expect(app.get('io').to).toHaveBeenCalledWith('chat:101');
-    expect(app.get('io').to().emit).toHaveBeenCalledWith('received', savedMessage);
+    expect(app.get('io').to().emit).toHaveBeenCalledWith(
+      'received',
+      savedMessage
+    );
   });
 });

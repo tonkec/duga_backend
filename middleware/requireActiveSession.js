@@ -1,5 +1,9 @@
 const { User } = require('../models');
-const { getSessionId, hashSessionId, SESSION_REVOKED_CODE } = require('../utils/appSession');
+const {
+  getSessionId,
+  hashSessionId,
+  SESSION_REVOKED_CODE,
+} = require('../utils/appSession');
 
 const sendRevoked = (res, message = 'Session revoked') =>
   res.status(401).json({ code: SESSION_REVOKED_CODE, message });
@@ -16,12 +20,16 @@ const requireActiveSession = async (req, res, next) => {
       return sendRevoked(res, 'Missing app session');
     }
 
-    const user = req.currentUser || (await User.findOne({ where: { auth0Id } }));
+    const user =
+      req.currentUser || (await User.findOne({ where: { auth0Id } }));
     if (!user) {
       return res.status(401).json({ error: 'Unauthorized: user not found' });
     }
 
-    if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
+    if (
+      !user.activeSessionIdHash ||
+      user.activeSessionIdHash !== hashSessionId(sessionId)
+    ) {
       return sendRevoked(res);
     }
 

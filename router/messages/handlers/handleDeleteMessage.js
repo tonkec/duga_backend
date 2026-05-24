@@ -25,7 +25,10 @@ const handleDeleteMessage = async (req, res) => {
 
     const io = req.app.get('io');
     if (io?.to) {
-      io.to(`chat:${message.chatId}`).emit('messageDeleted', { id: messageId, chatId: message.chatId });
+      io.to(`chat:${message.chatId}`).emit('messageDeleted', {
+        id: messageId,
+        chatId: message.chatId,
+      });
     } else if (io?.emit) {
       io.emit('messageDeleted', { id: messageId, chatId: message.chatId });
     }
@@ -33,7 +36,9 @@ const handleDeleteMessage = async (req, res) => {
     return res.status(200).json({ id: messageId });
   } catch (error) {
     console.error('❌ Error deleting message:', error);
-    return res.status(500).json({ error: 'Error occurred while deleting message' });
+    return res
+      .status(500)
+      .json({ error: 'Error occurred while deleting message' });
   }
 };
 

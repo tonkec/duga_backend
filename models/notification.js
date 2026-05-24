@@ -1,7 +1,5 @@
 'use strict';
-const {
-  Model
-} = require('sequelize');
+const { Model } = require('sequelize');
 module.exports = (sequelize, DataTypes) => {
   class Notification extends Model {
     /**
@@ -13,42 +11,44 @@ module.exports = (sequelize, DataTypes) => {
       // define association here
       this.belongsTo(models.User, { foreignKey: 'userId' });
       this.belongsTo(models.Chat, { foreignKey: 'chatId' });
-
     }
   }
-  Notification.init({
-    userId: {
-      type: DataTypes.INTEGER,
-      allowNull: false
-    },
-    type: DataTypes.STRING,
-    content: {
+  Notification.init(
+    {
+      userId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+      },
       type: DataTypes.STRING,
-      allowNull: false
+      content: {
+        type: DataTypes.STRING,
+        allowNull: false,
+      },
+      isRead: {
+        type: DataTypes.BOOLEAN,
+        defaultValue: false,
+      },
+      actionId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+      },
+      actionType: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      chatId: {
+        type: DataTypes.INTEGER,
+        allowNull: true,
+        references: {
+          model: 'Chats',
+          key: 'id',
+        },
+      },
     },
-    isRead: {
-      type: DataTypes.BOOLEAN,
-      defaultValue: false
-    },
-    actionId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-    },
-    actionType: {
-      type: DataTypes.STRING,
-      allowNull: true, 
-    },
-     chatId: {
-      type: DataTypes.INTEGER,
-      allowNull: true,
-      references: {
-        model: 'Chats',
-        key: 'id'
-      }
+    {
+      sequelize,
+      modelName: 'Notification',
     }
-  }, {
-    sequelize,
-    modelName: 'Notification',
-  });
+  );
   return Notification;
 };

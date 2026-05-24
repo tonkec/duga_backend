@@ -8,7 +8,7 @@ router.use('/uploads', require('./uploads'));
 router.use('/likes', require('./photolikes'));
 router.use('/comments', require('./photocomments'));
 router.use('/followers', require('./followers'));
-router.use("/health", require("./health.js"));
+router.use('/health', require('./health.js'));
 router.use('/messages', require('./messages.js'));
 router.use('/notifications', require('./notifications.js'));
 

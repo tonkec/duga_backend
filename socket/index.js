@@ -2,15 +2,15 @@ const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
-const PhotoComment = require("../models").PhotoComment;
+const PhotoComment = require('../models').PhotoComment;
 const ChatUser = require('../models').ChatUser;
 const users = new Map();
 const userSockets = new Map();
 const Notification = require('../models').Notification;
-const PhotoLikes = require("../models").PhotoLikes;
+const PhotoLikes = require('../models').PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
 const getSocketUser = require('../utils/socketAccess').getSocketUser;
-const normalizeS3Key = require("../utils/normalizeS3Key");
+const normalizeS3Key = require('../utils/normalizeS3Key');
 const Upload = require('../models').Upload;
 
 const jwt = require('jsonwebtoken');
@@ -22,7 +22,10 @@ const { hashSessionId } = require('../utils/appSession');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
-const API_JWT_SECRET = process.env.API_JWT_SECRET || process.env.JWT_SECRET || 'duga-api-test-secret';
+const API_JWT_SECRET =
+  process.env.API_JWT_SECRET ||
+  process.env.JWT_SECRET ||
+  'duga-api-test-secret';
 
 const allowSocketOrigin = (origin, callback) => {
   callback(null, origin || true);
@@ -66,7 +69,9 @@ const verifySocketToken = (token) =>
     }
 
     try {
-      const decoded = jwt.verify(token, API_JWT_SECRET, { algorithms: ['HS256'] });
+      const decoded = jwt.verify(token, API_JWT_SECRET, {
+        algorithms: ['HS256'],
+      });
       if (decoded.tokenUse !== 'api') {
         reject(new Error('Invalid token use'));
         return;
@@ -95,8 +100,7 @@ const parseCommentSocketPayload = (data) => {
   return {
     payload,
     commentId: parseInt(payload?.id ?? payload?.commentId, 10),
-    uploadId:
-      payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
+    uploadId: payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
   };
 };
 
@@ -187,7 +191,10 @@ const SocketServer = (server, app) => {
         return next(new Error('Unauthorized'));
       }
 
-      if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
+      if (
+        !user.activeSessionIdHash ||
+        user.activeSessionIdHash !== hashSessionId(sessionId)
+      ) {
         return next(new Error('Session revoked'));
       }
 
@@ -196,8 +203,8 @@ const SocketServer = (server, app) => {
       socket.appSessionId = sessionId;
       next();
     } catch (err) {
-        console.error('❌ JWT verification failed:', err.message);
-        return next(new Error('Unauthorized'));
+      console.error('❌ JWT verification failed:', err.message);
+      return next(new Error('Unauthorized'));
     }
   });
 
@@ -209,8 +216,8 @@ const SocketServer = (server, app) => {
       });
     }
 
-    socket.on('join', async () => { 
-      const user = socket.appUser || await getSocketUser(socket);
+    socket.on('join', async () => {
+      const user = socket.appUser || (await getSocketUser(socket));
       if (!user) {
         console.error('❌ Unauthorized join: user not found');
         return;
@@ -237,19 +244,19 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on("send-comment", async (data) => {
+    socket.on('send-comment', async (data) => {
       try {
         const { commentId: parsedCommentId, uploadId: parsedUploadId } =
           parseCommentSocketPayload(data);
 
         if (isNaN(parsedUploadId) || isNaN(parsedCommentId)) {
-          console.error("❌ Invalid send-comment payload");
+          console.error('❌ Invalid send-comment payload');
           return;
         }
 
         const user = await getSocketUser(socket);
         if (!user) {
-          console.error("❌ Unauthorized send-comment: user not found");
+          console.error('❌ Unauthorized send-comment: user not found');
           return;
         }
 
@@ -259,7 +266,7 @@ const SocketServer = (server, app) => {
           resourceId: parsedCommentId,
         });
         if (!hasAccess) {
-          console.error("❌ Forbidden send-comment");
+          console.error('❌ Forbidden send-comment');
           return;
         }
 
@@ -271,12 +278,12 @@ const SocketServer = (server, app) => {
         });
 
         if (!comment) {
-          console.error("❌ Comment not found:", parsedCommentId);
+          console.error('❌ Comment not found:', parsedCommentId);
           return;
         }
 
         if (parseInt(comment.uploadId, 10) !== parsedUploadId) {
-          console.error("❌ Comment uploadId mismatch on send-comment");
+          console.error('❌ Comment uploadId mismatch on send-comment');
           return;
         }
 
@@ -297,7 +304,10 @@ const SocketServer = (server, app) => {
 
         const photoOwnerId = results?.userId;
 
-        if (photoOwnerId && parseInt(photoOwnerId, 10) !== parseInt(user.id, 10)) {
+        if (
+          photoOwnerId &&
+          parseInt(photoOwnerId, 10) !== parseInt(user.id, 10)
+        ) {
           const notification = await Notification.create({
             userId: photoOwnerId,
             type: 'comment',
@@ -321,20 +331,19 @@ const SocketServer = (server, app) => {
           }
         }
       } catch (error) {
-        console.error("🔥 Error in send-comment:", error);
+        console.error('🔥 Error in send-comment:', error);
       }
     });
 
-
-    socket.on("markAsRead", async (data) => {
+    socket.on('markAsRead', async (data) => {
       const { userId, chatId } = data;
       try {
         if (!userId || !chatId) {
-          console.error("❌ Missing userId or chatId in markAsRead");
+          console.error('❌ Missing userId or chatId in markAsRead');
           return;
         }
 
-       const [lastNotification] = await sequelize.query(
+        const [lastNotification] = await sequelize.query(
           `SELECT * FROM "Notifications" WHERE "chatId" = :chatId
           ORDER BY "createdAt" DESC
           LIMIT 1`,
@@ -345,43 +354,42 @@ const SocketServer = (server, app) => {
         );
 
         if (lastNotification.length === 0) {
-          console.error("❌ No unread notifications found for chatId:", chatId);
+          console.error('❌ No unread notifications found for chatId:', chatId);
           return;
         }
 
-        const notificationId = lastNotification.id 
-      
+        const notificationId = lastNotification.id;
+
         if (!notificationId) {
-          console.error("❌ No notificationId found for chatId:", chatId);
+          console.error('❌ No notificationId found for chatId:', chatId);
           return;
         }
 
-        console.log("🔍 Notification ID to mark as read:", notificationId);
-        
+        console.log('🔍 Notification ID to mark as read:', notificationId);
+
         const notification = await Notification.findByPk(notificationId);
         if (!notification) {
-          console.error("❌ Notification not found:", notificationId);
+          console.error('❌ Notification not found:', notificationId);
           return;
         }
-    
+
         notification.isRead = true;
         await notification.save();
-    
+
         if (users.has(userId)) {
           users.get(userId).sockets.forEach((sockId) => {
             io.to(sockId).emit('markAsRead', notification);
           });
         }
-        
+
         return notification;
       } catch (error) {
-        console.error("🔥 Error in markAsRead:", error);
+        console.error('🔥 Error in markAsRead:', error);
       }
-    }
-    );
+    });
 
     socket.on('set-status', async ({ status }) => {
-      const user = socket.appUser || await getSocketUser(socket);
+      const user = socket.appUser || (await getSocketUser(socket));
       if (!user) {
         console.error('❌ Unauthorized set-status: user not found');
         return;
@@ -390,9 +398,9 @@ const SocketServer = (server, app) => {
       if (users.has(userId)) {
         users.get(userId).status = status;
       }
-    
+
       await User.update({ status }, { where: { id: userId } });
-    
+
       const chatters = await getChatters(userId);
       chatters.forEach((id) => {
         if (users.has(id)) {
@@ -401,7 +409,7 @@ const SocketServer = (server, app) => {
           });
         }
       });
-    
+
       if (users.has(userId)) {
         users.get(userId).sockets.forEach((sockId) => {
           io.to(sockId).emit('status-update', { userId, status });
@@ -409,18 +417,18 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on("delete-comment", async (data) => {
+    socket.on('delete-comment', async (data) => {
       try {
         const { commentId, uploadId } = parseCommentSocketPayload(data);
 
         if (isNaN(commentId)) {
-          console.error("❌ Invalid delete-comment payload");
+          console.error('❌ Invalid delete-comment payload');
           return;
         }
 
         const user = await getSocketUser(socket);
         if (!user) {
-          console.error("❌ Unauthorized delete-comment: user not found");
+          console.error('❌ Unauthorized delete-comment: user not found');
           return;
         }
 
@@ -430,13 +438,13 @@ const SocketServer = (server, app) => {
           resourceId: commentId,
         });
         if (!hasAccess) {
-          console.error("❌ Forbidden delete-comment");
+          console.error('❌ Forbidden delete-comment');
           return;
         }
 
         const comment = await PhotoComment.findByPk(commentId);
         if (!comment) {
-          console.error("❌ Comment not found:", commentId);
+          console.error('❌ Comment not found:', commentId);
           return;
         }
 
@@ -445,18 +453,18 @@ const SocketServer = (server, app) => {
           !isNaN(uploadId) &&
           parseInt(comment.uploadId, 10) !== uploadId
         ) {
-          console.error("❌ Comment uploadId mismatch on delete-comment");
+          console.error('❌ Comment uploadId mismatch on delete-comment');
           return;
         }
 
-        io.emit("remove-comment", {
+        io.emit('remove-comment', {
           data: {
             id: comment.id,
             uploadId: comment.uploadId,
           },
         });
       } catch (error) {
-        console.error("🔥 Error in delete-comment:", error);
+        console.error('🔥 Error in delete-comment:', error);
       }
     });
 
@@ -465,13 +473,13 @@ const SocketServer = (server, app) => {
         const { commentId, uploadId } = parseCommentSocketPayload(data);
 
         if (isNaN(commentId)) {
-          console.error("❌ Invalid edit-comment payload");
+          console.error('❌ Invalid edit-comment payload');
           return;
         }
 
         const user = await getSocketUser(socket);
         if (!user) {
-          console.error("❌ Unauthorized edit-comment: user not found");
+          console.error('❌ Unauthorized edit-comment: user not found');
           return;
         }
 
@@ -481,7 +489,7 @@ const SocketServer = (server, app) => {
           resourceId: commentId,
         });
         if (!hasAccess) {
-          console.error("❌ Forbidden edit-comment");
+          console.error('❌ Forbidden edit-comment');
           return;
         }
 
@@ -493,7 +501,7 @@ const SocketServer = (server, app) => {
         });
 
         if (!comment) {
-          console.error("❌ Comment not found:", commentId);
+          console.error('❌ Comment not found:', commentId);
           return;
         }
 
@@ -502,26 +510,26 @@ const SocketServer = (server, app) => {
           !isNaN(uploadId) &&
           parseInt(comment.uploadId, 10) !== uploadId
         ) {
-          console.error("❌ Comment uploadId mismatch on edit-comment");
+          console.error('❌ Comment uploadId mismatch on edit-comment');
           return;
         }
 
-        io.emit("update-comment", {
+        io.emit('update-comment', {
           data: formatCommentSocketPayload(
             comment,
             socket.handshake.auth?.token
           ),
         });
       } catch (error) {
-        console.error("🔥 Error in edit-comment:", error);
+        console.error('🔥 Error in edit-comment:', error);
       }
     });
 
-    socket.on("upvote-upload", async (data) => {
+    socket.on('upvote-upload', async (data) => {
       try {
         const like = data[0];
         const { photoId } = like;
-        const user = socket.appUser || await getSocketUser(socket);
+        const user = socket.appUser || (await getSocketUser(socket));
         if (!user) {
           console.error('User not found');
           return;
@@ -539,20 +547,24 @@ const SocketServer = (server, app) => {
           console.error('PhotoLike not found in upvote');
           return;
         }
-        const hasAccess = await socketCanAccess({ socket, model: PhotoLikes, resourceId: photoLike.id });
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoLikes,
+          resourceId: photoLike.id,
+        });
 
         if (!hasAccess) {
           throw new Error('Forbidden: You cannot like this upload.');
         }
-    
+
         const parsedPhotoId = parseInt(photoId);
         if (isNaN(parsedPhotoId)) {
-          console.error("Invalid photoId:", photoId);
+          console.error('Invalid photoId:', photoId);
           return;
         }
-    
-       const results = await sequelize.query(
-        `
+
+        const results = await sequelize.query(
+          `
           SELECT 
             "PhotoLikes".*,
             json_build_object('username', "Users"."username") AS user
@@ -560,20 +572,20 @@ const SocketServer = (server, app) => {
           JOIN "Users" ON "PhotoLikes"."userId" = "Users"."id"
           WHERE "PhotoLikes"."photoId" = :parsedPhotoId AND "PhotoLikes"."userId" = :userId
         `,
-        {
-          replacements: {
-            parsedPhotoId,
-            userId: parseInt(user.id),
-          },
-          type: sequelize.QueryTypes.SELECT,
-        }
-      );
-         io.emit("upvote-upload", {
+          {
+            replacements: {
+              parsedPhotoId,
+              userId: parseInt(user.id),
+            },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+        io.emit('upvote-upload', {
           uploadId: photoId,
           likes: results,
-         });
+        });
         const photoOwnerId = results?.userId;
-    
+
         if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
           const notification = await Notification.create({
             userId: photoOwnerId,
@@ -582,7 +594,7 @@ const SocketServer = (server, app) => {
             actionId: parsedPhotoId,
             actionType: 'upload',
           });
-    
+
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
               io.to(sockId).emit('new_notification', {
@@ -598,14 +610,14 @@ const SocketServer = (server, app) => {
           }
         }
       } catch (error) {
-        console.error("🔥 Error in upvote-upload notification:", error);
+        console.error('🔥 Error in upvote-upload notification:', error);
       }
     });
-    
-    socket.on("downvote-upload", async (likeData) => {
+
+    socket.on('downvote-upload', async (likeData) => {
       try {
         const { uploadId } = likeData;
-        const user = socket.appUser || await getSocketUser(socket);
+        const user = socket.appUser || (await getSocketUser(socket));
         if (!user) {
           console.error('User not found');
           return;
@@ -623,13 +635,17 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        const hasAccess = await socketCanAccess({ socket, model: PhotoLikes, resourceId: photoLike.id });
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoLikes,
+          resourceId: photoLike.id,
+        });
         if (!hasAccess) {
           throw new Error('Forbidden: You cannot dislike this photo.');
         }
-    
+
         if (!uploadId) {
-          console.error("❌ Missing uploadId in downvote-upload");
+          console.error('❌ Missing uploadId in downvote-upload');
           return;
         }
 
@@ -651,145 +667,150 @@ const SocketServer = (server, app) => {
           }
         );
 
-        io.emit("downvote-upload", {
+        io.emit('downvote-upload', {
           uploadId,
           likes: results,
         });
       } catch (err) {
-        console.error("🔥 Error in downvote-upload:", err);
+        console.error('🔥 Error in downvote-upload:', err);
       }
     });
 
-    socket.on("deleteChat", ({ chatId}) => {
-      io.emit("chatDeleted", { chatId });
+    socket.on('deleteChat', ({ chatId }) => {
+      io.emit('chatDeleted', { chatId });
     });
-    
-  
-     socket.on('message', async (message) => {
-        try {
-          const sender = socket.appUser || await getSocketUser(socket);
-          const chatId = Number(message?.chatId);
 
-          if (!sender || !chatId) {
-            socket.emit('message_error', { message: 'Invalid message payload' });
-            return;
-          }
+    socket.on('message', async (message) => {
+      try {
+        const sender = socket.appUser || (await getSocketUser(socket));
+        const chatId = Number(message?.chatId);
 
-          const chatMembers = await ChatUser.findAll({
-            where: { chatId },
-            attributes: ['userId'],
-          });
-          const memberIds = chatMembers.map(({ userId }) => userId);
-
-          if (!memberIds.includes(sender.id)) {
-            socket.emit('message_error', { message: 'You do not have access to this chat' });
-            return;
-          }
-
-          socket.join(`user:${sender.id}`);
-          socket.join(`chat:${chatId}`);
-          const sockets = new Set(users.get(sender.id)?.sockets || setUsers(sender, socket));
-          memberIds.forEach((id) => {
-            if (users.has(id)) {
-              users.get(id).sockets.forEach((sockId) => sockets.add(sockId));
-            }
-          });
-
-          // --- 1) Validate referenced image (if any) ---
-          let finalMessagePhotoUrl = null;
-
-          if (message.type === 'gif') {
-            finalMessagePhotoUrl = message.messagePhotoUrl;
-          } else if (message.messagePhotoUrl) {
-            const envPrefix = `${process.env.NODE_ENV}/`;
-            const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
-              ? message.messagePhotoUrl
-              : `${envPrefix}${message.messagePhotoUrl}`;
-
-            const upload = await Upload.findOne({
-              where: {
-                url: removeSpacesAndDashes(candidateKey.toLowerCase()),
-                userId: sender.id,
-              },
-            });
-
-            if (!upload) {
-              socket.emit('message_rejected', {
-                reason: 'Image rejected by moderation. Message not sent.',
-                key: candidateKey,
-              });
-              return;
-            }
-
-            finalMessagePhotoUrl = upload.url;
-          }
-          // --- 2) Create the message (text-only or with allowed image) ---
-          const msgPayload = {
-            type: message.type || 'text',
-            fromUserId: sender.id,
-            chatId,
-            message: message.message || null,
-            messagePhotoUrl: finalMessagePhotoUrl, 
-          };
-
-
-          const savedMessage = await Message.create(msgPayload);
-
-          // --- 3) Prepare outgoing socket message for clients ---
-          const outbound = {
-            id: savedMessage.id,
-            chatId: savedMessage.chatId,
-            fromUserId: sender.id,
-            User: sender.toJSON ? sender.toJSON() : sender,
-            type: savedMessage.type,
-            message: savedMessage.message,
-            createdAt: savedMessage.createdAt,
-            messagePhotoUrl: finalMessagePhotoUrl,
-            securePhotoUrl: finalMessagePhotoUrl
-              ? attachSecureUrl(API_BASE_URL, finalMessagePhotoUrl, socket.handshake.auth?.token)
-              : null,
-            toUserId: memberIds.filter((id) => id !== sender.id),
-          };
-
-          // --- 4) Notify recipients (unchanged) ---
-          for (const recipientId of memberIds.filter((id) => id !== sender.id)) {
-            if (!recipientId) continue;
-
-            const notification = await Notification.create({
-              userId: recipientId,
-              type: 'message',
-              content: `Nova poruka od ${sender.username || 'someone'}`,
-              actionId: savedMessage.chatId,
-              actionType: 'message',
-              chatId: savedMessage.chatId,
-            });
-
-            if (users.has(recipientId)) {
-              users.get(recipientId).sockets.forEach((sockId) => {
-                io.to(sockId).emit('new_notification', {
-                  id: notification.id,
-                  type: notification.type,
-                  content: notification.content,
-                  actionId: notification.actionId,
-                  actionType: notification.actionType,
-                  isRead: notification.isRead,
-                  createdAt: notification.createdAt,
-                  chatId: notification.chatId,
-                });
-              });
-            }
-          }
-
-          // --- 5) Broadcast message to all sockets in this convo ---
-          sockets.forEach((sockId) => {
-            io.to(sockId).emit('received', outbound);
-          });
-        } catch (e) {
-          console.error('❌ Error in socket message handler:', e);
-          socket.emit('message_error', { message: 'Failed to send message' });
+        if (!sender || !chatId) {
+          socket.emit('message_error', { message: 'Invalid message payload' });
+          return;
         }
-      });
 
+        const chatMembers = await ChatUser.findAll({
+          where: { chatId },
+          attributes: ['userId'],
+        });
+        const memberIds = chatMembers.map(({ userId }) => userId);
+
+        if (!memberIds.includes(sender.id)) {
+          socket.emit('message_error', {
+            message: 'You do not have access to this chat',
+          });
+          return;
+        }
+
+        socket.join(`user:${sender.id}`);
+        socket.join(`chat:${chatId}`);
+        const sockets = new Set(
+          users.get(sender.id)?.sockets || setUsers(sender, socket)
+        );
+        memberIds.forEach((id) => {
+          if (users.has(id)) {
+            users.get(id).sockets.forEach((sockId) => sockets.add(sockId));
+          }
+        });
+
+        // --- 1) Validate referenced image (if any) ---
+        let finalMessagePhotoUrl = null;
+
+        if (message.type === 'gif') {
+          finalMessagePhotoUrl = message.messagePhotoUrl;
+        } else if (message.messagePhotoUrl) {
+          const envPrefix = `${process.env.NODE_ENV}/`;
+          const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
+            ? message.messagePhotoUrl
+            : `${envPrefix}${message.messagePhotoUrl}`;
+
+          const upload = await Upload.findOne({
+            where: {
+              url: removeSpacesAndDashes(candidateKey.toLowerCase()),
+              userId: sender.id,
+            },
+          });
+
+          if (!upload) {
+            socket.emit('message_rejected', {
+              reason: 'Image rejected by moderation. Message not sent.',
+              key: candidateKey,
+            });
+            return;
+          }
+
+          finalMessagePhotoUrl = upload.url;
+        }
+        // --- 2) Create the message (text-only or with allowed image) ---
+        const msgPayload = {
+          type: message.type || 'text',
+          fromUserId: sender.id,
+          chatId,
+          message: message.message || null,
+          messagePhotoUrl: finalMessagePhotoUrl,
+        };
+
+        const savedMessage = await Message.create(msgPayload);
+
+        // --- 3) Prepare outgoing socket message for clients ---
+        const outbound = {
+          id: savedMessage.id,
+          chatId: savedMessage.chatId,
+          fromUserId: sender.id,
+          User: sender.toJSON ? sender.toJSON() : sender,
+          type: savedMessage.type,
+          message: savedMessage.message,
+          createdAt: savedMessage.createdAt,
+          messagePhotoUrl: finalMessagePhotoUrl,
+          securePhotoUrl: finalMessagePhotoUrl
+            ? attachSecureUrl(
+                API_BASE_URL,
+                finalMessagePhotoUrl,
+                socket.handshake.auth?.token
+              )
+            : null,
+          toUserId: memberIds.filter((id) => id !== sender.id),
+        };
+
+        // --- 4) Notify recipients (unchanged) ---
+        for (const recipientId of memberIds.filter((id) => id !== sender.id)) {
+          if (!recipientId) continue;
+
+          const notification = await Notification.create({
+            userId: recipientId,
+            type: 'message',
+            content: `Nova poruka od ${sender.username || 'someone'}`,
+            actionId: savedMessage.chatId,
+            actionType: 'message',
+            chatId: savedMessage.chatId,
+          });
+
+          if (users.has(recipientId)) {
+            users.get(recipientId).sockets.forEach((sockId) => {
+              io.to(sockId).emit('new_notification', {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+                chatId: notification.chatId,
+              });
+            });
+          }
+        }
+
+        // --- 5) Broadcast message to all sockets in this convo ---
+        sockets.forEach((sockId) => {
+          io.to(sockId).emit('received', outbound);
+        });
+      } catch (e) {
+        console.error('❌ Error in socket message handler:', e);
+        socket.emit('message_error', { message: 'Failed to send message' });
+      }
+    });
 
     socket.on('typing', (data) => {
       data.toUserId.forEach((id) => {
@@ -798,7 +819,6 @@ const SocketServer = (server, app) => {
             io.to(socket).emit('typing', data);
           });
         }
-
       });
     });
 
@@ -810,7 +830,7 @@ const SocketServer = (server, app) => {
           });
         }
       });
-    } );
+    });
 
     socket.on('add-friend', (chats) => {
       try {
@@ -913,7 +933,10 @@ const SocketServer = (server, app) => {
             users.set(user.id, user);
           } else {
             const chatters = await getChatters(user.id);
-            await User.update({ status: 'offline' }, { where: { id: user.id } });
+            await User.update(
+              { status: 'offline' },
+              { where: { id: user.id } }
+            );
 
             for (let i = 0; i < chatters.length; i++) {
               if (users.has(chatters[i])) {
@@ -965,7 +988,9 @@ const setUsers = (user, socket) => {
   let sockets = [];
   if (users.has(user.id)) {
     const existingUser = users.get(user.id);
-    existingUser.sockets = Array.from(new Set([...existingUser.sockets, socket.id]));
+    existingUser.sockets = Array.from(
+      new Set([...existingUser.sockets, socket.id])
+    );
     existingUser.status = existingUser.status || 'online';
     users.set(user.id, existingUser);
     sockets = existingUser.sockets;
@@ -973,7 +998,7 @@ const setUsers = (user, socket) => {
     users.set(user.id, {
       id: user.id,
       sockets: [socket.id],
-      status: 'online'
+      status: 'online',
     });
 
     sockets = [socket.id];
@@ -983,7 +1008,5 @@ const setUsers = (user, socket) => {
 
   return sockets;
 };
-
-
 
 module.exports = SocketServer;

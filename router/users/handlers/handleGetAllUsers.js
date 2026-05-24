@@ -2,9 +2,14 @@ const User = require('../../../models').User;
 
 const handleGetAllUsers = async (req, res) => {
   try {
-   const users = await User.findAll({
+    const users = await User.findAll({
       attributes: {
-        exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'], 
+        exclude: [
+          'password',
+          'auth0Id',
+          'activeSessionIdHash',
+          'activeSessionStartedAt',
+        ],
       },
     });
     return res.json(users);

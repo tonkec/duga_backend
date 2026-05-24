@@ -2,22 +2,24 @@ const multer = require('multer');
 const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const s3 = require('../../../utils/s3');
-const allowedMimeTypes = require("./../../../consts/allowedFileTypes");
-const removeSpacesAndDashes = require("../../../utils/removeSpacesAndDashes");
-const LIMIT_FILE_SIZE = require("../../../consts/limitFileSize");
+const allowedMimeTypes = require('./../../../consts/allowedFileTypes');
+const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
+const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
 
 const uploadCommentImage = multer({
   storage: multerS3({
     s3,
-    bucket: "duga-user-photo",
+    bucket: 'duga-user-photo',
     contentType: multerS3.AUTO_CONTENT_TYPE,
     shouldTransform: true,
     transforms: [
       {
-        id: "commentImageResized",
+        id: 'commentImageResized',
         key: function (req, file, cb) {
           const timestamp = Date.now();
-          const cleanedFilename = removeSpacesAndDashes(file.originalname.toLowerCase().trim());
+          const cleanedFilename = removeSpacesAndDashes(
+            file.originalname.toLowerCase().trim()
+          );
           const path = `${process.env.NODE_ENV}/comment/${timestamp}/${cleanedFilename}`;
           cb(null, path);
         },
@@ -27,12 +29,14 @@ const uploadCommentImage = multer({
       },
     ],
   }),
-  limits: { fileSize: LIMIT_FILE_SIZE},
+  limits: { fileSize: LIMIT_FILE_SIZE },
   fileFilter: (req, file, cb) => {
     if (allowedMimeTypes.includes(file.mimetype)) {
       cb(null, true);
     } else {
-      const error = new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.');
+      const error = new Error(
+        'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+      );
       error.code = 'INVALID_FILE_TYPE';
       cb(error);
     }

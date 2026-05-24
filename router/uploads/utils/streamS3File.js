@@ -4,7 +4,6 @@ const PhotoComment = require('./../../../models').PhotoComment;
 const Message = require('./../../../models').Message;
 const removeSpacesAndDashes = require('./../../../utils/removeSpacesAndDashes');
 
-
 const streamS3File = async (key, res) => {
   console.log('🔍 Requested key:', key);
 
@@ -12,7 +11,9 @@ const streamS3File = async (key, res) => {
 
   if (!file) {
     console.log('🔍 Not found in Upload. Checking PhotoComment.imageUrl...');
-    const commentWithImage = await PhotoComment.findOne({ where: { imageUrl: key } });
+    const commentWithImage = await PhotoComment.findOne({
+      where: { imageUrl: key },
+    });
 
     if (commentWithImage) {
       console.log('✅ Found in PhotoComment.imageUrl');
@@ -22,7 +23,9 @@ const streamS3File = async (key, res) => {
 
   if (!file) {
     console.log('🔍 Not found in Comment. Checking Message.messagePhotoUrl...');
-    const messageWithImage = await Message.findOne({ where: { messagePhotoUrl: key } });
+    const messageWithImage = await Message.findOne({
+      where: { messagePhotoUrl: key },
+    });
 
     if (messageWithImage) {
       console.log('✅ Found in Message.messagePhotoUrl');
@@ -36,7 +39,9 @@ const streamS3File = async (key, res) => {
     return;
   }
 
-  const normalizedKey = removeSpacesAndDashes(key).startsWith(`${process.env.NODE_ENV}/`)
+  const normalizedKey = removeSpacesAndDashes(key).startsWith(
+    `${process.env.NODE_ENV}/`
+  )
     ? key
     : `${process.env.NODE_ENV}/${removeSpacesAndDashes(key)}`;
 

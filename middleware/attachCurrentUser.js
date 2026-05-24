@@ -9,7 +9,7 @@ const attachCurrentUser = async (req, res, next) => {
 
     const user = await User.findOne({ where: { auth0Id } });
 
-     if (!user) {
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized: user not found' });
     }
 

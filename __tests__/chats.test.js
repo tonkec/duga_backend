@@ -69,7 +69,10 @@ describe('chat routes', () => {
     };
     sequelize.transaction.mockResolvedValue(transaction);
     User.findOne.mockImplementation(({ where }) => {
-      if (where?.auth0Id === currentUser.auth0Id || where?.id === currentUser.id) {
+      if (
+        where?.auth0Id === currentUser.auth0Id ||
+        where?.id === currentUser.id
+      ) {
         return Promise.resolve(currentUser);
       }
       return Promise.resolve(null);
@@ -99,14 +102,18 @@ describe('chat routes', () => {
       .mockResolvedValueOnce(partner)
       .mockResolvedValueOnce(currentUser);
     User.findOne.mockImplementation(({ where }) => {
-      if (where?.auth0Id === currentUser.auth0Id) return Promise.resolve(currentUser);
-      if (where?.id === currentUser.id) return Promise.resolve({ ...currentUser, Chats: [] });
+      if (where?.auth0Id === currentUser.auth0Id)
+        return Promise.resolve(currentUser);
+      if (where?.id === currentUser.id)
+        return Promise.resolve({ ...currentUser, Chats: [] });
       return Promise.resolve(null);
     });
     Chat.create.mockResolvedValue(createdChat);
     ChatUser.bulkCreate.mockResolvedValue([]);
 
-    const response = await authenticated(request(app).post('/chats/create')).send({
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
       partnerId: 2,
     });
 
@@ -147,12 +154,16 @@ describe('chat routes', () => {
 
     User.findByPk.mockResolvedValue(partner);
     User.findOne.mockImplementation(({ where }) => {
-      if (where?.auth0Id === currentUser.auth0Id) return Promise.resolve(currentUser);
-      if (where?.id === currentUser.id) return Promise.resolve({ ...currentUser, Chats: [existingChat] });
+      if (where?.auth0Id === currentUser.auth0Id)
+        return Promise.resolve(currentUser);
+      if (where?.id === currentUser.id)
+        return Promise.resolve({ ...currentUser, Chats: [existingChat] });
       return Promise.resolve(null);
     });
 
-    const response = await authenticated(request(app).post('/chats/create')).send({
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
       partnerId: 2,
     });
 
@@ -172,12 +183,16 @@ describe('chat routes', () => {
 
     User.findByPk.mockResolvedValue(partner);
     User.findOne.mockImplementation(({ where }) => {
-      if (where?.auth0Id === currentUser.auth0Id) return Promise.resolve(currentUser);
-      if (where?.id === currentUser.id) return Promise.resolve({ ...currentUser, Chats: [existingChat] });
+      if (where?.auth0Id === currentUser.auth0Id)
+        return Promise.resolve(currentUser);
+      if (where?.id === currentUser.id)
+        return Promise.resolve({ ...currentUser, Chats: [existingChat] });
       return Promise.resolve(null);
     });
 
-    const response = await authenticated(request(app).post('/chats/create')).send({
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
       partnerId: 2,
     });
 
@@ -209,8 +224,10 @@ describe('chat routes', () => {
     };
 
     User.findOne.mockImplementation(({ where }) => {
-      if (where?.auth0Id === currentUser.auth0Id) return Promise.resolve(currentUser);
-      if (where?.id === currentUser.id) return Promise.resolve({ ...currentUser, Chats: [chat] });
+      if (where?.auth0Id === currentUser.auth0Id)
+        return Promise.resolve(currentUser);
+      if (where?.id === currentUser.id)
+        return Promise.resolve({ ...currentUser, Chats: [chat] });
       return Promise.resolve(null);
     });
 
@@ -238,17 +255,23 @@ describe('chat routes', () => {
   it('only chat members can access chat', async () => {
     ChatUser.findOne.mockResolvedValue(null);
 
-    const response = await authenticated(request(app).get('/chats/messages?id=101'));
+    const response = await authenticated(
+      request(app).get('/chats/messages?id=101')
+    );
 
     expect(response.status).toBe(403);
-    expect(response.body).toEqual({ error: 'You do not have access to this chat' });
+    expect(response.body).toEqual({
+      error: 'You do not have access to this chat',
+    });
     expect(Message.findAndCountAll).not.toHaveBeenCalled();
   });
 
   it('rejects creating chat with invalid user', async () => {
     User.findByPk.mockResolvedValue(null);
 
-    const response = await authenticated(request(app).post('/chats/create')).send({
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
       partnerId: 999,
     });
 

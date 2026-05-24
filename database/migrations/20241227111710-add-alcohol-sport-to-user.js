@@ -5,12 +5,12 @@ module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.addColumn('Users', 'alcohol', {
       type: Sequelize.BOOLEAN,
-      allowNull: true,    
+      allowNull: true,
     });
 
     await queryInterface.addColumn('Users', 'sport', {
       type: Sequelize.BOOLEAN,
-      allowNull: true,  
+      allowNull: true,
     });
   },
 

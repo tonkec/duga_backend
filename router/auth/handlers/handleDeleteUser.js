@@ -1,10 +1,18 @@
 const axios = require('axios');
-const { sequelize, User, PhotoComment, Upload, PhotoLikes, Message, Notification } = require('../../../models');
+const {
+  sequelize,
+  User,
+  PhotoComment,
+  Upload,
+  PhotoLikes,
+  Message,
+  Notification,
+} = require('../../../models');
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
-const s3 = require("../../../utils/s3");
+const s3 = require('../../../utils/s3');
 
 const getManagementApiToken = async () => {
   try {
@@ -12,14 +20,20 @@ const getManagementApiToken = async () => {
       client_id: CLIENT_ID,
       client_secret: CLIENT_SECRET,
       audience: MANAGEMENT_API_AUDIENCE,
-      grant_type: "client_credentials",
+      grant_type: 'client_credentials',
     });
 
-    console.log("✅ Management API Token Retrieved:", response.data.access_token);
+    console.log(
+      '✅ Management API Token Retrieved:',
+      response.data.access_token
+    );
     return response.data.access_token;
   } catch (error) {
-    console.error("❌ Error fetching Management API token:", error.response?.data || error.message);
-    throw new Error("Failed to get Management API token");
+    console.error(
+      '❌ Error fetching Management API token:',
+      error.response?.data || error.message
+    );
+    throw new Error('Failed to get Management API token');
   }
 };
 
@@ -28,9 +42,7 @@ const deleteAllUserImagesFromS3 = async (userId) => {
   const Prefix = `user/${userId}/`;
 
   try {
-    const list = await s3
-      .listObjectsV2({ Bucket, Prefix })
-      .promise();
+    const list = await s3.listObjectsV2({ Bucket, Prefix }).promise();
 
     if (!list.Contents.length) return;
 
@@ -53,7 +65,7 @@ const deleteAllUserImagesFromS3 = async (userId) => {
 const deleteUser = async (req, res) => {
   const userId = req.auth.user.id;
 
-  const auth0UserId = req.auth.user.auth0Id
+  const auth0UserId = req.auth.user.auth0Id;
 
   if (!auth0UserId) {
     return res.status(400).json({ error: 'Missing Auth0 user ID' });
@@ -72,10 +84,10 @@ const deleteUser = async (req, res) => {
     await Message.destroy({ where: { fromUserId: userId }, transaction: t });
     await deleteAllUserImagesFromS3(userId);
 
-    await sequelize.query(
-      `DELETE FROM "ChatUsers" WHERE "userId" = :userId`,
-      { replacements: { userId }, transaction: t }
-    );
+    await sequelize.query(`DELETE FROM "ChatUsers" WHERE "userId" = :userId`, {
+      replacements: { userId },
+      transaction: t,
+    });
 
     await sequelize.query(
       `DELETE FROM "Chats"
@@ -110,6 +122,5 @@ const deleteUser = async (req, res) => {
     res.status(500).json({ error: 'Failed to delete user' });
   }
 };
-
 
 module.exports = deleteUser;

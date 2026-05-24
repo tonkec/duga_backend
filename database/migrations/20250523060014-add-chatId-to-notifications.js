@@ -8,14 +8,14 @@ module.exports = {
       allowNull: true,
       references: {
         model: 'Chats',
-        key: 'id'
+        key: 'id',
       },
       onUpdate: 'CASCADE',
-      onDelete: 'SET NULL'
+      onDelete: 'SET NULL',
     });
   },
 
   async down(queryInterface, Sequelize) {
     await queryInterface.removeColumn('Notifications', 'chatId');
-  }
+  },
 };

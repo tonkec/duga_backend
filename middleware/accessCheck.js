@@ -9,7 +9,8 @@ const withAccessCheck = (model, lookupFn = null) => {
         return res.status(401).json({ message: 'Missing auth0Id in token' });
       }
 
-      const user = req.currentUser || (await User.findOne({ where: { auth0Id } }));
+      const user =
+        req.currentUser || (await User.findOne({ where: { auth0Id } }));
       if (!user) {
         return res.status(401).json({ error: 'User not found' });
       }
@@ -42,6 +43,5 @@ const withAccessCheck = (model, lookupFn = null) => {
     }
   };
 };
-
 
 module.exports = withAccessCheck;

@@ -12,10 +12,10 @@ const handleGetUserByUsername = async (req, res) => {
     const users = await User.findAll({
       where: {
         username: {
-          [Op.iLike]: `${username}%`, 
+          [Op.iLike]: `${username}%`,
         },
       },
-      attributes: ['id', 'username'], 
+      attributes: ['id', 'username'],
       limit: 10,
     });
 

@@ -27,7 +27,7 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         get() {
           const content = this.getDataValue('message');
-          return content
+          return content;
         },
       },
       messagePhotoUrl: {

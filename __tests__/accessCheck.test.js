@@ -33,7 +33,9 @@ describe('withAccessCheck', () => {
     await middleware(req, res, next);
 
     expect(res.status).toHaveBeenCalledWith(401);
-    expect(res.json).toHaveBeenCalledWith({ message: 'Missing auth0Id in token' });
+    expect(res.json).toHaveBeenCalledWith({
+      message: 'Missing auth0Id in token',
+    });
     expect(User.findOne).not.toHaveBeenCalled();
     expect(next).not.toHaveBeenCalled();
   });

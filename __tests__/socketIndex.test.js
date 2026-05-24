@@ -121,7 +121,9 @@ const loadSocketServer = () => {
   );
   jest.doMock('../models', () => models);
   jest.doMock('../utils/secureUploadUrl', () => ({
-    attachSecureUrl: jest.fn((baseUrl, key, token) => `${baseUrl}/${key}?token=${token}`),
+    attachSecureUrl: jest.fn(
+      (baseUrl, key, token) => `${baseUrl}/${key}?token=${token}`
+    ),
   }));
 
   return {
@@ -163,7 +165,9 @@ describe('SocketServer', () => {
     await io.middleware(buildSocket({ sessionId: null }), missingSessionNext);
 
     expect(missingSessionNext).toHaveBeenCalledWith(expect.any(Error));
-    expect(missingSessionNext.mock.calls[0][0].message).toBe('Missing app session');
+    expect(missingSessionNext.mock.calls[0][0].message).toBe(
+      'Missing app session'
+    );
   });
 
   it('authenticates HS256 API tokens with an active app session', async () => {
@@ -183,7 +187,9 @@ describe('SocketServer', () => {
     await io.middleware(socket, next);
 
     expect(next).toHaveBeenCalledWith();
-    expect(models.User.findOne).toHaveBeenCalledWith({ where: { auth0Id: user.auth0Id } });
+    expect(models.User.findOne).toHaveBeenCalledWith({
+      where: { auth0Id: user.auth0Id },
+    });
     expect(socket.user).toMatchObject({ sub: user.auth0Id, tokenUse: 'api' });
     expect(socket.appUser).toBe(user);
     expect(socket.appSessionId).toBe('session-1');

@@ -16,7 +16,7 @@ const getCurrentChat = async (req, res) => {
       message: 'Chat not found!',
     });
   }
-  
+
   return res.json(chatUsers);
 };
 

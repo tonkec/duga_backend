@@ -1,4 +1,3 @@
-
 /**
  * @swagger
  * /messages/read-message:

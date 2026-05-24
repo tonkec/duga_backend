@@ -20,12 +20,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'userId',
         foreignKeyConstraint: true,
       });
-      
+
       this.hasMany(models.PhotoComment, {
         as: 'photoComments',
         foreignKey: 'userId',
         foreignKeyConstraint: true,
-      })
+      });
 
       this.belongsToMany(models.PhotoComment, {
         through: models.CommentMention,
@@ -38,11 +38,19 @@ module.exports = (sequelize, DataTypes) => {
     {
       firstName: {
         type: DataTypes.STRING,
-        allowNull: true,  // Allows NULL values
+        allowNull: true, // Allows NULL values
       },
       lookingFor: {
-        type: DataTypes.ENUM('friendship', 'date', 'marriage', 'relationship', "partnership", "nothing", "idk"),
-          allowNull: true,
+        type: DataTypes.ENUM(
+          'friendship',
+          'date',
+          'marriage',
+          'relationship',
+          'partnership',
+          'nothing',
+          'idk'
+        ),
+        allowNull: true,
       },
       relationshipStatus: {
         type: DataTypes.ENUM(
@@ -58,7 +66,7 @@ module.exports = (sequelize, DataTypes) => {
           'open',
           'engaged'
         ),
-        allowNull: true,  
+        allowNull: true,
       },
       cigarettes: {
         type: DataTypes.BOOLEAN,
@@ -73,48 +81,56 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       favoriteDayOfWeek: {
-        type: DataTypes.ENUM('monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'),
-        allowNull: true,  
+        type: DataTypes.ENUM(
+          'monday',
+          'tuesday',
+          'wednesday',
+          'thursday',
+          'friday',
+          'saturday',
+          'sunday'
+        ),
+        allowNull: true,
       },
       spirituality: {
         type: DataTypes.TEXT,
-        allowNull: true, 
+        allowNull: true,
       },
       embarasement: {
         type: DataTypes.TEXT,
-        allowNull: true, 
+        allowNull: true,
       },
       tooOldFor: {
         type: DataTypes.TEXT,
-        allowNull: true, 
+        allowNull: true,
       },
       makesMyDay: {
         type: DataTypes.TEXT,
-        allowNull: true, 
+        allowNull: true,
       },
       ending: {
         type: DataTypes.TEXT,
-        allowNull: true, 
+        allowNull: true,
       },
       favoriteSong: {
-        type: DataTypes.STRING, 
+        type: DataTypes.STRING,
         allowNull: true,
       },
       favoriteMovie: {
-        type: DataTypes.STRING, 
+        type: DataTypes.STRING,
         allowNull: true,
       },
       interests: {
-        type: DataTypes.STRING, 
+        type: DataTypes.STRING,
         allowNull: true,
       },
       languages: {
-        type: DataTypes.STRING, 
+        type: DataTypes.STRING,
         allowNull: true,
       },
       lastName: {
         type: DataTypes.STRING,
-        allowNull: true,  
+        allowNull: true,
       },
       email: {
         type: DataTypes.STRING,
@@ -137,7 +153,7 @@ module.exports = (sequelize, DataTypes) => {
       username: {
         type: DataTypes.STRING,
         allowNull: true,
-        unique: true,  
+        unique: true,
       },
       status: {
         type: DataTypes.ENUM('online', 'offline'),
@@ -161,33 +177,33 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
         unique: true,
       },
-       accept_privacy: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-      defaultValue: null,
-    },
-    accept_terms: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-      defaultValue: null,
-    },
-    onboarding_done: {
-      type: DataTypes.BOOLEAN,
-      allowNull: true,
-      defaultValue: false,
-    },
-    first_login_at: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
-    activeSessionIdHash: {
-      type: DataTypes.STRING,
-      allowNull: true,
-    },
-    activeSessionStartedAt: {
-      type: DataTypes.DATE,
-      allowNull: true,
-    },
+      accept_privacy: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+        defaultValue: null,
+      },
+      accept_terms: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+        defaultValue: null,
+      },
+      onboarding_done: {
+        type: DataTypes.BOOLEAN,
+        allowNull: true,
+        defaultValue: false,
+      },
+      first_login_at: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
+      activeSessionIdHash: {
+        type: DataTypes.STRING,
+        allowNull: true,
+      },
+      activeSessionStartedAt: {
+        type: DataTypes.DATE,
+        allowNull: true,
+      },
     },
     {
       sequelize,

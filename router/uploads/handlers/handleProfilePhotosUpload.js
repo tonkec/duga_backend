@@ -1,5 +1,5 @@
 const AWS = require('aws-sdk'); // v2
-const s3 = require('../../../utils/s3'); 
+const s3 = require('../../../utils/s3');
 const sharp = require('sharp');
 const Upload = require('../../../models').Upload;
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
@@ -21,7 +21,7 @@ function normalizeKey(k) {
 
 /** Prefer transform with id==='original'; fall back to other transforms if needed. */
 function pickTransformKey(file) {
-  const original = file.transforms?.find?.(t => t.id === 'original')?.key;
+  const original = file.transforms?.find?.((t) => t.id === 'original')?.key;
   if (original) return normalizeKey(original);
   if (file.transforms?.[1]?.key) return normalizeKey(file.transforms[1].key);
   if (file.transforms?.[0]?.key) return normalizeKey(file.transforms[0].key);
@@ -48,12 +48,14 @@ async function toModerationJpeg(buffer) {
 }
 
 async function detectModerationByBytes(buffer) {
-  const out = await rekognition.detectModerationLabels({
-    Image: { Bytes: buffer },
-    MinConfidence: 60,
-  }).promise();
+  const out = await rekognition
+    .detectModerationLabels({
+      Image: { Bytes: buffer },
+      MinConfidence: 60,
+    })
+    .promise();
 
-  return (out.ModerationLabels || []).map(l => ({
+  return (out.ModerationLabels || []).map((l) => ({
     name: l.Name,
     parent: l.ParentName || '',
     confidence: l.Confidence || 0,
@@ -61,17 +63,23 @@ async function detectModerationByBytes(buffer) {
 }
 
 function decide(labels) {
-  const hasExplicit = labels.some(l =>
-    (EXPLICIT_LABELS.has(l.name) || (l.name || '').includes('Sexual')) &&
-    l.confidence >= EXPLICIT_BLOCK_THRESHOLD * 100
+  const hasExplicit = labels.some(
+    (l) =>
+      (EXPLICIT_LABELS.has(l.name) || (l.name || '').includes('Sexual')) &&
+      l.confidence >= EXPLICIT_BLOCK_THRESHOLD * 100
   );
 
-  const hasSuggestive = labels.some(l =>
-    (SUGGESTIVE_LABELS.has(l.name) || l.parent === 'Suggestive') &&
-    l.confidence >= SUGGESTIVE_BLOCK_THRESHOLD * 100
+  const hasSuggestive = labels.some(
+    (l) =>
+      (SUGGESTIVE_LABELS.has(l.name) || l.parent === 'Suggestive') &&
+      l.confidence >= SUGGESTIVE_BLOCK_THRESHOLD * 100
   );
 
-  return hasExplicit ? 'block-explicit' : (hasSuggestive ? 'block-suggestive' : 'allow');
+  return hasExplicit
+    ? 'block-explicit'
+    : hasSuggestive
+      ? 'block-suggestive'
+      : 'allow';
 }
 
 /** Delete all uploaded transforms for this file from S3 (used only when blocked or on error). */
@@ -79,14 +87,18 @@ async function deleteAllTransforms(file) {
   if (!file?.transforms?.length) return;
   await Promise.allSettled(
     file.transforms
-      .filter(t => t?.key)
-      .map(t => s3.deleteObject({ Bucket: BUCKET, Key: normalizeKey(t.key) }).promise())
+      .filter((t) => t?.key)
+      .map((t) =>
+        s3.deleteObject({ Bucket: BUCKET, Key: normalizeKey(t.key) }).promise()
+      )
   );
 }
 
 async function deleteUploadFromS3(upload) {
   if (!upload?.url) return;
-  await s3.deleteObject({ Bucket: BUCKET, Key: normalizeKey(upload.url) }).promise();
+  await s3
+    .deleteObject({ Bucket: BUCKET, Key: normalizeKey(upload.url) })
+    .promise();
 }
 
 const handleProfilePhotoUpload = async (req, res) => {
@@ -98,95 +110,103 @@ const handleProfilePhotoUpload = async (req, res) => {
       const rejectedFiles = [];
       let allowedCount = 0;
 
-      await Promise.all(req.files.map(async (file) => {
-        const key = pickTransformKey(file);
-        if (!key) {
-          rejectedFiles.push({ name: file.originalname, reason: 'No transform key found' });
-          return;
-        }
-
-        try {
-          // 1) Ensure object exists and fetch bytes
-          await headObjectOrThrow(key);
-          const rawBytes = await getObjectBytes(key);
-
-          // 2) Normalize to JPEG for Rekognition (prevents InvalidImageFormatException)
-          const jpegBytes = await toModerationJpeg(rawBytes);
-
-          // 3) Moderate + decide
-          const labels = await detectModerationByBytes(jpegBytes);
-          const decision = decide(labels);
-          console.log('🔎 moderation labels:', labels);
-          console.log('🔎 decision:', decision, 'for', key);
-
-          if (decision !== 'allow') {
-            // Delete from S3 ONLY when blocked
-            await deleteAllTransforms(file);
-
+      await Promise.all(
+        req.files.map(async (file) => {
+          const key = pickTransformKey(file);
+          if (!key) {
             rejectedFiles.push({
               name: file.originalname,
-              reason:
-                decision === 'block-explicit'
-                  ? `Blocked: Explicit content ≥ ${EXPLICIT_BLOCK_THRESHOLD * 100}%`
-                  : `Blocked: Suggestive content ≥ ${SUGGESTIVE_BLOCK_THRESHOLD * 100}%`,
-              labels,
+              reason: 'No transform key found',
             });
-            return; // skip DB insert
+            return;
           }
 
-          // 4) Allowed → create Upload row
-          const match = descriptions.find(
-            (d) => d.imageId === removeSpacesAndDashes(file.originalname)
-          );
-          const isProfilePhoto = Boolean(match?.isProfilePhoto);
+          try {
+            // 1) Ensure object exists and fetch bytes
+            await headObjectOrThrow(key);
+            const rawBytes = await getObjectBytes(key);
 
-          if (isProfilePhoto) {
-            const oldProfilePhoto = await Upload.findOne({
-              where: {
-                userId: req.user.id,
-                isProfilePhoto: true,
-              },
-              order: [['createdAt', 'DESC']],
-            });
+            // 2) Normalize to JPEG for Rekognition (prevents InvalidImageFormatException)
+            const jpegBytes = await toModerationJpeg(rawBytes);
 
-            if (oldProfilePhoto) {
-              await deleteUploadFromS3(oldProfilePhoto);
-              await oldProfilePhoto.destroy();
+            // 3) Moderate + decide
+            const labels = await detectModerationByBytes(jpegBytes);
+            const decision = decide(labels);
+            console.log('🔎 moderation labels:', labels);
+            console.log('🔎 decision:', decision, 'for', key);
+
+            if (decision !== 'allow') {
+              // Delete from S3 ONLY when blocked
+              await deleteAllTransforms(file);
+
+              rejectedFiles.push({
+                name: file.originalname,
+                reason:
+                  decision === 'block-explicit'
+                    ? `Blocked: Explicit content ≥ ${EXPLICIT_BLOCK_THRESHOLD * 100}%`
+                    : `Blocked: Suggestive content ≥ ${SUGGESTIVE_BLOCK_THRESHOLD * 100}%`,
+                labels,
+              });
+              return; // skip DB insert
             }
 
-            await Upload.update(
-              { isProfilePhoto: false },
-              { where: { userId: req.user.id } }
+            // 4) Allowed → create Upload row
+            const match = descriptions.find(
+              (d) => d.imageId === removeSpacesAndDashes(file.originalname)
             );
+            const isProfilePhoto = Boolean(match?.isProfilePhoto);
+
+            if (isProfilePhoto) {
+              const oldProfilePhoto = await Upload.findOne({
+                where: {
+                  userId: req.user.id,
+                  isProfilePhoto: true,
+                },
+                order: [['createdAt', 'DESC']],
+              });
+
+              if (oldProfilePhoto) {
+                await deleteUploadFromS3(oldProfilePhoto);
+                await oldProfilePhoto.destroy();
+              }
+
+              await Upload.update(
+                { isProfilePhoto: false },
+                { where: { userId: req.user.id } }
+              );
+            }
+
+            await Upload.create({
+              name: removeSpacesAndDashes(file.originalname),
+              url: key, // store exact S3 key for later streaming
+              description: match?.description || null,
+              userId: req.user.id,
+              isProfilePhoto,
+            });
+
+            allowedCount += 1;
+          } catch (err) {
+            console.error('❌ Moderation flow error for key:', key, err);
+            // Treat as reject to be safe; also attempt cleanup
+            await deleteAllTransforms(file).catch(() => {});
+            rejectedFiles.push({
+              name: file.originalname,
+              reason: 'Unable to validate image content',
+              detail: err.code || err.message,
+            });
           }
-
-          await Upload.create({
-            name: removeSpacesAndDashes(file.originalname),
-            url: key, // store exact S3 key for later streaming
-            description: match?.description || null,
-            userId: req.user.id,
-            isProfilePhoto,
-          });
-
-          allowedCount += 1;
-        } catch (err) {
-          console.error('❌ Moderation flow error for key:', key, err);
-          // Treat as reject to be safe; also attempt cleanup
-          await deleteAllTransforms(file).catch(() => {});
-          rejectedFiles.push({
-            name: file.originalname,
-            reason: 'Unable to validate image content',
-            detail: err.code || err.message,
-          });
-        }
-      }));
+        })
+      );
 
       // --- Status code semantics ---
       if (allowedCount === 0 && rejectedFiles.length > 0) {
         // Everything was rejected → 422
         return res.status(422).json({
           message: 'All images were rejected by moderation.',
-          errors: rejectedFiles.map(r => ({ reason: r.reason, name: r.name })),
+          errors: rejectedFiles.map((r) => ({
+            reason: r.reason,
+            name: r.name,
+          })),
           rejectedFiles,
         });
       }
@@ -207,23 +227,25 @@ const handleProfilePhotoUpload = async (req, res) => {
       { where: { userId: req.user.id } }
     );
 
-    await Promise.all((descriptions || []).map(async (description) => {
-      const [rowsUpdated] = await Upload.update(
-        {
-          description: description.description,
-          isProfilePhoto: description.isProfilePhoto,
-        },
-        {
-          where: {
-            name: removeSpacesAndDashes(description.imageId),
-            userId: req.user.id,
+    await Promise.all(
+      (descriptions || []).map(async (description) => {
+        const [rowsUpdated] = await Upload.update(
+          {
+            description: description.description,
+            isProfilePhoto: description.isProfilePhoto,
           },
+          {
+            where: {
+              name: removeSpacesAndDashes(description.imageId),
+              userId: req.user.id,
+            },
+          }
+        );
+        if (rowsUpdated === 0) {
+          console.warn('⚠️ No records updated for', description.imageId);
         }
-      );
-      if (rowsUpdated === 0) {
-        console.warn('⚠️ No records updated for', description.imageId);
-      }
-    }));
+      })
+    );
 
     return res.status(200).json({ message: 'Update successful' });
   } catch (e) {

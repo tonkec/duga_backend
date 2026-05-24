@@ -2,9 +2,12 @@ const models = require('../../../models');
 const User = models.User;
 const ChatUser = models.ChatUser;
 const Message = models.Message;
-const { extractKeyFromUrl, attachSecureUrl } = require('../../../utils/secureUploadUrl');
+const {
+  extractKeyFromUrl,
+  attachSecureUrl,
+} = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
-const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 
 const handleGetAllMessages = async (req, res) => {
   const limit = 10;
@@ -23,7 +26,9 @@ const handleGetAllMessages = async (req, res) => {
   });
 
   if (!chatUser) {
-    return res.status(403).json({ error: 'You do not have access to this chat' });
+    return res
+      .status(403)
+      .json({ error: 'You do not have access to this chat' });
   }
 
   const offset = (page - 1) * limit;
@@ -41,8 +46,8 @@ const handleGetAllMessages = async (req, res) => {
   const enrichedMessages = messages.rows.map((message) => {
     const plain = message.toJSON();
     const { messagePhotoUrl } = plain;
-    if (message.type === "gif") {
-      return message
+    if (message.type === 'gif') {
+      return message;
     }
 
     if (messagePhotoUrl) {
@@ -60,7 +65,6 @@ const handleGetAllMessages = async (req, res) => {
 
     return plain;
   });
-
 
   const totalPages = Math.ceil(messages.count / limit);
   const result = {

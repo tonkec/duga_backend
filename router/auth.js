@@ -1,9 +1,11 @@
 const router = require('express').Router();
-const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
-const handleRegister = require("./auth/handlers/handleRegister");
-const handleSendVerificationEmail = require("./auth/handlers/handleSendVerificationEmail");
-const handleDeleteUser = require("./auth/handlers/handleDeleteUser")
-  
+const {
+  authenticatedAppSession,
+} = require('../middleware/authenticatedAppSession');
+const handleRegister = require('./auth/handlers/handleRegister');
+const handleSendVerificationEmail = require('./auth/handlers/handleSendVerificationEmail');
+const handleDeleteUser = require('./auth/handlers/handleDeleteUser');
+
 require('./auth/swagger/register.swagger');
 router.post('/register', handleRegister);
 
