@@ -279,4 +279,95 @@ describe('SocketServer', () => {
     });
     expect(models.Notification.create).not.toHaveBeenCalled();
   });
+
+  it('emits received message events to chat member sockets', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const sender = buildUser();
+    const recipient = buildUser({
+      id: 2,
+      auth0Id: 'auth0|user-2',
+      username: 'duga',
+      toJSON: jest.fn(() => ({ id: 2, username: 'duga' })),
+    });
+    const senderSocket = buildSocket({
+      id: 'socket-sender',
+      token: 'message-token',
+      appUser: sender,
+    });
+    const recipientSocket = buildSocket({
+      id: 'socket-recipient',
+      token: 'message-token',
+      appUser: recipient,
+    });
+    const createdAt = new Date('2026-05-24T10:00:00.000Z');
+    const savedMessage = {
+      id: 501,
+      chatId: 77,
+      type: 'text',
+      message: 'Hello',
+      createdAt,
+    };
+
+    models.ChatUser.findAll.mockResolvedValue([
+      { chatId: savedMessage.chatId, userId: sender.id },
+      { chatId: savedMessage.chatId, userId: recipient.id },
+    ]);
+    models.Message.create.mockResolvedValue(savedMessage);
+    models.Notification.create.mockResolvedValue({
+      id: 601,
+      type: 'message',
+      content: `Nova poruka od ${sender.username}`,
+      actionId: savedMessage.chatId,
+      actionType: 'message',
+      isRead: false,
+      createdAt,
+      chatId: savedMessage.chatId,
+    });
+    models.sequelize.query.mockResolvedValue([[], {}]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(recipientSocket);
+    await recipientSocket.handlers.join();
+    io.connectionHandler(senderSocket);
+
+    await senderSocket.handlers.message({
+      chatId: savedMessage.chatId,
+      message: savedMessage.message,
+    });
+
+    const expectedOutbound = {
+      id: savedMessage.id,
+      chatId: savedMessage.chatId,
+      fromUserId: sender.id,
+      User: { id: sender.id, username: sender.username },
+      type: savedMessage.type,
+      message: savedMessage.message,
+      createdAt,
+      messagePhotoUrl: null,
+      securePhotoUrl: null,
+      toUserId: [recipient.id],
+    };
+
+    expect(models.Message.create).toHaveBeenCalledWith({
+      type: 'text',
+      fromUserId: sender.id,
+      chatId: savedMessage.chatId,
+      message: savedMessage.message,
+      messagePhotoUrl: null,
+    });
+    expect(io.targetEmits).toEqual(
+      expect.arrayContaining([
+        {
+          target: senderSocket.id,
+          event: 'received',
+          payload: expectedOutbound,
+        },
+        {
+          target: recipientSocket.id,
+          event: 'received',
+          payload: expectedOutbound,
+        },
+      ])
+    );
+  });
 });
