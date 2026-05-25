@@ -9,11 +9,14 @@ jest.mock('../models', () => ({
     findOne: jest.fn(),
     update: jest.fn(),
   },
-  AnswerVote: {
-    count: jest.fn(),
+  AnswerReaction: {
     create: jest.fn(),
+    findAll: jest.fn(),
     findOne: jest.fn(),
-    sum: jest.fn(),
+  },
+  AnswerReply: {
+    create: jest.fn(),
+    findByPk: jest.fn(),
   },
   Category: {},
   Notification: {
@@ -102,7 +105,8 @@ jest.mock('../utils/s3', () => ({
 
 const {
   Answer,
-  AnswerVote,
+  AnswerReaction,
+  AnswerReply,
   Notification,
   Question,
   QuestionVote,
@@ -191,6 +195,14 @@ describe('forum routes', () => {
           questionId: 10,
           userId: 2,
           body: 'Use hasMany and belongsTo associations.',
+          replies: [
+            {
+              id: 31,
+              answerId: 22,
+              userId: 1,
+              body: 'Thanks, this helped.',
+            },
+          ],
         },
       ],
     });
@@ -213,6 +225,13 @@ describe('forum routes', () => {
           expect.objectContaining({
             id: 22,
             body: 'Use hasMany and belongsTo associations.',
+            replyCount: 1,
+            replies: [
+              expect.objectContaining({
+                id: 31,
+                body: 'Thanks, this helped.',
+              }),
+            ],
           }),
         ],
       })
@@ -698,6 +717,157 @@ describe('forum routes', () => {
     expect(response.body.data.isAccepted).toBe(true);
   });
 
+  it('creates a reply thread item for an answer', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10, userId: 2 });
+    AnswerReply.create.mockResolvedValue({ id: 31 });
+    AnswerReply.findByPk.mockResolvedValue({
+      id: 31,
+      answerId: 22,
+      userId: 1,
+      body: 'That answer helped me too.',
+    });
+    Notification.create.mockResolvedValue({
+      id: 104,
+      userId: 2,
+      type: 'forum_answer_reply',
+      actionId: 22,
+      actionType: 'forum_answer',
+    });
+
+    const response = await request(app)
+      .post('/forum/answers/22/replies')
+      .set(authHeaders)
+      .send({ body: 'That answer helped me too.' });
+
+    expect(response.status).toBe(201);
+    expect(AnswerReply.create).toHaveBeenCalledWith({
+      answerId: 22,
+      userId: 1,
+      body: 'That answer helped me too.',
+    });
+    expect(response.body.data).toEqual({
+      id: 31,
+      answerId: 22,
+      userId: 1,
+      body: 'That answer helped me too.',
+    });
+    expect(Notification.create).toHaveBeenCalledWith({
+      userId: 2,
+      type: 'forum_answer_reply',
+      content: 'Netko je odgovorio na tvoj odgovor.',
+      actionId: 22,
+      actionType: 'forum_answer',
+    });
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-reply-created', {
+      data: response.body.data,
+      answerId: 22,
+      questionId: 10,
+    });
+  });
+
+  it('does not notify when replying to your own answer', async () => {
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10, userId: 1 });
+    AnswerReply.create.mockResolvedValue({ id: 31 });
+    AnswerReply.findByPk.mockResolvedValue({
+      id: 31,
+      answerId: 22,
+      userId: 1,
+      body: 'Adding more context.',
+    });
+
+    const response = await request(app)
+      .post('/forum/answers/22/replies')
+      .set(authHeaders)
+      .send({ body: 'Adding more context.' });
+
+    expect(response.status).toBe(201);
+    expect(Notification.create).not.toHaveBeenCalled();
+  });
+
+  it('updates an answer reply owned by the authenticated user', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    const reply = {
+      id: 31,
+      answerId: 22,
+      userId: 1,
+      body: 'Original reply.',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    AnswerReply.findByPk.mockResolvedValueOnce(reply).mockResolvedValueOnce({
+      id: 31,
+      answerId: 22,
+      userId: 1,
+      body: 'Updated reply.',
+    });
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+
+    const response = await request(app)
+      .patch('/forum/answer-replies/31')
+      .set(authHeaders)
+      .send({ body: 'Updated reply.' });
+
+    expect(response.status).toBe(200);
+    expect(reply.body).toBe('Updated reply.');
+    expect(reply.save).toHaveBeenCalledTimes(1);
+    expect(response.body.data.body).toBe('Updated reply.');
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-reply-updated', {
+      data: expect.objectContaining({ id: 31, body: 'Updated reply.' }),
+      answerId: 22,
+      questionId: 10,
+    });
+  });
+
+  it('rejects answer reply updates from non-owners', async () => {
+    AnswerReply.findByPk.mockResolvedValue({ id: 31, userId: 2 });
+
+    const response = await request(app)
+      .patch('/forum/answer-replies/31')
+      .set(authHeaders)
+      .send({ body: 'Updated reply.' });
+
+    expect(response.status).toBe(403);
+  });
+
+  it('deletes an answer reply owned by the authenticated user', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    const reply = {
+      id: 31,
+      answerId: 22,
+      userId: 1,
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    AnswerReply.findByPk.mockResolvedValue(reply);
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+
+    const response = await request(app)
+      .delete('/forum/answer-replies/31')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(reply.destroy).toHaveBeenCalledTimes(1);
+    expect(response.body.data).toEqual({ id: 31, answerId: 22 });
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-reply-deleted', {
+      data: { id: 31, answerId: 22 },
+      answerId: 22,
+      questionId: 10,
+    });
+  });
+
+  it('validates answer reply input', async () => {
+    const response = await request(app)
+      .post('/forum/answers/22/replies')
+      .set(authHeaders)
+      .send({ body: ' ' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual(['body is required']);
+    expect(AnswerReply.create).not.toHaveBeenCalled();
+  });
+
   it('sets a question vote for the authenticated user', async () => {
     Question.findByPk.mockResolvedValue({ id: 10 });
     QuestionVote.findOne.mockResolvedValue(null);
@@ -857,160 +1027,107 @@ describe('forum routes', () => {
     });
   });
 
-  it('sets an answer vote for the authenticated user', async () => {
+  it('adds an emoji reaction to an answer', async () => {
     const io = buildIoMock();
     app = buildApp(io);
-    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
-    AnswerVote.findOne.mockResolvedValue(null);
-    AnswerVote.create.mockResolvedValue({ id: 1 });
-    AnswerVote.sum.mockResolvedValue(2);
-    AnswerVote.count.mockResolvedValue(2);
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10, userId: 2 });
+    AnswerReaction.findOne.mockResolvedValue(null);
+    AnswerReaction.create.mockResolvedValue({ id: 1 });
+    AnswerReaction.findAll.mockResolvedValue([
+      { emoji: '❤️', userId: 1 },
+      { emoji: '❤️', userId: 3 },
+      { emoji: '👍', userId: 1 },
+    ]);
+    Notification.create.mockResolvedValue({
+      id: 103,
+      userId: 2,
+      type: 'forum_answer_reaction',
+      actionId: 22,
+      actionType: 'forum_answer',
+    });
 
     const response = await request(app)
-      .post('/forum/answers/22/votes')
+      .post('/forum/answers/22/reactions')
       .set(authHeaders)
-      .send({ value: 1 });
+      .send({ emoji: '❤️' });
 
     expect(response.status).toBe(200);
-    expect(AnswerVote.create).toHaveBeenCalledWith({
+    expect(AnswerReaction.create).toHaveBeenCalledWith({
       answerId: 22,
       userId: 1,
-      value: 1,
+      emoji: '❤️',
     });
     expect(response.body.data).toEqual({
       answerId: 22,
-      userVote: 1,
-      voteScore: 2,
-      voteCount: 2,
+      reactions: [
+        { emoji: '❤️', count: 2 },
+        { emoji: '👍', count: 1 },
+      ],
+      reactionCount: 3,
+      userReactions: ['❤️', '👍'],
     });
-    expect(io.emit).toHaveBeenCalledWith('forum-answer-vote-updated', {
-      data: {
-        answerId: 22,
-        userVote: 1,
-        voteScore: 2,
-        voteCount: 2,
-      },
+    expect(Notification.create).toHaveBeenCalledWith({
+      userId: 2,
+      type: 'forum_answer_reaction',
+      content: 'Netko je reagirao na tvoj odgovor.',
+      actionId: 22,
+      actionType: 'forum_answer',
+    });
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-reaction-updated', {
+      data: response.body.data,
       questionId: 10,
     });
   });
 
-  it('notifies the answer owner when another user upvotes their answer', async () => {
-    const io = buildIoMock();
-    app = buildApp(io);
-    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10, userId: 2 });
-    AnswerVote.findOne.mockResolvedValue(null);
-    AnswerVote.create.mockResolvedValue({ id: 1 });
-    AnswerVote.sum.mockResolvedValue(1);
-    AnswerVote.count.mockResolvedValue(1);
-    Notification.create.mockResolvedValue({
-      id: 102,
-      userId: 2,
-      type: 'forum_answer_upvote',
-      content: 'Netko je upvoteao tvoj odgovor.',
-      actionId: 22,
-      actionType: 'forum_answer',
-      isRead: false,
-    });
+  it('does not duplicate an existing answer reaction', async () => {
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10, userId: 1 });
+    AnswerReaction.findOne.mockResolvedValue({ id: 1 });
+    AnswerReaction.findAll.mockResolvedValue([{ emoji: '👍', userId: 1 }]);
 
     const response = await request(app)
-      .post('/forum/answers/22/votes')
+      .post('/forum/answers/22/reactions')
       .set(authHeaders)
-      .send({ value: 1 });
+      .send({ emoji: '👍' });
 
     expect(response.status).toBe(200);
-    expect(Notification.create).toHaveBeenCalledWith({
-      userId: 2,
-      type: 'forum_answer_upvote',
-      content: 'Netko je upvoteao tvoj odgovor.',
-      actionId: 22,
-      actionType: 'forum_answer',
-    });
-    expect(io.to).toHaveBeenCalledWith('user:2');
-    expect(io.emit).toHaveBeenCalledWith(
-      'new_notification',
-      expect.objectContaining({
-        id: 102,
-        type: 'forum_answer_upvote',
-        actionId: 22,
-        actionType: 'forum_answer',
-      })
-    );
+    expect(AnswerReaction.create).not.toHaveBeenCalled();
+    expect(Notification.create).not.toHaveBeenCalled();
+    expect(response.body.data.userReactions).toEqual(['👍']);
   });
 
-  it('sets an answer downvote for the authenticated user', async () => {
-    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
-    AnswerVote.findOne.mockResolvedValue(null);
-    AnswerVote.create.mockResolvedValue({ id: 1 });
-    AnswerVote.sum.mockResolvedValue(-1);
-    AnswerVote.count.mockResolvedValue(1);
-
-    const response = await request(app)
-      .post('/forum/answers/22/votes')
-      .set(authHeaders)
-      .send({ value: -1 });
-
-    expect(response.status).toBe(200);
-    expect(AnswerVote.create).toHaveBeenCalledWith({
-      answerId: 22,
-      userId: 1,
-      value: -1,
-    });
-    expect(response.body.data).toEqual({
-      answerId: 22,
-      userVote: -1,
-      voteScore: -1,
-      voteCount: 1,
-    });
-  });
-
-  it('updates an existing answer vote', async () => {
-    const existingVote = {
-      id: 1,
-      update: jest.fn().mockResolvedValue(undefined),
-    };
-    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
-    AnswerVote.findOne.mockResolvedValue(existingVote);
-    AnswerVote.sum.mockResolvedValue(-2);
-    AnswerVote.count.mockResolvedValue(2);
-
-    const response = await request(app)
-      .post('/forum/answers/22/votes')
-      .set(authHeaders)
-      .send({ value: -1 });
-
-    expect(response.status).toBe(200);
-    expect(existingVote.update).toHaveBeenCalledWith({ value: -1 });
-    expect(AnswerVote.create).not.toHaveBeenCalled();
-    expect(response.body.data).toEqual({
-      answerId: 22,
-      userVote: -1,
-      voteScore: -2,
-      voteCount: 2,
-    });
-  });
-
-  it('removes an answer vote', async () => {
-    const existingVote = {
+  it('removes an emoji reaction from an answer', async () => {
+    const existingReaction = {
       id: 1,
       destroy: jest.fn().mockResolvedValue(undefined),
     };
     Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
-    AnswerVote.findOne.mockResolvedValue(existingVote);
-    AnswerVote.sum.mockResolvedValue(null);
-    AnswerVote.count.mockResolvedValue(0);
+    AnswerReaction.findOne.mockResolvedValue(existingReaction);
+    AnswerReaction.findAll.mockResolvedValue([]);
 
     const response = await request(app)
-      .delete('/forum/answers/22/votes')
-      .set(authHeaders);
+      .delete('/forum/answers/22/reactions')
+      .set(authHeaders)
+      .send({ emoji: '👍' });
 
     expect(response.status).toBe(200);
-    expect(existingVote.destroy).toHaveBeenCalledTimes(1);
+    expect(existingReaction.destroy).toHaveBeenCalledTimes(1);
     expect(response.body.data).toEqual({
       answerId: 22,
-      userVote: null,
-      voteScore: 0,
-      voteCount: 0,
+      reactions: [],
+      reactionCount: 0,
+      userReactions: [],
     });
+  });
+
+  it('validates answer reaction emoji', async () => {
+    const response = await request(app)
+      .post('/forum/answers/22/reactions')
+      .set(authHeaders)
+      .send({ emoji: 'not-an-emoji' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual(['emoji must be an emoji']);
+    expect(AnswerReaction.create).not.toHaveBeenCalled();
   });
 
   it('validates vote value', async () => {
@@ -1022,5 +1139,18 @@ describe('forum routes', () => {
     expect(response.status).toBe(400);
     expect(response.body.errors).toEqual(['value must be 1 or -1']);
     expect(QuestionVote.create).not.toHaveBeenCalled();
+  });
+
+  it('does not expose answer vote routes', async () => {
+    const voteResponse = await request(app)
+      .post('/forum/answers/22/votes')
+      .set(authHeaders)
+      .send({ value: 1 });
+    const removeVoteResponse = await request(app)
+      .delete('/forum/answers/22/votes')
+      .set(authHeaders);
+
+    expect(voteResponse.status).toBe(404);
+    expect(removeVoteResponse.status).toBe(404);
   });
 });

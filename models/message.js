@@ -11,6 +11,11 @@ module.exports = (sequelize, DataTypes) => {
       // define association here
       this.belongsTo(models.Chat, { foreignKey: 'chatId' });
       this.belongsTo(models.User, { foreignKey: 'fromUserId' });
+      this.hasMany(models.MessageReaction, {
+        as: 'reactions',
+        foreignKey: 'messageId',
+        onDelete: 'CASCADE',
+      });
     }
   }
   Message.init(

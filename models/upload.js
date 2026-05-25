@@ -19,6 +19,11 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'uploadId',
         foreignKeyConstraint: true,
       });
+      this.belongsToMany(models.User, {
+        through: models.UploadMention,
+        as: 'taggedUsers',
+        foreignKey: 'uploadId',
+      });
     }
   }
   Upload.init(

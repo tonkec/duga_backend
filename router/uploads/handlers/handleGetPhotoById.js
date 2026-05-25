@@ -1,4 +1,4 @@
-const Upload = require('../../../models').Upload;
+const { Upload, User } = require('../../../models');
 const addSecureUrlsToList =
   require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
@@ -10,6 +10,9 @@ const handleGetPhotoById = async (req, res) => {
       where: {
         id: req.params.id,
       },
+      include: [
+        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+      ],
     });
 
     if (!upload) {

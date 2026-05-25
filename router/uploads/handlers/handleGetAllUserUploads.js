@@ -1,4 +1,4 @@
-const { Upload } = require('../../../models');
+const { Upload, User } = require('../../../models');
 const s3 = require('../../../utils/s3');
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
@@ -13,7 +13,12 @@ const handleGetAllUserUploads = async (req, res) => {
       Prefix: `${process.env.NODE_ENV}/user/${userId}/`,
     };
 
-    const uploads = await Upload.findAll({ where: { userId } });
+    const uploads = await Upload.findAll({
+      where: { userId },
+      include: [
+        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+      ],
+    });
     const data = await s3.listObjectsV2(params).promise();
     const s3Keys = data.Contents.map((obj) => obj.Key);
 

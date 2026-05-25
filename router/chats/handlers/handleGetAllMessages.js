@@ -2,12 +2,37 @@ const models = require('../../../models');
 const User = models.User;
 const ChatUser = models.ChatUser;
 const Message = models.Message;
+const MessageReaction = models.MessageReaction;
 const {
   extractKeyFromUrl,
   attachSecureUrl,
 } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
+
+const summarizeMessageReactions = (reactions = [], userId) => {
+  const counts = new Map();
+  const userReactions = new Set();
+
+  reactions.forEach((reaction) => {
+    if (!reaction?.emoji) return;
+
+    counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
+    if (Number(reaction.userId) === Number(userId)) {
+      userReactions.add(reaction.emoji);
+    }
+  });
+
+  return {
+    reactions: [...counts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([emoji, count]) => ({ emoji, count })),
+    reactionCount: reactions.length,
+    userReactions: [...userReactions].sort((left, right) =>
+      left.localeCompare(right)
+    ),
+  };
+};
 
 const handleGetAllMessages = async (req, res) => {
   const limit = 10;
@@ -35,7 +60,14 @@ const handleGetAllMessages = async (req, res) => {
 
   const messages = await Message.findAndCountAll({
     where: { chatId },
-    include: [{ model: User }],
+    include: [
+      { model: User },
+      {
+        model: MessageReaction,
+        as: 'reactions',
+        attributes: ['emoji', 'userId'],
+      },
+    ],
     limit,
     offset,
     order: [['id', 'DESC']],
@@ -45,6 +77,10 @@ const handleGetAllMessages = async (req, res) => {
   const accessToken = getBearerToken(req);
   const enrichedMessages = messages.rows.map((message) => {
     const plain = message.toJSON();
+    Object.assign(
+      plain,
+      summarizeMessageReactions(plain.reactions, req.auth.user.id)
+    );
     const { messagePhotoUrl } = plain;
     if (message.type === 'gif') {
       return message;

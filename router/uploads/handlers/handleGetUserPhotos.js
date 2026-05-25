@@ -1,4 +1,4 @@
-const Upload = require('../../../models').Upload;
+const { Upload, User } = require('../../../models');
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
@@ -14,6 +14,9 @@ const handleGetUserPhotos = async (req, res) => {
     const uploads = await Upload.findAll({
       where: { userId },
       attributes: ['id', 'url', 'description', 'createdAt'],
+      include: [
+        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+      ],
     });
 
     const accessToken = getBearerToken(req);

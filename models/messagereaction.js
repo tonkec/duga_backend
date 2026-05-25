@@ -2,11 +2,11 @@
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
-  class AnswerVote extends Model {
+  class MessageReaction extends Model {
     static associate(models) {
-      this.belongsTo(models.Answer, {
-        as: 'answer',
-        foreignKey: 'answerId',
+      this.belongsTo(models.Message, {
+        as: 'message',
+        foreignKey: 'messageId',
       });
       this.belongsTo(models.User, {
         as: 'user',
@@ -15,9 +15,9 @@ module.exports = (sequelize, DataTypes) => {
     }
   }
 
-  AnswerVote.init(
+  MessageReaction.init(
     {
-      answerId: {
+      messageId: {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
@@ -25,19 +25,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
-      value: {
-        type: DataTypes.INTEGER,
+      emoji: {
+        type: DataTypes.STRING(32),
         allowNull: false,
-        validate: {
-          isIn: [[-1, 1]],
-        },
       },
     },
     {
       sequelize,
-      modelName: 'AnswerVote',
+      modelName: 'MessageReaction',
     }
   );
 
-  return AnswerVote;
+  return MessageReaction;
 };

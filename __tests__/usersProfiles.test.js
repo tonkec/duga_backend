@@ -4,6 +4,10 @@ const express = require('express');
 const request = require('supertest');
 
 jest.mock('../models', () => ({
+  ProfileView: {
+    create: jest.fn(),
+    findAndCountAll: jest.fn(),
+  },
   User: {
     findOne: jest.fn(),
     findByPk: jest.fn(),
@@ -11,15 +15,18 @@ jest.mock('../models', () => ({
   },
 }));
 
-const { User } = require('../models');
+const { ProfileView, User } = require('../models');
 const usersRouter = require('../router/user');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
 
 const buildApp = () => {
   const app = express();
+  const emit = jest.fn();
+  const to = jest.fn(() => ({ emit }));
 
   app.use(express.json());
+  app.set('io', { emit, to });
   app.use('/users', usersRouter);
 
   return app;
@@ -101,6 +108,12 @@ describe('users and profiles routes', () => {
       firstName: 'Duga',
       username: 'duga',
     });
+    ProfileView.create.mockResolvedValue({
+      id: 10,
+      viewerId: 'user-1',
+      viewedUserId: 'user-2',
+      createdAt: '2026-05-25T19:10:00.000Z',
+    });
 
     const response = await authenticated(request(app).get('/users/user-2'));
 
@@ -121,6 +134,95 @@ describe('users and profiles routes', () => {
     expect(response.body).toMatchObject({
       id: 'user-2',
       username: 'duga',
+    });
+    expect(ProfileView.create).toHaveBeenCalledWith({
+      viewerId: 'user-1',
+      viewedUserId: 'user-2',
+    });
+    expect(app.get('io').to).toHaveBeenCalledWith('user:user-2');
+    expect(app.get('io').to().emit).toHaveBeenCalledWith(
+      'profile-view-created',
+      {
+        data: {
+          id: 10,
+          viewerId: 'user-1',
+          viewedUserId: 'user-2',
+          createdAt: '2026-05-25T19:10:00.000Z',
+          viewer: expect.objectContaining({
+            id: 'user-1',
+            username: 'antonija',
+          }),
+        },
+      }
+    );
+  });
+
+  it('does not record a profile view when viewing yourself', async () => {
+    User.findByPk.mockResolvedValue({
+      id: 'user-1',
+      firstName: 'Antonija',
+      username: 'antonija',
+    });
+
+    const response = await authenticated(request(app).get('/users/user-1'));
+
+    expect(response.status).toBe(200);
+    expect(ProfileView.create).not.toHaveBeenCalled();
+    expect(app.get('io').to).not.toHaveBeenCalled();
+  });
+
+  it('lists profile viewers for the current user', async () => {
+    const viewedAt = '2026-05-25T19:05:00.000Z';
+    ProfileView.findAndCountAll.mockResolvedValue({
+      count: 1,
+      rows: [
+        {
+          id: 10,
+          viewerId: 'user-2',
+          viewedUserId: 'user-1',
+          createdAt: viewedAt,
+          viewer: {
+            id: 'user-2',
+            username: 'duga',
+            firstName: 'Duga',
+          },
+        },
+      ],
+    });
+
+    const response = await authenticated(
+      request(app).get('/users/profile-views?page=1&limit=10')
+    );
+
+    expect(response.status).toBe(200);
+    expect(ProfileView.findAndCountAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { viewedUserId: 'user-1' },
+        order: [['createdAt', 'DESC']],
+        limit: 10,
+        offset: 0,
+      })
+    );
+    expect(response.body).toEqual({
+      data: [
+        {
+          id: 10,
+          viewerId: 'user-2',
+          viewedUserId: 'user-1',
+          createdAt: viewedAt,
+          viewer: {
+            id: 'user-2',
+            username: 'duga',
+            firstName: 'Duga',
+          },
+        },
+      ],
+      pagination: {
+        page: 1,
+        limit: 10,
+        total: 1,
+        totalPages: 1,
+      },
     });
   });
 

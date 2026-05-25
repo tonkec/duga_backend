@@ -12,8 +12,13 @@ module.exports = (sequelize, DataTypes) => {
         as: 'user',
         foreignKey: 'userId',
       });
-      this.hasMany(models.AnswerVote, {
-        as: 'votes',
+      this.hasMany(models.AnswerReaction, {
+        as: 'reactions',
+        foreignKey: 'answerId',
+        onDelete: 'CASCADE',
+      });
+      this.hasMany(models.AnswerReply, {
+        as: 'replies',
         foreignKey: 'answerId',
         onDelete: 'CASCADE',
       });

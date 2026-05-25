@@ -9,6 +9,7 @@ const handleGetUserById = require('./users/handlers/handleGetUserById');
 const handleGetUserOnlineStatus = require('./users/handlers/handleGetUserOnlineStatus');
 const handleGetCurrentUser = require('./users/handlers/handleGetCurrentUser');
 const handlePostLogin = require('./users/handlers/handlePostLogin');
+const handleGetProfileViews = require('./users/handlers/handleGetProfileViews');
 
 require('./users/swagger/updateUser.swagger');
 router.post('/update-user', authenticatedAppSession, handleUpdateUser);
@@ -32,6 +33,8 @@ router.get(
 
 require('./users/swagger/currentUser.swagger');
 router.get('/current-user', authenticatedAppSession, handleGetCurrentUser);
+
+router.get('/profile-views', authenticatedAppSession, handleGetProfileViews);
 
 require('./users/swagger/userById.swagger');
 router.get('/:id', authenticatedAppSession, handleGetUserById);

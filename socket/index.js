@@ -1,6 +1,7 @@
 const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
+const MessageReaction = require('../models').MessageReaction;
 const User = require('../models').User;
 const PhotoComment = require('../models').PhotoComment;
 const ChatUser = require('../models').ChatUser;
@@ -31,6 +32,8 @@ const SOCKET_OFFLINE_DELAY_MS = Number(
   process.env.SOCKET_OFFLINE_DELAY_MS || 5000
 );
 const USER_STATUSES = new Set(['online', 'offline']);
+const EMOJI_REACTION_PATTERN =
+  /^(?=.*(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Regional_Indicator}))(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f))+$/u;
 
 const allowSocketOrigin = (origin, callback) => {
   callback(null, origin || true);
@@ -107,6 +110,87 @@ const parseCommentSocketPayload = (data) => {
     commentId: parseInt(payload?.id ?? payload?.commentId, 10),
     uploadId: payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
   };
+};
+
+const validateReactionEmoji = (emoji) => {
+  if (typeof emoji !== 'string' || emoji.trim().length === 0) {
+    return null;
+  }
+
+  const normalizedEmoji = emoji.trim();
+  if (
+    normalizedEmoji.length > 32 ||
+    !EMOJI_REACTION_PATTERN.test(normalizedEmoji)
+  ) {
+    return null;
+  }
+
+  return normalizedEmoji;
+};
+
+const summarizeMessageReactions = (reactions = []) => {
+  const counts = new Map();
+
+  reactions.forEach((reaction) => {
+    if (!reaction?.emoji) return;
+    counts.set(reaction.emoji, (counts.get(reaction.emoji) || 0) + 1);
+  });
+
+  return {
+    reactions: [...counts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([emoji, count]) => ({ emoji, count })),
+    reactionCount: reactions.length,
+  };
+};
+
+const getMessageReactionSummary = async (messageId) => {
+  const reactions = await MessageReaction.findAll({
+    where: { messageId },
+    attributes: ['emoji', 'userId'],
+  });
+
+  return summarizeMessageReactions(reactions);
+};
+
+const getMessageReactionPayload = async ({
+  message,
+  userId,
+  emoji,
+  action,
+}) => ({
+  messageId: message.id,
+  chatId: message.chatId,
+  userId,
+  emoji,
+  action,
+  ...(await getMessageReactionSummary(message.id)),
+});
+
+const getAccessibleMessageForSocket = async (socket, rawMessageId) => {
+  const user = socket.appUser || (await getSocketUser(socket));
+  const messageId = Number(rawMessageId);
+
+  if (!user || !messageId) {
+    return { user, message: null, error: 'Invalid message reaction payload' };
+  }
+
+  const message = await Message.findByPk(messageId);
+  if (!message) {
+    return { user, message: null, error: 'Message not found' };
+  }
+
+  const chatMembers = await ChatUser.findAll({
+    where: { chatId: message.chatId },
+    attributes: ['userId'],
+  });
+  const memberIds = chatMembers.map(({ userId }) => Number(userId));
+
+  if (!memberIds.includes(Number(user.id))) {
+    return { user, message, error: 'You do not have access to this chat' };
+  }
+
+  return { user, message, error: null };
 };
 
 const joinSocketRooms = async (socket, user) => {
@@ -793,6 +877,9 @@ const SocketServer = (server, app) => {
                 socket.handshake.auth?.token
               )
             : null,
+          reactions: [],
+          reactionCount: 0,
+          userReactions: [],
           toUserId: memberIds.filter((id) => id !== sender.id),
         };
 
@@ -832,6 +919,121 @@ const SocketServer = (server, app) => {
       } catch (e) {
         console.error('❌ Error in socket message handler:', e);
         socket.emit('message_error', { message: 'Failed to send message' });
+      }
+    });
+
+    socket.on('react-message', async (data = {}, ack) => {
+      try {
+        const messageId = data.messageId ?? data.id;
+        const emoji = validateReactionEmoji(data.emoji);
+        if (!emoji) {
+          ack?.({ ok: false, error: 'emoji must be an emoji' });
+          socket.emit('message_reaction_error', {
+            message: 'emoji must be an emoji',
+          });
+          return;
+        }
+
+        const { user, message, error } = await getAccessibleMessageForSocket(
+          socket,
+          messageId
+        );
+        if (error) {
+          ack?.({ ok: false, error });
+          socket.emit('message_reaction_error', { message: error });
+          return;
+        }
+
+        const existingReaction = await MessageReaction.findOne({
+          where: { messageId: message.id, userId: user.id, emoji },
+        });
+
+        if (!existingReaction) {
+          await MessageReaction.create({
+            messageId: message.id,
+            userId: user.id,
+            emoji,
+          });
+        }
+
+        const payload = await getMessageReactionPayload({
+          message,
+          userId: user.id,
+          emoji,
+          action: 'added',
+        });
+
+        io.to(`chat:${message.chatId}`).emit(
+          'message-reaction-updated',
+          payload
+        );
+        ack?.({ ok: true, data: payload });
+      } catch (error) {
+        console.error('❌ Error in react-message handler:', error);
+        ack?.({ ok: false, error: 'Failed to react to message' });
+        socket.emit('message_reaction_error', {
+          message: 'Failed to react to message',
+        });
+      }
+    });
+
+    socket.on('remove-message-reaction', async (data = {}, ack) => {
+      try {
+        const messageId = data.messageId ?? data.id;
+        const emoji = validateReactionEmoji(data.emoji);
+        if (!emoji) {
+          ack?.({ ok: false, error: 'emoji must be an emoji' });
+          socket.emit('message_reaction_error', {
+            message: 'emoji must be an emoji',
+          });
+          return;
+        }
+
+        const { user, message, error } = await getAccessibleMessageForSocket(
+          socket,
+          messageId
+        );
+        if (error) {
+          ack?.({ ok: false, error });
+          socket.emit('message_reaction_error', { message: error });
+          return;
+        }
+
+        const existingReaction = await MessageReaction.findOne({
+          where: { messageId: message.id, userId: user.id, emoji },
+        });
+
+        if (!existingReaction) {
+          ack?.({
+            ok: false,
+            error: 'You have not reacted to this message with that emoji',
+          });
+          socket.emit('message_reaction_error', {
+            message: 'You have not reacted to this message with that emoji',
+          });
+          return;
+        }
+
+        await existingReaction.destroy();
+
+        const payload = await getMessageReactionPayload({
+          message,
+          userId: user.id,
+          emoji,
+          action: 'removed',
+        });
+
+        io.to(`chat:${message.chatId}`).emit(
+          'message-reaction-updated',
+          payload
+        );
+        ack?.({ ok: true, data: payload });
+      } catch (error) {
+        console.error('❌ Error in remove-message-reaction handler:', error);
+        ack?.({ ok: false, error: 'Failed to remove message reaction' });
+        socket.emit('message_reaction_error', {
+          message: 'Failed to remove message reaction',
+        });
       }
     });
 

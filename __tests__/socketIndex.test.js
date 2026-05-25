@@ -90,6 +90,12 @@ const loadSocketServer = () => {
     },
     Message: {
       create: jest.fn(),
+      findByPk: jest.fn(),
+    },
+    MessageReaction: {
+      create: jest.fn(),
+      findAll: jest.fn(),
+      findOne: jest.fn(),
     },
     User: {
       findOne: jest.fn(),
@@ -432,6 +438,9 @@ describe('SocketServer', () => {
       createdAt,
       messagePhotoUrl: null,
       securePhotoUrl: null,
+      reactions: [],
+      reactionCount: 0,
+      userReactions: [],
       toUserId: [recipient.id],
     };
 
@@ -456,5 +465,140 @@ describe('SocketServer', () => {
         },
       ])
     );
+  });
+
+  it('adds a message reaction and broadcasts the aggregate to the chat room', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+    const message = {
+      id: 501,
+      chatId: 77,
+      fromUserId: 2,
+    };
+    const ack = jest.fn();
+
+    models.Message.findByPk.mockResolvedValue(message);
+    models.ChatUser.findAll.mockResolvedValue([
+      { chatId: message.chatId, userId: user.id },
+      { chatId: message.chatId, userId: 2 },
+    ]);
+    models.MessageReaction.findOne.mockResolvedValue(null);
+    models.MessageReaction.create.mockResolvedValue({ id: 1 });
+    models.MessageReaction.findAll.mockResolvedValue([
+      { emoji: '❤️', userId: user.id },
+      { emoji: '❤️', userId: 2 },
+      { emoji: '👍', userId: user.id },
+    ]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['react-message'](
+      { messageId: message.id, emoji: '❤️' },
+      ack
+    );
+
+    const expectedPayload = {
+      messageId: message.id,
+      chatId: message.chatId,
+      userId: user.id,
+      emoji: '❤️',
+      action: 'added',
+      reactions: [
+        { emoji: '❤️', count: 2 },
+        { emoji: '👍', count: 1 },
+      ],
+      reactionCount: 3,
+    };
+
+    expect(models.MessageReaction.create).toHaveBeenCalledWith({
+      messageId: message.id,
+      userId: user.id,
+      emoji: '❤️',
+    });
+    expect(io.targetEmits).toContainEqual({
+      target: `chat:${message.chatId}`,
+      event: 'message-reaction-updated',
+      payload: expectedPayload,
+    });
+    expect(ack).toHaveBeenCalledWith({ ok: true, data: expectedPayload });
+  });
+
+  it('removes a message reaction and broadcasts the aggregate to the chat room', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+    const message = {
+      id: 501,
+      chatId: 77,
+      fromUserId: 2,
+    };
+    const existingReaction = {
+      id: 1,
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    const ack = jest.fn();
+
+    models.Message.findByPk.mockResolvedValue(message);
+    models.ChatUser.findAll.mockResolvedValue([
+      { chatId: message.chatId, userId: user.id },
+      { chatId: message.chatId, userId: 2 },
+    ]);
+    models.MessageReaction.findOne.mockResolvedValue(existingReaction);
+    models.MessageReaction.findAll.mockResolvedValue([]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['remove-message-reaction'](
+      { messageId: message.id, emoji: '👍' },
+      ack
+    );
+
+    const expectedPayload = {
+      messageId: message.id,
+      chatId: message.chatId,
+      userId: user.id,
+      emoji: '👍',
+      action: 'removed',
+      reactions: [],
+      reactionCount: 0,
+    };
+
+    expect(existingReaction.destroy).toHaveBeenCalledTimes(1);
+    expect(io.targetEmits).toContainEqual({
+      target: `chat:${message.chatId}`,
+      event: 'message-reaction-updated',
+      payload: expectedPayload,
+    });
+    expect(ack).toHaveBeenCalledWith({ ok: true, data: expectedPayload });
+  });
+
+  it('rejects message reactions from users outside the chat', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+    const ack = jest.fn();
+
+    models.Message.findByPk.mockResolvedValue({ id: 501, chatId: 77 });
+    models.ChatUser.findAll.mockResolvedValue([{ chatId: 77, userId: 2 }]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['react-message'](
+      { messageId: 501, emoji: '👍' },
+      ack
+    );
+
+    expect(models.MessageReaction.create).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledWith({
+      ok: false,
+      error: 'You do not have access to this chat',
+    });
+    expect(socket.emit).toHaveBeenCalledWith('message_reaction_error', {
+      message: 'You do not have access to this chat',
+    });
   });
 });

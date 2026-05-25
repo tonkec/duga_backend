@@ -32,6 +32,11 @@ module.exports = (sequelize, DataTypes) => {
         as: 'mentionedIn',
         foreignKey: 'userId',
       });
+      this.belongsToMany(models.Upload, {
+        through: models.UploadMention,
+        as: 'taggedInUploads',
+        foreignKey: 'userId',
+      });
 
       this.hasMany(models.Question, {
         as: 'questions',
@@ -45,9 +50,25 @@ module.exports = (sequelize, DataTypes) => {
         as: 'questionVotes',
         foreignKey: 'userId',
       });
-      this.hasMany(models.AnswerVote, {
-        as: 'answerVotes',
+      this.hasMany(models.AnswerReaction, {
+        as: 'answerReactions',
         foreignKey: 'userId',
+      });
+      this.hasMany(models.AnswerReply, {
+        as: 'answerReplies',
+        foreignKey: 'userId',
+      });
+      this.hasMany(models.MessageReaction, {
+        as: 'messageReactions',
+        foreignKey: 'userId',
+      });
+      this.hasMany(models.ProfileView, {
+        as: 'profileViewsReceived',
+        foreignKey: 'viewedUserId',
+      });
+      this.hasMany(models.ProfileView, {
+        as: 'profileViewsMade',
+        foreignKey: 'viewerId',
       });
     }
   }

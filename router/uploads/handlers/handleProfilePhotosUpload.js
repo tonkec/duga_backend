@@ -13,6 +13,22 @@ const {
 // Rekognition client (region/creds come from AWS.config)
 const rekognition = new AWS.Rekognition();
 
+const getTaggedUserIds = (description = {}) => {
+  const taggedUserIds =
+    description.taggedUserIds ?? description.taggedUsersIds ?? [];
+
+  if (typeof taggedUserIds === 'string') {
+    try {
+      const parsed = JSON.parse(taggedUserIds);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  return Array.isArray(taggedUserIds) ? taggedUserIds : [];
+};
+
 /** Normalize S3 key: trim & strip a leading slash only (no other mutations). */
 function normalizeKey(k) {
   const s = String(k || '').trim();
@@ -176,13 +192,17 @@ const handleProfilePhotoUpload = async (req, res) => {
               );
             }
 
-            await Upload.create({
+            const upload = await Upload.create({
               name: removeSpacesAndDashes(file.originalname),
               url: key, // store exact S3 key for later streaming
               description: match?.description || null,
               userId: req.user.id,
               isProfilePhoto,
             });
+            const taggedUserIds = getTaggedUserIds(match);
+            if (taggedUserIds.length && upload.setTaggedUsers) {
+              await upload.setTaggedUsers(taggedUserIds);
+            }
 
             allowedCount += 1;
           } catch (err) {
@@ -229,6 +249,7 @@ const handleProfilePhotoUpload = async (req, res) => {
 
     await Promise.all(
       (descriptions || []).map(async (description) => {
+        const name = removeSpacesAndDashes(description.imageId);
         const [rowsUpdated] = await Upload.update(
           {
             description: description.description,
@@ -236,11 +257,21 @@ const handleProfilePhotoUpload = async (req, res) => {
           },
           {
             where: {
-              name: removeSpacesAndDashes(description.imageId),
+              name,
               userId: req.user.id,
             },
           }
         );
+        const taggedUserIds = getTaggedUserIds(description);
+        const upload = await Upload.findOne({
+          where: {
+            name,
+            userId: req.user.id,
+          },
+        });
+        if (upload?.setTaggedUsers) {
+          await upload.setTaggedUsers(taggedUserIds);
+        }
         if (rowsUpdated === 0) {
           console.warn('⚠️ No records updated for', description.imageId);
         }

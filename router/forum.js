@@ -1,6 +1,6 @@
 const express = require('express');
 const router = express.Router();
-const { Answer, Question } = require('../models');
+const { Answer, AnswerReply, Question } = require('../models');
 const {
   authenticatedAppSession,
 } = require('../middleware/authenticatedAppSession');
@@ -9,18 +9,21 @@ const uploadForumImage = require('./forum/s3/uploadForumImage');
 const {
   handleAcceptAnswer,
   handleCreateAnswer,
+  handleCreateAnswerReply,
   handleCreateQuestion,
   handleDeleteAnswer,
   handleDeleteAnswerImage,
+  handleDeleteAnswerReply,
   handleDeleteQuestion,
   handleDeleteQuestionImage,
   handleGetQuestionById,
   handleGetQuestions,
-  handleRemoveAnswerVote,
+  handleReactToAnswer,
+  handleRemoveAnswerReaction,
   handleRemoveQuestionVote,
   handleUpdateAnswer,
+  handleUpdateAnswerReply,
   handleUpdateQuestion,
-  handleVoteAnswer,
   handleVoteQuestion,
 } = require('./forum/handlers');
 
@@ -84,11 +87,30 @@ router.delete(
   [...authenticatedAppSession, withAccessCheck(Answer)],
   handleDeleteAnswerImage
 );
-router.post('/answers/:id/votes', authenticatedAppSession, handleVoteAnswer);
-router.delete(
-  '/answers/:id/votes',
+router.post(
+  '/answers/:id/reactions',
   authenticatedAppSession,
-  handleRemoveAnswerVote
+  handleReactToAnswer
+);
+router.delete(
+  '/answers/:id/reactions',
+  authenticatedAppSession,
+  handleRemoveAnswerReaction
+);
+router.post(
+  '/answers/:id/replies',
+  authenticatedAppSession,
+  handleCreateAnswerReply
+);
+router.patch(
+  '/answer-replies/:id',
+  [...authenticatedAppSession, withAccessCheck(AnswerReply)],
+  handleUpdateAnswerReply
+);
+router.delete(
+  '/answer-replies/:id',
+  [...authenticatedAppSession, withAccessCheck(AnswerReply)],
+  handleDeleteAnswerReply
 );
 router.patch(
   '/questions/:questionId/answers/:answerId/accept',

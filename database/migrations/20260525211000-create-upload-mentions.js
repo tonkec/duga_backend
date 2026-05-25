@@ -3,18 +3,18 @@
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('AnswerVotes', {
+    await queryInterface.createTable('UploadMentions', {
       id: {
         allowNull: false,
         autoIncrement: true,
         primaryKey: true,
         type: Sequelize.INTEGER,
       },
-      answerId: {
+      uploadId: {
         allowNull: false,
         type: Sequelize.INTEGER,
         references: {
-          model: 'Answers',
+          model: 'Uploads',
           key: 'id',
         },
         onDelete: 'CASCADE',
@@ -30,10 +30,6 @@ module.exports = {
         onDelete: 'CASCADE',
         onUpdate: 'CASCADE',
       },
-      value: {
-        allowNull: false,
-        type: Sequelize.INTEGER,
-      },
       createdAt: {
         allowNull: false,
         type: Sequelize.DATE,
@@ -46,23 +42,14 @@ module.exports = {
       },
     });
 
-    await queryInterface.addConstraint('AnswerVotes', {
-      fields: ['answerId', 'userId'],
+    await queryInterface.addConstraint('UploadMentions', {
+      fields: ['uploadId', 'userId'],
       type: 'unique',
-      name: 'answer_votes_answer_id_user_id_unique',
-    });
-
-    await queryInterface.addConstraint('AnswerVotes', {
-      fields: ['value'],
-      type: 'check',
-      where: {
-        value: [-1, 1],
-      },
-      name: 'answer_votes_value_check',
+      name: 'upload_mentions_upload_id_user_id_unique',
     });
   },
 
   async down(queryInterface) {
-    await queryInterface.dropTable('AnswerVotes');
+    await queryInterface.dropTable('UploadMentions');
   },
 };

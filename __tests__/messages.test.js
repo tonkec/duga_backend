@@ -17,6 +17,7 @@ jest.mock('../models', () => ({
     findByPk: jest.fn(),
     findOne: jest.fn(),
   },
+  MessageReaction: {},
   Notification: {
     create: jest.fn(),
   },
@@ -180,6 +181,11 @@ describe('message routes', () => {
             fromUserId: 1,
             message: 'Hello',
             messagePhotoUrl: null,
+            reactions: [
+              { emoji: '❤️', userId: 1 },
+              { emoji: '❤️', userId: 2 },
+              { emoji: '👍', userId: 1 },
+            ],
           }),
         },
       ],
@@ -197,6 +203,12 @@ describe('message routes', () => {
         fromUserId: 1,
         message: 'Hello',
         messagePhotoUrl: null,
+        reactions: [
+          { emoji: '❤️', count: 2 },
+          { emoji: '👍', count: 1 },
+        ],
+        reactionCount: 3,
+        userReactions: ['❤️', '👍'],
         securePhotoUrl: null,
       },
     ]);

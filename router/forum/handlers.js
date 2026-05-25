@@ -1,7 +1,8 @@
 const { Op } = require('sequelize');
 const {
   Answer,
-  AnswerVote,
+  AnswerReaction,
+  AnswerReply,
   Category,
   Notification,
   Question,
@@ -31,33 +32,27 @@ const questionVoteAttributes = [
     'voteCount',
   ],
 ];
-const answerVoteAttributes = (answerAlias = 'Answer') => [
-  [
-    sequelize.literal(
-      `(SELECT COALESCE(SUM("value"), 0) FROM "AnswerVotes" WHERE "AnswerVotes"."answerId" = "${answerAlias}"."id")`
-    ),
-    'voteScore',
-  ],
-  [
-    sequelize.literal(
-      `(SELECT COUNT(*) FROM "AnswerVotes" WHERE "AnswerVotes"."answerId" = "${answerAlias}"."id")`
-    ),
-    'voteCount',
-  ],
-];
 const QUESTION_INCLUDE = [
   { model: User, as: 'user', attributes: USER_ATTRIBUTES },
   { model: Category, as: 'category' },
 ];
+const ANSWER_REPLY_INCLUDE = [
+  { model: User, as: 'user', attributes: USER_ATTRIBUTES },
+];
 const ANSWER_INCLUDE = [
   { model: User, as: 'user', attributes: USER_ATTRIBUTES },
+  { model: AnswerReaction, as: 'reactions', attributes: ['emoji', 'userId'] },
+  {
+    model: AnswerReply,
+    as: 'replies',
+    include: ANSWER_REPLY_INCLUDE,
+  },
 ];
 const QUESTION_WITH_ANSWERS_INCLUDE = [
   ...QUESTION_INCLUDE,
   {
     model: Answer,
     as: 'answers',
-    attributes: { include: answerVoteAttributes('answers') },
     include: ANSWER_INCLUDE,
   },
 ];
@@ -66,6 +61,33 @@ const getAuthenticatedUserId = (req) => req.user?.id || req.auth?.user?.id;
 
 const hasField = (body, field) =>
   Object.prototype.hasOwnProperty.call(body, field);
+
+const toPlainObject = (item) => item?.toJSON?.() || item;
+
+const summarizeAnswerReactions = (reactions = [], userId) => {
+  const counts = new Map();
+  const userReactions = new Set();
+
+  reactions.forEach((reaction) => {
+    const plain = toPlainObject(reaction);
+    if (!plain?.emoji) return;
+
+    counts.set(plain.emoji, (counts.get(plain.emoji) || 0) + 1);
+    if (Number(plain.userId) === Number(userId)) {
+      userReactions.add(plain.emoji);
+    }
+  });
+
+  return {
+    reactions: [...counts.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([emoji, count]) => ({ emoji, count })),
+    reactionCount: reactions.length,
+    userReactions: [...userReactions].sort((left, right) =>
+      left.localeCompare(right)
+    ),
+  };
+};
 
 const emitForumEvent = (req, event, payload) => {
   const io = req.app.get('io');
@@ -104,7 +126,7 @@ const normalizeForumImageUrl = (key) => {
 };
 
 const serializeForumItem = (item, req) => {
-  const plain = item?.toJSON?.() || item;
+  const plain = toPlainObject(item);
   if (!plain) return plain;
 
   if (plain.imageUrl) {
@@ -118,6 +140,17 @@ const serializeForumItem = (item, req) => {
   if (Array.isArray(plain.answers)) {
     plain.answers = plain.answers.map((answer) =>
       serializeForumItem(answer, req)
+    );
+  }
+
+  if (Array.isArray(plain.replies)) {
+    plain.replyCount = plain.replies.length;
+  }
+
+  if (Array.isArray(plain.reactions)) {
+    Object.assign(
+      plain,
+      summarizeAnswerReactions(plain.reactions, getAuthenticatedUserId(req))
     );
   }
 
@@ -223,7 +256,15 @@ const getQuestionById = (id) =>
   Question.findByPk(id, {
     attributes: { include: questionVoteAttributes },
     include: QUESTION_WITH_ANSWERS_INCLUDE,
-    order: [[{ model: Answer, as: 'answers' }, 'createdAt', 'ASC']],
+    order: [
+      [{ model: Answer, as: 'answers' }, 'createdAt', 'ASC'],
+      [
+        { model: Answer, as: 'answers' },
+        { model: AnswerReply, as: 'replies' },
+        'createdAt',
+        'ASC',
+      ],
+    ],
   });
 
 const handleGetQuestions = async (req, res) => {
@@ -431,7 +472,6 @@ const handleCreateAnswer = async (req, res) => {
 
     const answer = await Answer.create(answerPayload);
     const fullAnswer = await Answer.findByPk(answer.id, {
-      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
     const data = serializeForumItem(fullAnswer, req);
@@ -477,7 +517,6 @@ const handleUpdateAnswer = async (req, res) => {
     await answer.save();
 
     const fullAnswer = await Answer.findByPk(answer.id, {
-      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
     const data = serializeForumItem(fullAnswer, req);
@@ -530,7 +569,6 @@ const handleDeleteAnswerImage = async (req, res) => {
     await deleteForumImage(imageUrl);
 
     const fullAnswer = await Answer.findByPk(answer.id, {
-      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
     const data = serializeForumItem(fullAnswer, req);
@@ -581,7 +619,6 @@ const handleAcceptAnswer = async (req, res) => {
     });
 
     const fullAnswer = await Answer.findByPk(answer.id, {
-      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
     const data = serializeForumItem(fullAnswer, req);
@@ -595,6 +632,113 @@ const handleAcceptAnswer = async (req, res) => {
   } catch (error) {
     console.error('Error accepting forum answer:', error);
     return res.status(500).json({ message: 'Error accepting forum answer' });
+  }
+};
+
+const handleCreateAnswerReply = async (req, res) => {
+  try {
+    const errors = validateAnswerInput(req.body);
+    if (errors.length) {
+      return res.status(400).json({ errors });
+    }
+
+    const answerId = Number(req.params.id);
+    const answer = await Answer.findByPk(answerId);
+    if (!answer) {
+      return res.status(404).json({ message: 'Answer not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const reply = await AnswerReply.create({
+      answerId,
+      userId,
+      body: req.body.body.trim(),
+    });
+    const fullReply = await AnswerReply.findByPk(reply.id, {
+      include: ANSWER_REPLY_INCLUDE,
+    });
+    const data = serializeForumItem(fullReply, req);
+
+    emitForumEvent(req, 'forum-answer-reply-created', {
+      data,
+      answerId,
+      questionId: answer.questionId,
+    });
+
+    if (answer.userId && Number(answer.userId) !== Number(userId)) {
+      await notifyUser(req, answer.userId, {
+        type: 'forum_answer_reply',
+        content: 'Netko je odgovorio na tvoj odgovor.',
+        actionId: answerId,
+        actionType: 'forum_answer',
+      });
+    }
+
+    return res.status(201).json({ data });
+  } catch (error) {
+    console.error('Error creating forum answer reply:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error creating forum answer reply' });
+  }
+};
+
+const handleUpdateAnswerReply = async (req, res) => {
+  try {
+    const errors = validateAnswerInput(req.body);
+    if (errors.length) {
+      return res.status(400).json({ errors });
+    }
+
+    const reply = req.resource;
+    reply.body = req.body.body.trim();
+    await reply.save();
+
+    const [answer, fullReply] = await Promise.all([
+      Answer.findByPk(reply.answerId),
+      AnswerReply.findByPk(reply.id, { include: ANSWER_REPLY_INCLUDE }),
+    ]);
+    const data = serializeForumItem(fullReply, req);
+
+    emitForumEvent(req, 'forum-answer-reply-updated', {
+      data,
+      answerId: reply.answerId,
+      questionId: answer?.questionId,
+    });
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    console.error('Error updating forum answer reply:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error updating forum answer reply' });
+  }
+};
+
+const handleDeleteAnswerReply = async (req, res) => {
+  try {
+    const reply = req.resource;
+    const replyId = reply.id;
+    const answerId = reply.answerId;
+    const answer = await Answer.findByPk(answerId);
+
+    await reply.destroy();
+
+    emitForumEvent(req, 'forum-answer-reply-deleted', {
+      data: { id: replyId, answerId },
+      answerId,
+      questionId: answer?.questionId,
+    });
+
+    return res.status(200).json({
+      data: { id: replyId, answerId },
+      message: 'Answer reply deleted successfully',
+    });
+  } catch (error) {
+    console.error('Error deleting forum answer reply:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error deleting forum answer reply' });
   }
 };
 
@@ -619,16 +763,32 @@ const getQuestionVoteSummary = async (questionId) => {
   };
 };
 
-const getAnswerVoteSummary = async (answerId) => {
-  const [voteScore, voteCount] = await Promise.all([
-    AnswerVote.sum('value', { where: { answerId } }),
-    AnswerVote.count({ where: { answerId } }),
-  ]);
+const EMOJI_REACTION_PATTERN =
+  /^(?=.*(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Regional_Indicator}))(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f))+$/u;
 
-  return {
-    voteScore: voteScore || 0,
-    voteCount,
-  };
+const validateReactionEmoji = (emoji) => {
+  if (typeof emoji !== 'string' || emoji.trim().length === 0) {
+    return null;
+  }
+
+  const normalizedEmoji = emoji.trim();
+  if (
+    normalizedEmoji.length > 32 ||
+    !EMOJI_REACTION_PATTERN.test(normalizedEmoji)
+  ) {
+    return null;
+  }
+
+  return normalizedEmoji;
+};
+
+const getAnswerReactionSummary = async (answerId, userId) => {
+  const reactions = await AnswerReaction.findAll({
+    where: { answerId },
+    attributes: ['emoji', 'userId'],
+  });
+
+  return summarizeAnswerReactions(reactions, userId);
 };
 
 const handleVoteQuestion = async (req, res) => {
@@ -724,11 +884,11 @@ const handleRemoveQuestionVote = async (req, res) => {
   }
 };
 
-const handleVoteAnswer = async (req, res) => {
+const handleReactToAnswer = async (req, res) => {
   try {
-    const value = validateVoteValue(req.body.value);
-    if (!value) {
-      return res.status(400).json({ errors: ['value must be 1 or -1'] });
+    const emoji = validateReactionEmoji(req.body?.emoji);
+    if (!emoji) {
+      return res.status(400).json({ errors: ['emoji must be an emoji'] });
     }
 
     const answerId = Number(req.params.id);
@@ -738,52 +898,52 @@ const handleVoteAnswer = async (req, res) => {
     }
 
     const userId = getAuthenticatedUserId(req);
-    const existingVote = await AnswerVote.findOne({
-      where: { answerId, userId },
+    const existingReaction = await AnswerReaction.findOne({
+      where: { answerId, userId, emoji },
     });
 
-    if (existingVote) {
-      await existingVote.update({ value });
-    } else {
-      await AnswerVote.create({ answerId, userId, value });
+    if (!existingReaction) {
+      await AnswerReaction.create({ answerId, userId, emoji });
     }
 
-    const shouldNotifyUpvote =
-      value === 1 &&
+    if (
+      !existingReaction &&
       answer.userId &&
-      Number(answer.userId) !== Number(userId) &&
-      Number(existingVote?.value) !== 1;
-
-    if (shouldNotifyUpvote) {
+      Number(answer.userId) !== Number(userId)
+    ) {
       await notifyUser(req, answer.userId, {
-        type: 'forum_answer_upvote',
-        content: 'Netko je upvoteao tvoj odgovor.',
+        type: 'forum_answer_reaction',
+        content: 'Netko je reagirao na tvoj odgovor.',
         actionId: answerId,
         actionType: 'forum_answer',
       });
     }
 
-    const summary = await getAnswerVoteSummary(answerId);
+    const summary = await getAnswerReactionSummary(answerId, userId);
     const data = {
       answerId,
-      userVote: value,
       ...summary,
     };
 
-    emitForumEvent(req, 'forum-answer-vote-updated', {
+    emitForumEvent(req, 'forum-answer-reaction-updated', {
       data,
       questionId: answer.questionId,
     });
 
     return res.status(200).json({ data });
   } catch (error) {
-    console.error('Error voting on forum answer:', error);
-    return res.status(500).json({ message: 'Error voting on forum answer' });
+    console.error('Error reacting to forum answer:', error);
+    return res.status(500).json({ message: 'Error reacting to forum answer' });
   }
 };
 
-const handleRemoveAnswerVote = async (req, res) => {
+const handleRemoveAnswerReaction = async (req, res) => {
   try {
+    const emoji = validateReactionEmoji(req.body?.emoji || req.query.emoji);
+    if (!emoji) {
+      return res.status(400).json({ errors: ['emoji must be an emoji'] });
+    }
+
     const answerId = Number(req.params.id);
     const answer = await Answer.findByPk(answerId);
     if (!answer) {
@@ -791,52 +951,55 @@ const handleRemoveAnswerVote = async (req, res) => {
     }
 
     const userId = getAuthenticatedUserId(req);
-    const existingVote = await AnswerVote.findOne({
-      where: { answerId, userId },
+    const existingReaction = await AnswerReaction.findOne({
+      where: { answerId, userId, emoji },
     });
 
-    if (!existingVote) {
-      return res
-        .status(400)
-        .json({ message: 'You have not voted on this answer' });
+    if (!existingReaction) {
+      return res.status(400).json({
+        message: 'You have not reacted to this answer with that emoji',
+      });
     }
 
-    await existingVote.destroy();
-    const summary = await getAnswerVoteSummary(answerId);
+    await existingReaction.destroy();
+
+    const summary = await getAnswerReactionSummary(answerId, userId);
     const data = {
       answerId,
-      userVote: null,
       ...summary,
     };
 
-    emitForumEvent(req, 'forum-answer-vote-updated', {
+    emitForumEvent(req, 'forum-answer-reaction-updated', {
       data,
       questionId: answer.questionId,
     });
 
     return res.status(200).json({ data });
   } catch (error) {
-    console.error('Error removing forum answer vote:', error);
+    console.error('Error removing forum answer reaction:', error);
     return res
       .status(500)
-      .json({ message: 'Error removing forum answer vote' });
+      .json({ message: 'Error removing forum answer reaction' });
   }
 };
 
 module.exports = {
   handleAcceptAnswer,
   handleCreateAnswer,
+  handleCreateAnswerReply,
   handleCreateQuestion,
   handleDeleteAnswer,
   handleDeleteAnswerImage,
+  handleDeleteAnswerReply,
   handleDeleteQuestion,
   handleDeleteQuestionImage,
   handleGetQuestionById,
   handleGetQuestions,
-  handleRemoveAnswerVote,
+  handleReactToAnswer,
+  handleRemoveAnswerReaction,
   handleRemoveQuestionVote,
   handleUpdateAnswer,
+  handleUpdateAnswerReply,
   handleUpdateQuestion,
-  handleVoteAnswer,
   handleVoteQuestion,
 };

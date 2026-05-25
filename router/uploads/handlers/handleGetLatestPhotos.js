@@ -1,4 +1,4 @@
-const Upload = require('../../../models').Upload;
+const { Upload, User } = require('../../../models');
 const addSecureUrlsToList =
   require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
@@ -15,6 +15,9 @@ const handleGetLatestPhotos = async (req, res) => {
           [Op.like]: `${env}/user/%`,
         },
       },
+      include: [
+        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+      ],
       limit: 3,
       order: [['createdAt', 'DESC']],
     });

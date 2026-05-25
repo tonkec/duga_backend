@@ -1,4 +1,8 @@
 jest.mock('../models', () => ({
+  ProfileView: {
+    create: jest.fn(),
+    findAndCountAll: jest.fn(),
+  },
   User: {
     findAll: jest.fn(),
     findByPk: jest.fn(),
@@ -8,12 +12,13 @@ jest.mock('../models', () => ({
 }));
 
 const { Op } = require('sequelize');
-const { User } = require('../models');
+const { ProfileView, User } = require('../models');
 const handleGetAllUsers = require('../router/users/handlers/handleGetAllUsers');
 const handleGetCurrentUser = require('../router/users/handlers/handleGetCurrentUser');
 const handleGetUserById = require('../router/users/handlers/handleGetUserById');
 const handleGetUserByUsername = require('../router/users/handlers/handleGetUserByUsername');
 const handleGetUserOnlineStatus = require('../router/users/handlers/handleGetUserOnlineStatus');
+const handleGetProfileViews = require('../router/users/handlers/handleGetProfileViews');
 const handlePostLogin = require('../router/users/handlers/handlePostLogin');
 const handleUpdateUser = require('../router/users/handlers/handleUpdateUser');
 
@@ -101,7 +106,7 @@ describe('users controller handlers', () => {
 
   it('gets user by id without sensitive fields', async () => {
     const user = { id: 2, username: 'duga' };
-    const req = { params: { id: '2' } };
+    const req = { auth: { user: { id: 1 } }, params: { id: '2' } };
     const res = buildResponse();
 
     User.findByPk.mockResolvedValue(user);
@@ -122,6 +127,47 @@ describe('users controller handlers', () => {
       })
     );
     expect(res.json).toHaveBeenCalledWith(user);
+    expect(ProfileView.create).toHaveBeenCalledWith({
+      viewerId: 1,
+      viewedUserId: '2',
+    });
+  });
+
+  it('lists profile viewers with timestamps', async () => {
+    const req = { auth: { user: { id: 1 } }, query: { page: '2', limit: '5' } };
+    const res = buildResponse();
+    const rows = [
+      {
+        id: 1,
+        viewerId: 2,
+        viewedUserId: 1,
+        createdAt: new Date('2026-05-25T19:05:00.000Z'),
+        viewer: { id: 2, username: 'duga' },
+      },
+    ];
+
+    ProfileView.findAndCountAll.mockResolvedValue({ count: 6, rows });
+
+    await handleGetProfileViews(req, res);
+
+    expect(ProfileView.findAndCountAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { viewedUserId: 1 },
+        order: [['createdAt', 'DESC']],
+        limit: 5,
+        offset: 5,
+      })
+    );
+    expect(res.status).toHaveBeenCalledWith(200);
+    expect(res.json).toHaveBeenCalledWith({
+      data: rows,
+      pagination: {
+        page: 2,
+        limit: 5,
+        total: 6,
+        totalPages: 2,
+      },
+    });
   });
 
   it('searches users by username prefix', async () => {

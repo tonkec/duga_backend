@@ -90,6 +90,10 @@ jest.mock('../router/uploads/s3/uploadProfileImages', () => {
             imageId: 'profile.jpg',
             description: 'New profile image',
             isProfilePhoto: req.headers['x-test-profile-photo'] === 'true',
+            taggedUserIds:
+              req.headers['x-test-tagged-users'] === 'true'
+                ? ['user-2', 'user-3']
+                : [],
           },
         ]),
       };
@@ -239,6 +243,19 @@ describe('uploads and images routes', () => {
       userId: 'user-1',
       isProfilePhoto: false,
     });
+  });
+
+  it('tags users from uploaded image descriptions', async () => {
+    const setTaggedUsers = jest.fn().mockResolvedValue(undefined);
+    Upload.findOne.mockResolvedValue(null);
+    Upload.create.mockResolvedValue({ id: 202, setTaggedUsers });
+
+    const response = await authenticated(
+      request(app).post('/uploads/photos')
+    ).set('x-test-tagged-users', 'true');
+
+    expect(response.status).toBe(200);
+    expect(setTaggedUsers).toHaveBeenCalledWith(['user-2', 'user-3']);
   });
 
   it('checks profile photos with Rekognition before saving metadata', async () => {
