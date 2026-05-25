@@ -5,12 +5,15 @@ const {
   authenticatedAppSession,
 } = require('../middleware/authenticatedAppSession');
 const withAccessCheck = require('../middleware/accessCheck');
+const uploadForumImage = require('./forum/s3/uploadForumImage');
 const {
   handleAcceptAnswer,
   handleCreateAnswer,
   handleCreateQuestion,
   handleDeleteAnswer,
+  handleDeleteAnswerImage,
   handleDeleteQuestion,
+  handleDeleteQuestionImage,
   handleGetQuestionById,
   handleGetQuestions,
   handleRemoveAnswerVote,
@@ -21,13 +24,26 @@ const {
   handleVoteQuestion,
 } = require('./forum/handlers');
 
-router.get('/questions', handleGetQuestions);
-router.get('/questions/:id', handleGetQuestionById);
-router.post('/questions', authenticatedAppSession, handleCreateQuestion);
+router.get('/questions', authenticatedAppSession, handleGetQuestions);
+router.get('/questions/:id', authenticatedAppSession, handleGetQuestionById);
+router.post(
+  '/questions',
+  [...authenticatedAppSession, ...uploadForumImage('question')],
+  handleCreateQuestion
+);
 router.patch(
   '/questions/:id',
-  [...authenticatedAppSession, withAccessCheck(Question)],
+  [
+    ...authenticatedAppSession,
+    withAccessCheck(Question),
+    ...uploadForumImage('question'),
+  ],
   handleUpdateQuestion
+);
+router.delete(
+  '/questions/:id/image',
+  [...authenticatedAppSession, withAccessCheck(Question)],
+  handleDeleteQuestionImage
 );
 router.delete(
   '/questions/:id',
@@ -46,18 +62,27 @@ router.delete(
 );
 router.post(
   '/questions/:questionId/answers',
-  authenticatedAppSession,
+  [...authenticatedAppSession, ...uploadForumImage('answer')],
   handleCreateAnswer
 );
 router.patch(
   '/answers/:id',
-  [...authenticatedAppSession, withAccessCheck(Answer)],
+  [
+    ...authenticatedAppSession,
+    withAccessCheck(Answer),
+    ...uploadForumImage('answer'),
+  ],
   handleUpdateAnswer
 );
 router.delete(
   '/answers/:id',
   [...authenticatedAppSession, withAccessCheck(Answer)],
   handleDeleteAnswer
+);
+router.delete(
+  '/answers/:id/image',
+  [...authenticatedAppSession, withAccessCheck(Answer)],
+  handleDeleteAnswerImage
 );
 router.post('/answers/:id/votes', authenticatedAppSession, handleVoteAnswer);
 router.delete(

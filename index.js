@@ -1,8 +1,21 @@
 const express = require('express');
-const config = require('./config/app');
-const router = require('./router');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+
+const logUnhandledError = (label, error) => {
+  console.error(`[${new Date().toISOString()}] ${label}:`, error);
+};
+
+process.on('uncaughtException', (error) => {
+  logUnhandledError('Uncaught exception', error);
+});
+
+process.on('unhandledRejection', (reason) => {
+  logUnhandledError('Unhandled promise rejection', reason);
+});
+
+const config = require('./config/app');
+const router = require('./router');
 const app = express();
 const http = require('http');
 const port = process.env.PORT || config.appPort;
@@ -38,6 +51,19 @@ app.use(bodyParser.json());
 app.use(router);
 app.use(express.static(__dirname + '/public'));
 app.use(express.static(__dirname + '/uploads'));
+app.use((err, req, res, next) => {
+  logUnhandledError(`${req.method} ${req.originalUrl}`, err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  const statusCode = err.status || err.statusCode || 500;
+
+  return res.status(statusCode).json({
+    error: statusCode >= 500 ? 'Internal server error' : err.message || 'Error',
+  });
+});
 
 const server = http.createServer(app);
 const SocketServer = require('./socket');

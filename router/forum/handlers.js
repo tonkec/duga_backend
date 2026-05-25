@@ -5,9 +5,15 @@ const {
   Category,
   Question,
   QuestionVote,
+  Upload,
   User,
   sequelize,
 } = require('../../models');
+const s3 = require('../../utils/s3');
+const { attachSecureUrl } = require('../../utils/secureUploadUrl');
+const getBearerToken = require('../../utils/getBearerToken');
+const { API_BASE_URL } = require('../../consts/apiBaseUrl');
+const { BUCKET } = require('../uploads/s3/rekognitionConfiguration');
 
 const USER_ATTRIBUTES = ['id', 'username', 'firstName', 'lastName', 'avatar'];
 const questionVoteAttributes = [
@@ -59,6 +65,89 @@ const getAuthenticatedUserId = (req) => req.user?.id || req.auth?.user?.id;
 
 const hasField = (body, field) =>
   Object.prototype.hasOwnProperty.call(body, field);
+
+const emitForumEvent = (req, event, payload) => {
+  const io = req.app.get('io');
+  if (io) {
+    io.emit(event, payload);
+  }
+};
+
+const getForumEnv = () => process.env.NODE_ENV || 'development';
+
+const getStoredForumImageKey = (imageUrl) => {
+  if (!imageUrl) return null;
+  const envPrefix = `${getForumEnv()}/`;
+  return imageUrl.startsWith(envPrefix) ? imageUrl : `${envPrefix}${imageUrl}`;
+};
+
+const normalizeForumImageUrl = (key) => {
+  const envPrefix = `${getForumEnv()}/`;
+  return key.startsWith(envPrefix) ? key.slice(envPrefix.length) : key;
+};
+
+const serializeForumItem = (item, req) => {
+  const plain = item?.toJSON?.() || item;
+  if (!plain) return plain;
+
+  if (plain.imageUrl) {
+    plain.securePhotoUrl = attachSecureUrl(
+      API_BASE_URL,
+      getStoredForumImageKey(plain.imageUrl),
+      getBearerToken(req)
+    );
+  }
+
+  if (Array.isArray(plain.answers)) {
+    plain.answers = plain.answers.map((answer) =>
+      serializeForumItem(answer, req)
+    );
+  }
+
+  return plain;
+};
+
+const persistForumImage = async (req) => {
+  if (!req.forumImage) return null;
+
+  const imageUrl = normalizeForumImageUrl(req.forumImage.key);
+  await Upload.create({
+    url: req.forumImage.key,
+    name: req.forumImage.name,
+    filetype: req.forumImage.mimetype,
+    userId: getAuthenticatedUserId(req),
+  });
+
+  return imageUrl;
+};
+
+const deleteForumImage = async (imageUrl) => {
+  const key = getStoredForumImageKey(imageUrl);
+  if (!key) return;
+
+  await s3
+    .deleteObject({ Bucket: BUCKET, Key: key })
+    .promise()
+    .catch(() => {});
+
+  if (Upload?.destroy) {
+    await Upload.destroy({ where: { url: key } }).catch(() => {});
+  }
+};
+
+const deleteQuestionAnswerImages = async (questionId) => {
+  const answersWithImages = await Answer.findAll({
+    where: {
+      questionId,
+      imageUrl: { [Op.ne]: null },
+    },
+    attributes: ['imageUrl'],
+  });
+
+  await Promise.all(
+    answersWithImages.map((answer) => deleteForumImage(answer.imageUrl))
+  );
+};
 
 const validateQuestionInput = (body, { partial = false } = {}) => {
   const errors = [];
@@ -155,7 +244,7 @@ const handleGetQuestions = async (req, res) => {
     });
 
     return res.status(200).json({
-      data: rows,
+      data: rows.map((question) => serializeForumItem(question, req)),
       pagination: {
         page,
         limit,
@@ -176,7 +265,7 @@ const handleGetQuestionById = async (req, res) => {
       return res.status(404).json({ message: 'Question not found' });
     }
 
-    return res.status(200).json({ data: question });
+    return res.status(200).json({ data: serializeForumItem(question, req) });
   } catch (error) {
     console.error('Error fetching forum question:', error);
     return res.status(500).json({ message: 'Error fetching forum question' });
@@ -190,18 +279,25 @@ const handleCreateQuestion = async (req, res) => {
       return res.status(400).json({ errors });
     }
 
-    const question = await Question.create({
+    const imageUrl = await persistForumImage(req);
+    const questionPayload = {
       userId: getAuthenticatedUserId(req),
       title: req.body.title.trim(),
       body: req.body.body.trim(),
       categoryId: normalizeCategoryId(req.body.categoryId) ?? null,
-    });
+    };
+    if (imageUrl) questionPayload.imageUrl = imageUrl;
+
+    const question = await Question.create(questionPayload);
     const fullQuestion = await Question.findByPk(question.id, {
       attributes: { include: questionVoteAttributes },
       include: QUESTION_INCLUDE,
     });
+    const data = serializeForumItem(fullQuestion, req);
 
-    return res.status(201).json({ data: fullQuestion });
+    emitForumEvent(req, 'forum-question-created', { data });
+
+    return res.status(201).json({ data });
   } catch (error) {
     console.error('Error creating forum question:', error);
     return res.status(500).json({ message: 'Error creating forum question' });
@@ -224,14 +320,21 @@ const handleUpdateQuestion = async (req, res) => {
     if (hasField(req.body, 'isResolved')) {
       question.isResolved = req.body.isResolved;
     }
+    if (req.forumImage) {
+      await deleteForumImage(question.imageUrl);
+      question.imageUrl = await persistForumImage(req);
+    }
 
     await question.save();
     const fullQuestion = await Question.findByPk(question.id, {
       attributes: { include: questionVoteAttributes },
       include: QUESTION_INCLUDE,
     });
+    const data = serializeForumItem(fullQuestion, req);
 
-    return res.status(200).json({ data: fullQuestion });
+    emitForumEvent(req, 'forum-question-updated', { data });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error updating forum question:', error);
     return res.status(500).json({ message: 'Error updating forum question' });
@@ -241,7 +344,13 @@ const handleUpdateQuestion = async (req, res) => {
 const handleDeleteQuestion = async (req, res) => {
   try {
     const questionId = req.resource.id;
+    await deleteQuestionAnswerImages(questionId);
+    await deleteForumImage(req.resource.imageUrl);
     await req.resource.destroy();
+
+    emitForumEvent(req, 'forum-question-deleted', {
+      data: { id: questionId },
+    });
 
     return res.status(200).json({
       data: { id: questionId },
@@ -250,6 +359,36 @@ const handleDeleteQuestion = async (req, res) => {
   } catch (error) {
     console.error('Error deleting forum question:', error);
     return res.status(500).json({ message: 'Error deleting forum question' });
+  }
+};
+
+const handleDeleteQuestionImage = async (req, res) => {
+  try {
+    const question = req.resource;
+    const imageUrl = question.imageUrl;
+
+    if (!imageUrl) {
+      return res.status(400).json({ message: 'Question has no image' });
+    }
+
+    question.imageUrl = null;
+    await question.save();
+    await deleteForumImage(imageUrl);
+
+    const fullQuestion = await Question.findByPk(question.id, {
+      attributes: { include: questionVoteAttributes },
+      include: QUESTION_INCLUDE,
+    });
+    const data = serializeForumItem(fullQuestion, req);
+
+    emitForumEvent(req, 'forum-question-updated', { data });
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    console.error('Error deleting forum question image:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error deleting forum question image' });
   }
 };
 
@@ -265,17 +404,27 @@ const handleCreateAnswer = async (req, res) => {
       return res.status(404).json({ message: 'Question not found' });
     }
 
-    const answer = await Answer.create({
+    const imageUrl = await persistForumImage(req);
+    const answerPayload = {
       questionId: question.id,
       userId: getAuthenticatedUserId(req),
       body: req.body.body.trim(),
-    });
+    };
+    if (imageUrl) answerPayload.imageUrl = imageUrl;
+
+    const answer = await Answer.create(answerPayload);
     const fullAnswer = await Answer.findByPk(answer.id, {
       attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
+    const data = serializeForumItem(fullAnswer, req);
 
-    return res.status(201).json({ data: fullAnswer });
+    emitForumEvent(req, 'forum-answer-created', {
+      data,
+      questionId: question.id,
+    });
+
+    return res.status(201).json({ data });
   } catch (error) {
     console.error('Error creating forum answer:', error);
     return res.status(500).json({ message: 'Error creating forum answer' });
@@ -291,14 +440,24 @@ const handleUpdateAnswer = async (req, res) => {
 
     const answer = req.resource;
     answer.body = req.body.body.trim();
+    if (req.forumImage) {
+      await deleteForumImage(answer.imageUrl);
+      answer.imageUrl = await persistForumImage(req);
+    }
     await answer.save();
 
     const fullAnswer = await Answer.findByPk(answer.id, {
       attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
+    const data = serializeForumItem(fullAnswer, req);
 
-    return res.status(200).json({ data: fullAnswer });
+    emitForumEvent(req, 'forum-answer-updated', {
+      data,
+      questionId: answer.questionId,
+    });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error updating forum answer:', error);
     return res.status(500).json({ message: 'Error updating forum answer' });
@@ -308,7 +467,14 @@ const handleUpdateAnswer = async (req, res) => {
 const handleDeleteAnswer = async (req, res) => {
   try {
     const answerId = req.resource.id;
+    const questionId = req.resource.questionId;
+    await deleteForumImage(req.resource.imageUrl);
     await req.resource.destroy();
+
+    emitForumEvent(req, 'forum-answer-deleted', {
+      data: { id: answerId, questionId },
+      questionId,
+    });
 
     return res.status(200).json({
       data: { id: answerId },
@@ -317,6 +483,39 @@ const handleDeleteAnswer = async (req, res) => {
   } catch (error) {
     console.error('Error deleting forum answer:', error);
     return res.status(500).json({ message: 'Error deleting forum answer' });
+  }
+};
+
+const handleDeleteAnswerImage = async (req, res) => {
+  try {
+    const answer = req.resource;
+    const imageUrl = answer.imageUrl;
+
+    if (!imageUrl) {
+      return res.status(400).json({ message: 'Answer has no image' });
+    }
+
+    answer.imageUrl = null;
+    await answer.save();
+    await deleteForumImage(imageUrl);
+
+    const fullAnswer = await Answer.findByPk(answer.id, {
+      attributes: { include: answerVoteAttributes() },
+      include: ANSWER_INCLUDE,
+    });
+    const data = serializeForumItem(fullAnswer, req);
+
+    emitForumEvent(req, 'forum-answer-updated', {
+      data,
+      questionId: answer.questionId,
+    });
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    console.error('Error deleting forum answer image:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error deleting forum answer image' });
   }
 };
 
@@ -355,8 +554,14 @@ const handleAcceptAnswer = async (req, res) => {
       attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
+    const data = serializeForumItem(fullAnswer, req);
 
-    return res.status(200).json({ data: fullAnswer });
+    emitForumEvent(req, 'forum-answer-accepted', {
+      data,
+      questionId: question.id,
+    });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error accepting forum answer:', error);
     return res.status(500).json({ message: 'Error accepting forum answer' });
@@ -421,14 +626,15 @@ const handleVoteQuestion = async (req, res) => {
     }
 
     const summary = await getQuestionVoteSummary(questionId);
+    const data = {
+      questionId,
+      userVote: value,
+      ...summary,
+    };
 
-    return res.status(200).json({
-      data: {
-        questionId,
-        userVote: value,
-        ...summary,
-      },
-    });
+    emitForumEvent(req, 'forum-question-vote-updated', { data });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error voting on forum question:', error);
     return res.status(500).json({ message: 'Error voting on forum question' });
@@ -456,14 +662,15 @@ const handleRemoveQuestionVote = async (req, res) => {
 
     await existingVote.destroy();
     const summary = await getQuestionVoteSummary(questionId);
+    const data = {
+      questionId,
+      userVote: null,
+      ...summary,
+    };
 
-    return res.status(200).json({
-      data: {
-        questionId,
-        userVote: null,
-        ...summary,
-      },
-    });
+    emitForumEvent(req, 'forum-question-vote-updated', { data });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error removing forum question vote:', error);
     return res
@@ -497,14 +704,18 @@ const handleVoteAnswer = async (req, res) => {
     }
 
     const summary = await getAnswerVoteSummary(answerId);
+    const data = {
+      answerId,
+      userVote: value,
+      ...summary,
+    };
 
-    return res.status(200).json({
-      data: {
-        answerId,
-        userVote: value,
-        ...summary,
-      },
+    emitForumEvent(req, 'forum-answer-vote-updated', {
+      data,
+      questionId: answer.questionId,
     });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error voting on forum answer:', error);
     return res.status(500).json({ message: 'Error voting on forum answer' });
@@ -532,14 +743,18 @@ const handleRemoveAnswerVote = async (req, res) => {
 
     await existingVote.destroy();
     const summary = await getAnswerVoteSummary(answerId);
+    const data = {
+      answerId,
+      userVote: null,
+      ...summary,
+    };
 
-    return res.status(200).json({
-      data: {
-        answerId,
-        userVote: null,
-        ...summary,
-      },
+    emitForumEvent(req, 'forum-answer-vote-updated', {
+      data,
+      questionId: answer.questionId,
     });
+
+    return res.status(200).json({ data });
   } catch (error) {
     console.error('Error removing forum answer vote:', error);
     return res
@@ -553,7 +768,9 @@ module.exports = {
   handleCreateAnswer,
   handleCreateQuestion,
   handleDeleteAnswer,
+  handleDeleteAnswerImage,
   handleDeleteQuestion,
+  handleDeleteQuestionImage,
   handleGetQuestionById,
   handleGetQuestions,
   handleRemoveAnswerVote,

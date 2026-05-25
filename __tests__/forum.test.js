@@ -4,6 +4,7 @@ const request = require('supertest');
 jest.mock('../models', () => ({
   Answer: {
     create: jest.fn(),
+    findAll: jest.fn(),
     findByPk: jest.fn(),
     findOne: jest.fn(),
     update: jest.fn(),
@@ -25,6 +26,10 @@ jest.mock('../models', () => ({
     create: jest.fn(),
     findOne: jest.fn(),
     sum: jest.fn(),
+  },
+  Upload: {
+    create: jest.fn(),
+    destroy: jest.fn(),
   },
   User: {},
   sequelize: {
@@ -72,23 +77,51 @@ jest.mock('../middleware/accessCheck', () => {
   };
 });
 
+jest.mock('../router/forum/s3/uploadForumImage', () => (target) => [
+  (req, res, next) => {
+    if (req.headers['x-test-forum-image'] === target) {
+      const env = process.env.NODE_ENV || 'development';
+      req.forumImage = {
+        key: `${env}/forum/${target}/1/test-image.jpg`,
+        name: 'test-image.jpg',
+        mimetype: 'image/jpeg',
+      };
+    }
+    next();
+  },
+]);
+
+jest.mock('../utils/s3', () => ({
+  deleteObject: jest.fn(() => ({
+    promise: jest.fn().mockResolvedValue(undefined),
+  })),
+}));
+
 const {
   Answer,
   AnswerVote,
   Question,
   QuestionVote,
   sequelize,
+  Upload,
 } = require('../models');
+const s3 = require('../utils/s3');
 const forumRouter = require('../router/forum');
 
-const buildApp = () => {
+const buildApp = (io) => {
   const app = express();
+  if (io) {
+    app.set('io', io);
+  }
   app.use(express.json());
   app.use('/forum', forumRouter);
   return app;
 };
 
 const authHeaders = { Authorization: 'Bearer test-token' };
+const buildIoMock = () => ({
+  emit: jest.fn(),
+});
 
 describe('forum routes', () => {
   let app;
@@ -113,9 +146,9 @@ describe('forum routes', () => {
       rows: [{ id: 1, title: 'Valid question title' }],
     });
 
-    const response = await request(app).get(
-      '/forum/questions?page=2&limit=5&search=sequelize&categoryId=3'
-    );
+    const response = await request(app)
+      .get('/forum/questions?page=2&limit=5&search=sequelize&categoryId=3')
+      .set(authHeaders);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -131,14 +164,65 @@ describe('forum routes', () => {
     );
   });
 
-  it('creates a question for an authenticated user', async () => {
-    Question.create.mockResolvedValue({ id: 10 });
+  it('requires authentication to read questions', async () => {
+    const listResponse = await request(app).get('/forum/questions');
+    const detailResponse = await request(app).get('/forum/questions/10');
+
+    expect(listResponse.status).toBe(401);
+    expect(detailResponse.status).toBe(401);
+  });
+
+  it('gets a question with its answers', async () => {
     Question.findByPk.mockResolvedValue({
       id: 10,
       userId: 1,
       title: 'How does Sequelize work?',
       body: 'I need help understanding Sequelize associations.',
+      answers: [
+        {
+          id: 22,
+          questionId: 10,
+          userId: 2,
+          body: 'Use hasMany and belongsTo associations.',
+        },
+      ],
     });
+
+    const response = await request(app)
+      .get('/forum/questions/10')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(Question.findByPk).toHaveBeenCalledWith(
+      '10',
+      expect.objectContaining({
+        include: expect.any(Array),
+      })
+    );
+    expect(response.body.data).toEqual(
+      expect.objectContaining({
+        id: 10,
+        answers: [
+          expect.objectContaining({
+            id: 22,
+            body: 'Use hasMany and belongsTo associations.',
+          }),
+        ],
+      })
+    );
+  });
+
+  it('creates a question for an authenticated user', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Question.create.mockResolvedValue({ id: 10 });
+    const fullQuestion = {
+      id: 10,
+      userId: 1,
+      title: 'How does Sequelize work?',
+      body: 'I need help understanding Sequelize associations.',
+    };
+    Question.findByPk.mockResolvedValue(fullQuestion);
 
     const response = await request(app)
       .post('/forum/questions')
@@ -157,6 +241,9 @@ describe('forum routes', () => {
       categoryId: 2,
     });
     expect(response.body.data.id).toBe(10);
+    expect(io.emit).toHaveBeenCalledWith('forum-question-created', {
+      data: fullQuestion,
+    });
   });
 
   it('validates question input', async () => {
@@ -171,6 +258,43 @@ describe('forum routes', () => {
       'body must be at least 10 characters',
     ]);
     expect(Question.create).not.toHaveBeenCalled();
+  });
+
+  it('creates a question with a moderated image', async () => {
+    Question.create.mockResolvedValue({ id: 11 });
+    Question.findByPk.mockResolvedValue({
+      id: 11,
+      userId: 1,
+      title: 'How does image upload work?',
+      body: 'I need help understanding image upload moderation.',
+      imageUrl: 'forum/question/1/test-image.jpg',
+    });
+    Upload.create.mockResolvedValue({ id: 99 });
+
+    const response = await request(app)
+      .post('/forum/questions')
+      .set(authHeaders)
+      .set('x-test-forum-image', 'question')
+      .send({
+        title: 'How does image upload work?',
+        body: 'I need help understanding image upload moderation.',
+      });
+
+    expect(response.status).toBe(201);
+    expect(Upload.create).toHaveBeenCalledWith({
+      url: 'test/forum/question/1/test-image.jpg',
+      name: 'test-image.jpg',
+      filetype: 'image/jpeg',
+      userId: 1,
+    });
+    expect(Question.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageUrl: 'forum/question/1/test-image.jpg',
+      })
+    );
+    expect(response.body.data.securePhotoUrl).toContain(
+      '/uploads/files/test%2Fforum%2Fquestion%2F1%2Ftest-image.jpg'
+    );
   });
 
   it('updates only questions owned by the authenticated user', async () => {
@@ -201,6 +325,89 @@ describe('forum routes', () => {
     expect(response.body.data.title).toBe('Updated forum title');
   });
 
+  it('deletes answer images when deleting a question', async () => {
+    const question = {
+      id: 10,
+      userId: 1,
+      imageUrl: 'forum/question/1/question-image.jpg',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    Question.findByPk.mockResolvedValue(question);
+    Answer.findAll.mockResolvedValue([
+      { imageUrl: 'forum/answer/1/answer-image.jpg' },
+      { imageUrl: 'test/forum/answer/1/prefixed-answer-image.jpg' },
+    ]);
+    Upload.destroy.mockResolvedValue(1);
+
+    const response = await request(app)
+      .delete('/forum/questions/10')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(Answer.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ questionId: 10 }),
+        attributes: ['imageUrl'],
+      })
+    );
+    expect(s3.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Key: 'test/forum/question/1/question-image.jpg',
+      })
+    );
+    expect(s3.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Key: 'test/forum/answer/1/answer-image.jpg',
+      })
+    );
+    expect(s3.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({
+        Key: 'test/forum/answer/1/prefixed-answer-image.jpg',
+      })
+    );
+    expect(Upload.destroy).toHaveBeenCalledWith({
+      where: { url: 'test/forum/answer/1/answer-image.jpg' },
+    });
+    expect(question.destroy).toHaveBeenCalled();
+  });
+
+  it('deletes a question image without deleting the question', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    const question = {
+      id: 10,
+      userId: 1,
+      imageUrl: 'forum/question/1/delete-me.jpg',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    Question.findByPk.mockResolvedValueOnce(question).mockResolvedValueOnce({
+      id: 10,
+      userId: 1,
+      title: 'Question without image',
+      body: 'The image was removed from this question.',
+      imageUrl: null,
+    });
+    Upload.destroy.mockResolvedValue(1);
+
+    const response = await request(app)
+      .delete('/forum/questions/10/image')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(question.imageUrl).toBeNull();
+    expect(question.save).toHaveBeenCalledTimes(1);
+    expect(s3.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({ Key: 'test/forum/question/1/delete-me.jpg' })
+    );
+    expect(Upload.destroy).toHaveBeenCalledWith({
+      where: { url: 'test/forum/question/1/delete-me.jpg' },
+    });
+    expect(response.body.data.imageUrl).toBeNull();
+    expect(io.emit).toHaveBeenCalledWith('forum-question-updated', {
+      data: expect.objectContaining({ id: 10, imageUrl: null }),
+    });
+  });
+
   it('rejects answer updates from non-owners', async () => {
     Answer.findByPk.mockResolvedValue({ id: 22, userId: 2 });
 
@@ -210,6 +417,108 @@ describe('forum routes', () => {
       .send({ body: 'Updated answer' });
 
     expect(response.status).toBe(403);
+  });
+
+  it('updates an answer owned by the authenticated user', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    const answer = {
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      body: 'Original answer body.',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    Answer.findByPk.mockResolvedValueOnce(answer).mockResolvedValueOnce({
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      body: 'Updated answer body.',
+    });
+
+    const response = await request(app)
+      .patch('/forum/answers/22')
+      .set(authHeaders)
+      .send({ body: 'Updated answer body.' });
+
+    expect(response.status).toBe(200);
+    expect(answer.body).toBe('Updated answer body.');
+    expect(answer.save).toHaveBeenCalledTimes(1);
+    expect(response.body.data.body).toBe('Updated answer body.');
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-updated', {
+      data: expect.objectContaining({ id: 22, body: 'Updated answer body.' }),
+      questionId: 10,
+    });
+  });
+
+  it('deletes an answer owned by the authenticated user', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    const answer = {
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      imageUrl: 'forum/answer/1/delete-me.jpg',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    Answer.findByPk.mockResolvedValue(answer);
+    Upload.destroy.mockResolvedValue(1);
+
+    const response = await request(app)
+      .delete('/forum/answers/22')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(s3.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({ Key: 'test/forum/answer/1/delete-me.jpg' })
+    );
+    expect(Upload.destroy).toHaveBeenCalledWith({
+      where: { url: 'test/forum/answer/1/delete-me.jpg' },
+    });
+    expect(answer.destroy).toHaveBeenCalledTimes(1);
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-deleted', {
+      data: { id: 22, questionId: 10 },
+      questionId: 10,
+    });
+  });
+
+  it('deletes an answer image without deleting the answer', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    const answer = {
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      imageUrl: 'forum/answer/1/delete-me.jpg',
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+    Answer.findByPk.mockResolvedValueOnce(answer).mockResolvedValueOnce({
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      body: 'Answer without image.',
+      imageUrl: null,
+    });
+    Upload.destroy.mockResolvedValue(1);
+
+    const response = await request(app)
+      .delete('/forum/answers/22/image')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(answer.imageUrl).toBeNull();
+    expect(answer.save).toHaveBeenCalledTimes(1);
+    expect(s3.deleteObject).toHaveBeenCalledWith(
+      expect.objectContaining({ Key: 'test/forum/answer/1/delete-me.jpg' })
+    );
+    expect(Upload.destroy).toHaveBeenCalledWith({
+      where: { url: 'test/forum/answer/1/delete-me.jpg' },
+    });
+    expect(response.body.data.imageUrl).toBeNull();
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-updated', {
+      data: expect.objectContaining({ id: 22, imageUrl: null }),
+      questionId: 10,
+    });
   });
 
   it('creates an answer for an existing question', async () => {
@@ -234,6 +543,41 @@ describe('forum routes', () => {
       body: 'Use a belongsTo association.',
     });
     expect(response.body.data.id).toBe(22);
+  });
+
+  it('creates an answer with a moderated image', async () => {
+    Question.findByPk.mockResolvedValue({ id: 10 });
+    Answer.create.mockResolvedValue({ id: 23 });
+    Answer.findByPk.mockResolvedValue({
+      id: 23,
+      questionId: 10,
+      userId: 1,
+      body: 'Use the image field.',
+      imageUrl: 'forum/answer/1/test-image.jpg',
+    });
+    Upload.create.mockResolvedValue({ id: 100 });
+
+    const response = await request(app)
+      .post('/forum/questions/10/answers')
+      .set(authHeaders)
+      .set('x-test-forum-image', 'answer')
+      .send({ body: 'Use the image field.' });
+
+    expect(response.status).toBe(201);
+    expect(Upload.create).toHaveBeenCalledWith({
+      url: 'test/forum/answer/1/test-image.jpg',
+      name: 'test-image.jpg',
+      filetype: 'image/jpeg',
+      userId: 1,
+    });
+    expect(Answer.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        imageUrl: 'forum/answer/1/test-image.jpg',
+      })
+    );
+    expect(response.body.data.securePhotoUrl).toContain(
+      '/uploads/files/test%2Fforum%2Fanswer%2F1%2Ftest-image.jpg'
+    );
   });
 
   it('accepts an answer only as the question owner', async () => {
@@ -305,6 +649,32 @@ describe('forum routes', () => {
     });
   });
 
+  it('sets a question downvote for the authenticated user', async () => {
+    Question.findByPk.mockResolvedValue({ id: 10 });
+    QuestionVote.findOne.mockResolvedValue(null);
+    QuestionVote.create.mockResolvedValue({ id: 1 });
+    QuestionVote.sum.mockResolvedValue(-1);
+    QuestionVote.count.mockResolvedValue(1);
+
+    const response = await request(app)
+      .post('/forum/questions/10/votes')
+      .set(authHeaders)
+      .send({ value: -1 });
+
+    expect(response.status).toBe(200);
+    expect(QuestionVote.create).toHaveBeenCalledWith({
+      questionId: 10,
+      userId: 1,
+      value: -1,
+    });
+    expect(response.body.data).toEqual({
+      questionId: 10,
+      userVote: -1,
+      voteScore: -1,
+      voteCount: 1,
+    });
+  });
+
   it('updates an existing question vote', async () => {
     const existingVote = {
       id: 1,
@@ -351,7 +721,9 @@ describe('forum routes', () => {
   });
 
   it('sets an answer vote for the authenticated user', async () => {
-    Answer.findByPk.mockResolvedValue({ id: 22 });
+    const io = buildIoMock();
+    app = buildApp(io);
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
     AnswerVote.findOne.mockResolvedValue(null);
     AnswerVote.create.mockResolvedValue({ id: 1 });
     AnswerVote.sum.mockResolvedValue(2);
@@ -373,6 +745,91 @@ describe('forum routes', () => {
       userVote: 1,
       voteScore: 2,
       voteCount: 2,
+    });
+    expect(io.emit).toHaveBeenCalledWith('forum-answer-vote-updated', {
+      data: {
+        answerId: 22,
+        userVote: 1,
+        voteScore: 2,
+        voteCount: 2,
+      },
+      questionId: 10,
+    });
+  });
+
+  it('sets an answer downvote for the authenticated user', async () => {
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+    AnswerVote.findOne.mockResolvedValue(null);
+    AnswerVote.create.mockResolvedValue({ id: 1 });
+    AnswerVote.sum.mockResolvedValue(-1);
+    AnswerVote.count.mockResolvedValue(1);
+
+    const response = await request(app)
+      .post('/forum/answers/22/votes')
+      .set(authHeaders)
+      .send({ value: -1 });
+
+    expect(response.status).toBe(200);
+    expect(AnswerVote.create).toHaveBeenCalledWith({
+      answerId: 22,
+      userId: 1,
+      value: -1,
+    });
+    expect(response.body.data).toEqual({
+      answerId: 22,
+      userVote: -1,
+      voteScore: -1,
+      voteCount: 1,
+    });
+  });
+
+  it('updates an existing answer vote', async () => {
+    const existingVote = {
+      id: 1,
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+    AnswerVote.findOne.mockResolvedValue(existingVote);
+    AnswerVote.sum.mockResolvedValue(-2);
+    AnswerVote.count.mockResolvedValue(2);
+
+    const response = await request(app)
+      .post('/forum/answers/22/votes')
+      .set(authHeaders)
+      .send({ value: -1 });
+
+    expect(response.status).toBe(200);
+    expect(existingVote.update).toHaveBeenCalledWith({ value: -1 });
+    expect(AnswerVote.create).not.toHaveBeenCalled();
+    expect(response.body.data).toEqual({
+      answerId: 22,
+      userVote: -1,
+      voteScore: -2,
+      voteCount: 2,
+    });
+  });
+
+  it('removes an answer vote', async () => {
+    const existingVote = {
+      id: 1,
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+    AnswerVote.findOne.mockResolvedValue(existingVote);
+    AnswerVote.sum.mockResolvedValue(null);
+    AnswerVote.count.mockResolvedValue(0);
+
+    const response = await request(app)
+      .delete('/forum/answers/22/votes')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(existingVote.destroy).toHaveBeenCalledTimes(1);
+    expect(response.body.data).toEqual({
+      answerId: 22,
+      userVote: null,
+      voteScore: 0,
+      voteCount: 0,
     });
   });
 
