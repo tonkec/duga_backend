@@ -1,7 +1,43 @@
 const { Op } = require('sequelize');
-const { Answer, Category, Question, User, sequelize } = require('../../models');
+const {
+  Answer,
+  AnswerVote,
+  Category,
+  Question,
+  QuestionVote,
+  User,
+  sequelize,
+} = require('../../models');
 
 const USER_ATTRIBUTES = ['id', 'username', 'firstName', 'lastName', 'avatar'];
+const questionVoteAttributes = [
+  [
+    sequelize.literal(
+      '(SELECT COALESCE(SUM("value"), 0) FROM "QuestionVotes" WHERE "QuestionVotes"."questionId" = "Question"."id")'
+    ),
+    'voteScore',
+  ],
+  [
+    sequelize.literal(
+      '(SELECT COUNT(*) FROM "QuestionVotes" WHERE "QuestionVotes"."questionId" = "Question"."id")'
+    ),
+    'voteCount',
+  ],
+];
+const answerVoteAttributes = (answerAlias = 'Answer') => [
+  [
+    sequelize.literal(
+      `(SELECT COALESCE(SUM("value"), 0) FROM "AnswerVotes" WHERE "AnswerVotes"."answerId" = "${answerAlias}"."id")`
+    ),
+    'voteScore',
+  ],
+  [
+    sequelize.literal(
+      `(SELECT COUNT(*) FROM "AnswerVotes" WHERE "AnswerVotes"."answerId" = "${answerAlias}"."id")`
+    ),
+    'voteCount',
+  ],
+];
 const QUESTION_INCLUDE = [
   { model: User, as: 'user', attributes: USER_ATTRIBUTES },
   { model: Category, as: 'category' },
@@ -14,6 +50,7 @@ const QUESTION_WITH_ANSWERS_INCLUDE = [
   {
     model: Answer,
     as: 'answers',
+    attributes: { include: answerVoteAttributes('answers') },
     include: ANSWER_INCLUDE,
   },
 ];
@@ -78,6 +115,7 @@ const normalizeCategoryId = (categoryId) => {
 
 const getQuestionById = (id) =>
   Question.findByPk(id, {
+    attributes: { include: questionVoteAttributes },
     include: QUESTION_WITH_ANSWERS_INCLUDE,
     order: [[{ model: Answer, as: 'answers' }, 'createdAt', 'ASC']],
   });
@@ -109,6 +147,7 @@ const handleGetQuestions = async (req, res) => {
 
     const { count, rows } = await Question.findAndCountAll({
       where,
+      attributes: { include: questionVoteAttributes },
       include: QUESTION_INCLUDE,
       limit,
       offset,
@@ -158,6 +197,7 @@ const handleCreateQuestion = async (req, res) => {
       categoryId: normalizeCategoryId(req.body.categoryId) ?? null,
     });
     const fullQuestion = await Question.findByPk(question.id, {
+      attributes: { include: questionVoteAttributes },
       include: QUESTION_INCLUDE,
     });
 
@@ -187,6 +227,7 @@ const handleUpdateQuestion = async (req, res) => {
 
     await question.save();
     const fullQuestion = await Question.findByPk(question.id, {
+      attributes: { include: questionVoteAttributes },
       include: QUESTION_INCLUDE,
     });
 
@@ -230,6 +271,7 @@ const handleCreateAnswer = async (req, res) => {
       body: req.body.body.trim(),
     });
     const fullAnswer = await Answer.findByPk(answer.id, {
+      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
 
@@ -252,6 +294,7 @@ const handleUpdateAnswer = async (req, res) => {
     await answer.save();
 
     const fullAnswer = await Answer.findByPk(answer.id, {
+      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
 
@@ -309,6 +352,7 @@ const handleAcceptAnswer = async (req, res) => {
     });
 
     const fullAnswer = await Answer.findByPk(answer.id, {
+      attributes: { include: answerVoteAttributes() },
       include: ANSWER_INCLUDE,
     });
 
@@ -316,6 +360,191 @@ const handleAcceptAnswer = async (req, res) => {
   } catch (error) {
     console.error('Error accepting forum answer:', error);
     return res.status(500).json({ message: 'Error accepting forum answer' });
+  }
+};
+
+const validateVoteValue = (value) => {
+  const normalizedValue = Number(value);
+  if (![1, -1].includes(normalizedValue)) {
+    return null;
+  }
+
+  return normalizedValue;
+};
+
+const getQuestionVoteSummary = async (questionId) => {
+  const [voteScore, voteCount] = await Promise.all([
+    QuestionVote.sum('value', { where: { questionId } }),
+    QuestionVote.count({ where: { questionId } }),
+  ]);
+
+  return {
+    voteScore: voteScore || 0,
+    voteCount,
+  };
+};
+
+const getAnswerVoteSummary = async (answerId) => {
+  const [voteScore, voteCount] = await Promise.all([
+    AnswerVote.sum('value', { where: { answerId } }),
+    AnswerVote.count({ where: { answerId } }),
+  ]);
+
+  return {
+    voteScore: voteScore || 0,
+    voteCount,
+  };
+};
+
+const handleVoteQuestion = async (req, res) => {
+  try {
+    const value = validateVoteValue(req.body.value);
+    if (!value) {
+      return res.status(400).json({ errors: ['value must be 1 or -1'] });
+    }
+
+    const questionId = Number(req.params.id);
+    const question = await Question.findByPk(questionId);
+    if (!question) {
+      return res.status(404).json({ message: 'Question not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const existingVote = await QuestionVote.findOne({
+      where: { questionId, userId },
+    });
+
+    if (existingVote) {
+      await existingVote.update({ value });
+    } else {
+      await QuestionVote.create({ questionId, userId, value });
+    }
+
+    const summary = await getQuestionVoteSummary(questionId);
+
+    return res.status(200).json({
+      data: {
+        questionId,
+        userVote: value,
+        ...summary,
+      },
+    });
+  } catch (error) {
+    console.error('Error voting on forum question:', error);
+    return res.status(500).json({ message: 'Error voting on forum question' });
+  }
+};
+
+const handleRemoveQuestionVote = async (req, res) => {
+  try {
+    const questionId = Number(req.params.id);
+    const question = await Question.findByPk(questionId);
+    if (!question) {
+      return res.status(404).json({ message: 'Question not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const existingVote = await QuestionVote.findOne({
+      where: { questionId, userId },
+    });
+
+    if (!existingVote) {
+      return res
+        .status(400)
+        .json({ message: 'You have not voted on this question' });
+    }
+
+    await existingVote.destroy();
+    const summary = await getQuestionVoteSummary(questionId);
+
+    return res.status(200).json({
+      data: {
+        questionId,
+        userVote: null,
+        ...summary,
+      },
+    });
+  } catch (error) {
+    console.error('Error removing forum question vote:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error removing forum question vote' });
+  }
+};
+
+const handleVoteAnswer = async (req, res) => {
+  try {
+    const value = validateVoteValue(req.body.value);
+    if (!value) {
+      return res.status(400).json({ errors: ['value must be 1 or -1'] });
+    }
+
+    const answerId = Number(req.params.id);
+    const answer = await Answer.findByPk(answerId);
+    if (!answer) {
+      return res.status(404).json({ message: 'Answer not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const existingVote = await AnswerVote.findOne({
+      where: { answerId, userId },
+    });
+
+    if (existingVote) {
+      await existingVote.update({ value });
+    } else {
+      await AnswerVote.create({ answerId, userId, value });
+    }
+
+    const summary = await getAnswerVoteSummary(answerId);
+
+    return res.status(200).json({
+      data: {
+        answerId,
+        userVote: value,
+        ...summary,
+      },
+    });
+  } catch (error) {
+    console.error('Error voting on forum answer:', error);
+    return res.status(500).json({ message: 'Error voting on forum answer' });
+  }
+};
+
+const handleRemoveAnswerVote = async (req, res) => {
+  try {
+    const answerId = Number(req.params.id);
+    const answer = await Answer.findByPk(answerId);
+    if (!answer) {
+      return res.status(404).json({ message: 'Answer not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const existingVote = await AnswerVote.findOne({
+      where: { answerId, userId },
+    });
+
+    if (!existingVote) {
+      return res
+        .status(400)
+        .json({ message: 'You have not voted on this answer' });
+    }
+
+    await existingVote.destroy();
+    const summary = await getAnswerVoteSummary(answerId);
+
+    return res.status(200).json({
+      data: {
+        answerId,
+        userVote: null,
+        ...summary,
+      },
+    });
+  } catch (error) {
+    console.error('Error removing forum answer vote:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error removing forum answer vote' });
   }
 };
 
@@ -327,6 +556,10 @@ module.exports = {
   handleDeleteQuestion,
   handleGetQuestionById,
   handleGetQuestions,
+  handleRemoveAnswerVote,
+  handleRemoveQuestionVote,
   handleUpdateAnswer,
   handleUpdateQuestion,
+  handleVoteAnswer,
+  handleVoteQuestion,
 };

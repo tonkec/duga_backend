@@ -41,6 +41,14 @@ module.exports = (sequelize, DataTypes) => {
         as: 'answers',
         foreignKey: 'userId',
       });
+      this.hasMany(models.QuestionVote, {
+        as: 'questionVotes',
+        foreignKey: 'userId',
+      });
+      this.hasMany(models.AnswerVote, {
+        as: 'answerVotes',
+        foreignKey: 'userId',
+      });
     }
   }
   User.init(

@@ -17,6 +17,11 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'questionId',
         onDelete: 'CASCADE',
       });
+      this.hasMany(models.QuestionVote, {
+        as: 'votes',
+        foreignKey: 'questionId',
+        onDelete: 'CASCADE',
+      });
     }
   }
 

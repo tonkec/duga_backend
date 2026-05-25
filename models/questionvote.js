@@ -2,7 +2,7 @@
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
-  class Answer extends Model {
+  class QuestionVote extends Model {
     static associate(models) {
       this.belongsTo(models.Question, {
         as: 'question',
@@ -12,15 +12,10 @@ module.exports = (sequelize, DataTypes) => {
         as: 'user',
         foreignKey: 'userId',
       });
-      this.hasMany(models.AnswerVote, {
-        as: 'votes',
-        foreignKey: 'answerId',
-        onDelete: 'CASCADE',
-      });
     }
   }
 
-  Answer.init(
+  QuestionVote.init(
     {
       questionId: {
         type: DataTypes.INTEGER,
@@ -30,21 +25,19 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
-      body: {
-        type: DataTypes.TEXT,
+      value: {
+        type: DataTypes.INTEGER,
         allowNull: false,
-      },
-      isAccepted: {
-        type: DataTypes.BOOLEAN,
-        allowNull: false,
-        defaultValue: false,
+        validate: {
+          isIn: [[-1, 1]],
+        },
       },
     },
     {
       sequelize,
-      modelName: 'Answer',
+      modelName: 'QuestionVote',
     }
   );
 
-  return Answer;
+  return QuestionVote;
 };

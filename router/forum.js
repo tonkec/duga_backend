@@ -13,8 +13,12 @@ const {
   handleDeleteQuestion,
   handleGetQuestionById,
   handleGetQuestions,
+  handleRemoveAnswerVote,
+  handleRemoveQuestionVote,
   handleUpdateAnswer,
   handleUpdateQuestion,
+  handleVoteAnswer,
+  handleVoteQuestion,
 } = require('./forum/handlers');
 
 router.get('/questions', handleGetQuestions);
@@ -31,6 +35,16 @@ router.delete(
   handleDeleteQuestion
 );
 router.post(
+  '/questions/:id/votes',
+  authenticatedAppSession,
+  handleVoteQuestion
+);
+router.delete(
+  '/questions/:id/votes',
+  authenticatedAppSession,
+  handleRemoveQuestionVote
+);
+router.post(
   '/questions/:questionId/answers',
   authenticatedAppSession,
   handleCreateAnswer
@@ -44,6 +58,12 @@ router.delete(
   '/answers/:id',
   [...authenticatedAppSession, withAccessCheck(Answer)],
   handleDeleteAnswer
+);
+router.post('/answers/:id/votes', authenticatedAppSession, handleVoteAnswer);
+router.delete(
+  '/answers/:id/votes',
+  authenticatedAppSession,
+  handleRemoveAnswerVote
 );
 router.patch(
   '/questions/:questionId/answers/:answerId/accept',

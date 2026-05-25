@@ -8,14 +8,27 @@ jest.mock('../models', () => ({
     findOne: jest.fn(),
     update: jest.fn(),
   },
+  AnswerVote: {
+    count: jest.fn(),
+    create: jest.fn(),
+    findOne: jest.fn(),
+    sum: jest.fn(),
+  },
   Category: {},
   Question: {
     create: jest.fn(),
     findAndCountAll: jest.fn(),
     findByPk: jest.fn(),
   },
+  QuestionVote: {
+    count: jest.fn(),
+    create: jest.fn(),
+    findOne: jest.fn(),
+    sum: jest.fn(),
+  },
   User: {},
   sequelize: {
+    literal: jest.fn((sql) => sql),
     transaction: jest.fn((callback) => callback({ id: 'transaction' })),
   },
 }));
@@ -59,7 +72,13 @@ jest.mock('../middleware/accessCheck', () => {
   };
 });
 
-const { Answer, Question, sequelize } = require('../models');
+const {
+  Answer,
+  AnswerVote,
+  Question,
+  QuestionVote,
+  sequelize,
+} = require('../models');
 const forumRouter = require('../router/forum');
 
 const buildApp = () => {
@@ -258,5 +277,113 @@ describe('forum routes', () => {
       { transaction: { id: 'transaction' } }
     );
     expect(response.body.data.isAccepted).toBe(true);
+  });
+
+  it('sets a question vote for the authenticated user', async () => {
+    Question.findByPk.mockResolvedValue({ id: 10 });
+    QuestionVote.findOne.mockResolvedValue(null);
+    QuestionVote.create.mockResolvedValue({ id: 1 });
+    QuestionVote.sum.mockResolvedValue(3);
+    QuestionVote.count.mockResolvedValue(5);
+
+    const response = await request(app)
+      .post('/forum/questions/10/votes')
+      .set(authHeaders)
+      .send({ value: 1 });
+
+    expect(response.status).toBe(200);
+    expect(QuestionVote.create).toHaveBeenCalledWith({
+      questionId: 10,
+      userId: 1,
+      value: 1,
+    });
+    expect(response.body.data).toEqual({
+      questionId: 10,
+      userVote: 1,
+      voteScore: 3,
+      voteCount: 5,
+    });
+  });
+
+  it('updates an existing question vote', async () => {
+    const existingVote = {
+      id: 1,
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+    Question.findByPk.mockResolvedValue({ id: 10 });
+    QuestionVote.findOne.mockResolvedValue(existingVote);
+    QuestionVote.sum.mockResolvedValue(-1);
+    QuestionVote.count.mockResolvedValue(1);
+
+    const response = await request(app)
+      .post('/forum/questions/10/votes')
+      .set(authHeaders)
+      .send({ value: -1 });
+
+    expect(response.status).toBe(200);
+    expect(existingVote.update).toHaveBeenCalledWith({ value: -1 });
+    expect(QuestionVote.create).not.toHaveBeenCalled();
+    expect(response.body.data.userVote).toBe(-1);
+  });
+
+  it('removes a question vote', async () => {
+    const existingVote = {
+      id: 1,
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    Question.findByPk.mockResolvedValue({ id: 10 });
+    QuestionVote.findOne.mockResolvedValue(existingVote);
+    QuestionVote.sum.mockResolvedValue(null);
+    QuestionVote.count.mockResolvedValue(0);
+
+    const response = await request(app)
+      .delete('/forum/questions/10/votes')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(existingVote.destroy).toHaveBeenCalledTimes(1);
+    expect(response.body.data).toEqual({
+      questionId: 10,
+      userVote: null,
+      voteScore: 0,
+      voteCount: 0,
+    });
+  });
+
+  it('sets an answer vote for the authenticated user', async () => {
+    Answer.findByPk.mockResolvedValue({ id: 22 });
+    AnswerVote.findOne.mockResolvedValue(null);
+    AnswerVote.create.mockResolvedValue({ id: 1 });
+    AnswerVote.sum.mockResolvedValue(2);
+    AnswerVote.count.mockResolvedValue(2);
+
+    const response = await request(app)
+      .post('/forum/answers/22/votes')
+      .set(authHeaders)
+      .send({ value: 1 });
+
+    expect(response.status).toBe(200);
+    expect(AnswerVote.create).toHaveBeenCalledWith({
+      answerId: 22,
+      userId: 1,
+      value: 1,
+    });
+    expect(response.body.data).toEqual({
+      answerId: 22,
+      userVote: 1,
+      voteScore: 2,
+      voteCount: 2,
+    });
+  });
+
+  it('validates vote value', async () => {
+    const response = await request(app)
+      .post('/forum/questions/10/votes')
+      .set(authHeaders)
+      .send({ value: 2 });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual(['value must be 1 or -1']);
+    expect(QuestionVote.create).not.toHaveBeenCalled();
   });
 });
