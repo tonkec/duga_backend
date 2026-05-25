@@ -8,7 +8,10 @@ const hashSessionId = (sessionId) =>
   crypto.createHash('sha256').update(String(sessionId)).digest('hex');
 
 const getSessionId = (req) =>
-  req.get?.(SESSION_HEADER) || req.headers?.[SESSION_HEADER] || req.body?.sessionId || null;
+  req.get?.(SESSION_HEADER) ||
+  req.headers?.[SESSION_HEADER] ||
+  req.body?.sessionId ||
+  null;
 
 module.exports = {
   SESSION_HEADER,

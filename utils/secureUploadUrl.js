@@ -30,7 +30,6 @@ const addSecureUrlsToList = (
   });
 };
 
-
 const extractKeyFromUrl = (url) => {
   console.log('🔍 Extracting key from URL:', url);
   if (!url) return null;
@@ -43,7 +42,7 @@ const extractKeyFromUrl = (url) => {
   } catch (e) {
     return null;
   }
-}
+};
 
 module.exports = {
   appendAccessToken,

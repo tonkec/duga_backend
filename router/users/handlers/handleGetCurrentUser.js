@@ -5,9 +5,16 @@ const handleGetCurrentUser = async (req, res) => {
     const userId = req.auth.user.id;
 
     const user = await User.findByPk(userId, {
-      attributes: { exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'] },
+      attributes: {
+        exclude: [
+          'password',
+          'auth0Id',
+          'activeSessionIdHash',
+          'activeSessionStartedAt',
+        ],
+      },
     });
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
@@ -15,7 +22,7 @@ const handleGetCurrentUser = async (req, res) => {
     return res.json(user);
   } catch (e) {
     return res.status(500).json({ error: e.message });
-    }
-}
+  }
+};
 
 module.exports = handleGetCurrentUser;

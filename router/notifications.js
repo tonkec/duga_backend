@@ -1,6 +1,8 @@
-const { Notification} = require('../models');
+const { Notification } = require('../models');
 const router = require('express').Router();
-const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
+const {
+  authenticatedAppSession,
+} = require('../middleware/authenticatedAppSession');
 const withAccessCheck = require('../middleware/accessCheck');
 const handleGetNotifications = require('./notifications/handlers/handleGetNotifications');
 const handleMarkNotificationAsRead = require('./notifications/handlers/handleMarkNotificationAsRead');

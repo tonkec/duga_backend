@@ -46,7 +46,9 @@ const handleUpvoteUpload = async (req, res) => {
     return res.status(201).json(photoLikes);
   } catch (error) {
     console.error('❌ Error upvoting:', error);
-    return res.status(500).json({ message: 'Error occurred while liking photo' });
+    return res
+      .status(500)
+      .json({ message: 'Error occurred while liking photo' });
   }
 };
 

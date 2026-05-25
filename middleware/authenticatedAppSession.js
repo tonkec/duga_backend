@@ -22,8 +22,16 @@ const verifyFileJwt = (req, res, next) => {
   return verifier(req, res, next);
 };
 
-const authenticatedAppSession = [verifyAppJwt, attachCurrentUser, requireActiveSession];
-const authenticatedFileSession = [verifyFileJwt, attachCurrentUser, requireActiveSession];
+const authenticatedAppSession = [
+  verifyAppJwt,
+  attachCurrentUser,
+  requireActiveSession,
+];
+const authenticatedFileSession = [
+  verifyFileJwt,
+  attachCurrentUser,
+  requireActiveSession,
+];
 
 module.exports = {
   authenticatedAppSession,

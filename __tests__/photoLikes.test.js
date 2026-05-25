@@ -70,17 +70,25 @@ describe('photo likes routes', () => {
       .set(SESSION_HEADER, 'session-1');
 
   it('likes a user photo', async () => {
-    const likes = [
-      { id: 1, userId: 'user-1', photoId: 101 },
-    ];
+    const likes = [{ id: 1, userId: 'user-1', photoId: 101 }];
 
     PhotoLikes.findOne.mockResolvedValue(null);
-    PhotoLikes.create.mockResolvedValue({ id: 1, userId: 'user-1', photoId: 101 });
+    PhotoLikes.create.mockResolvedValue({
+      id: 1,
+      userId: 'user-1',
+      photoId: 101,
+    });
     PhotoLikes.findAll.mockResolvedValue(likes);
     Upload.findByPk.mockResolvedValue({ id: 101, userId: 'user-2' });
-    Notification.create.mockResolvedValue({ id: 900, userId: 'user-2', type: 'like' });
+    Notification.create.mockResolvedValue({
+      id: 900,
+      userId: 'user-2',
+      type: 'like',
+    });
 
-    const response = await authenticated(request(app).post('/likes/upvote/101'));
+    const response = await authenticated(
+      request(app).post('/likes/upvote/101')
+    );
 
     expect(response.status).toBe(201);
     expect(PhotoLikes.findOne).toHaveBeenCalledWith({
@@ -98,9 +106,15 @@ describe('photo likes routes', () => {
   });
 
   it('prevents duplicate photo likes', async () => {
-    PhotoLikes.findOne.mockResolvedValue({ id: 1, userId: 'user-1', photoId: 101 });
+    PhotoLikes.findOne.mockResolvedValue({
+      id: 1,
+      userId: 'user-1',
+      photoId: 101,
+    });
 
-    const response = await authenticated(request(app).post('/likes/upvote/101'));
+    const response = await authenticated(
+      request(app).post('/likes/upvote/101')
+    );
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ message: 'You already liked this photo' });
@@ -120,7 +134,9 @@ describe('photo likes routes', () => {
     PhotoLikes.findOne.mockResolvedValue(photoLike);
     PhotoLikes.findAll.mockResolvedValue(updatedLikes);
 
-    const response = await authenticated(request(app).post('/likes/downvote/101'));
+    const response = await authenticated(
+      request(app).post('/likes/downvote/101')
+    );
 
     expect(response.status).toBe(200);
     expect(PhotoLikes.findOne).toHaveBeenCalledWith({
@@ -137,7 +153,9 @@ describe('photo likes routes', () => {
   it('rejects unlike when the user has not liked the photo', async () => {
     PhotoLikes.findOne.mockResolvedValue(null);
 
-    const response = await authenticated(request(app).post('/likes/downvote/101'));
+    const response = await authenticated(
+      request(app).post('/likes/downvote/101')
+    );
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ message: 'You have not liked this photo' });
@@ -162,7 +180,9 @@ describe('photo likes routes', () => {
 
     PhotoLikes.findAll.mockResolvedValue(photoLikes);
 
-    const response = await authenticated(request(app).get('/likes/all-likes/101'));
+    const response = await authenticated(
+      request(app).get('/likes/all-likes/101')
+    );
 
     expect(response.status).toBe(200);
     expect(PhotoLikes.findAll).toHaveBeenCalledWith({

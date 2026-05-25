@@ -1,4 +1,4 @@
-const ChatUser = require("../models").ChatUser
+const ChatUser = require('../models').ChatUser;
 
 const canAccess = async (user, resource) => {
   if (!user || !resource) return false;

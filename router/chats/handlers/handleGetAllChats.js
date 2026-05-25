@@ -1,8 +1,9 @@
 const { Chat } = require('../../../models');
 const { User } = require('../../../models');
 const { Message } = require('../../../models');
-const { API_BASE_URL } = require("./../../../consts/apiBaseUrl");
-const addSecureUrlsToList = require('../../../utils/secureUploadUrl').addSecureUrlsToList;
+const { API_BASE_URL } = require('./../../../consts/apiBaseUrl');
+const addSecureUrlsToList =
+  require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
 const { Op } = require('sequelize');
 
@@ -22,7 +23,7 @@ const handleGetAllChats = async (req, res) => {
           include: [
             {
               model: User,
-              attributes: ['username', "id"],
+              attributes: ['username', 'id'],
               where: {
                 [Op.not]: { id: user.id },
               },
@@ -45,10 +46,15 @@ const handleGetAllChats = async (req, res) => {
 
     if (!result) return res.json([]);
 
-
     const accessToken = getBearerToken(req);
-    const chatsWithSecureUrls = result.Chats.map(chat => {
-    const updatedMessages = addSecureUrlsToList(chat.Messages, API_BASE_URL, 'messagePhotoUrl', 'securePhotoUrl', accessToken);
+    const chatsWithSecureUrls = result.Chats.map((chat) => {
+      const updatedMessages = addSecureUrlsToList(
+        chat.Messages,
+        API_BASE_URL,
+        'messagePhotoUrl',
+        'securePhotoUrl',
+        accessToken
+      );
       return {
         ...chat.toJSON(),
         Messages: updatedMessages,

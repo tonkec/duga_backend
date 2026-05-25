@@ -10,7 +10,12 @@ const handleCreateMessage = async (req, res) => {
       return res.status(400).json({ error: 'Invalid or missing chatId' });
     }
 
-    if ((!message || typeof message !== 'string' || message.trim().length === 0) && !messagePhotoUrl) {
+    if (
+      (!message ||
+        typeof message !== 'string' ||
+        message.trim().length === 0) &&
+      !messagePhotoUrl
+    ) {
       return res.status(400).json({ error: 'Message cannot be empty' });
     }
 
@@ -22,7 +27,9 @@ const handleCreateMessage = async (req, res) => {
     });
 
     if (!chatUser) {
-      return res.status(403).json({ error: 'You do not have access to this chat' });
+      return res
+        .status(403)
+        .json({ error: 'You do not have access to this chat' });
     }
 
     const savedMessage = await Message.create({
@@ -53,7 +60,10 @@ const handleCreateMessage = async (req, res) => {
           });
 
           if (io?.to) {
-            io.to(`user:${member.userId}`).emit('new_notification', notification);
+            io.to(`user:${member.userId}`).emit(
+              'new_notification',
+              notification
+            );
           }
         })
     );
@@ -67,7 +77,9 @@ const handleCreateMessage = async (req, res) => {
     return res.status(201).json({ data: savedMessage });
   } catch (error) {
     console.error('❌ Error creating message:', error);
-    return res.status(500).json({ error: 'Error occurred while creating message' });
+    return res
+      .status(500)
+      .json({ error: 'Error occurred while creating message' });
   }
 };
 

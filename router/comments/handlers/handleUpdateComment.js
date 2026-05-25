@@ -12,7 +12,9 @@ const handleUpdateComment = async (req, res) => {
     }
 
     if (comment.length > MAX_COMMENT_LENGTH) {
-      return res.status(400).json({ message: `comment must be ${MAX_COMMENT_LENGTH} characters or less` });
+      return res.status(400).json({
+        message: `comment must be ${MAX_COMMENT_LENGTH} characters or less`,
+      });
     }
 
     photoComment.comment = comment;

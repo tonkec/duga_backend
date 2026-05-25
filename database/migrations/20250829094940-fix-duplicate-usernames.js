@@ -14,9 +14,7 @@ module.exports = {
         WHERE sub.row_num > 1
       );
     `);
-
   },
 
-  async down(queryInterface) {
-  },
+  async down(queryInterface) {},
 };

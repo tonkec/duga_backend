@@ -1,19 +1,24 @@
-
-const ChatUser = require("./../models").ChatUser
+const ChatUser = require('./../models').ChatUser;
 const router = require('express').Router();
-const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
-const withAccessCheck = require("../middleware/accessCheck");
-const handleGetAllChats = require("./chats/handlers/handleGetAllChats");
-const handleGetCurrentChat = require("./chats/handlers/handleGetCurrentChat");
-const handleGetAllMessages = require("./chats/handlers/handleGetAllMessages");
-const handleCreateMessage = require("./chats/handlers/handleCreateMessage");
-const handleDeleteChat = require("./chats/handlers/handleDeleteChat")
+const {
+  authenticatedAppSession,
+} = require('../middleware/authenticatedAppSession');
+const withAccessCheck = require('../middleware/accessCheck');
+const handleGetAllChats = require('./chats/handlers/handleGetAllChats');
+const handleGetCurrentChat = require('./chats/handlers/handleGetCurrentChat');
+const handleGetAllMessages = require('./chats/handlers/handleGetAllMessages');
+const handleCreateMessage = require('./chats/handlers/handleCreateMessage');
+const handleDeleteChat = require('./chats/handlers/handleDeleteChat');
 
 require('./chats/swagger/allChats.swagger');
 router.get('/', authenticatedAppSession, handleGetAllChats);
 
 require('./chats/swagger/currentChat.swagger');
-router.get('/current-chat/:id', [...authenticatedAppSession, withAccessCheck(ChatUser)], handleGetCurrentChat);
+router.get(
+  '/current-chat/:id',
+  [...authenticatedAppSession, withAccessCheck(ChatUser)],
+  handleGetCurrentChat
+);
 
 require('./chats/swagger/chatMessages.swagger');
 router.get('/messages', authenticatedAppSession, handleGetAllMessages);

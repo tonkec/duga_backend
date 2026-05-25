@@ -1,7 +1,9 @@
 const Message = require('../models').Message;
 const router = require('express').Router();
-const withAccessCheck = require('../middleware/accessCheck');   
-const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
+const withAccessCheck = require('../middleware/accessCheck');
+const {
+  authenticatedAppSession,
+} = require('../middleware/authenticatedAppSession');
 const { Chat, ChatUser } = require('../models');
 const handleReadMessage = require('./messages/handlers/handleReadMessage');
 const handleGetIsReadMessage = require('./messages/handlers/handleGetIsReadMessage');
@@ -36,7 +38,7 @@ router.post(
 
 require('./messages/swagger/isReadMessage.swagger');
 router.get(
-  "/is-read",
+  '/is-read',
   [
     ...authenticatedAppSession,
     withAccessCheck(Message, async (req) => {
@@ -59,6 +61,5 @@ router.get(
   ],
   handleGetIsReadMessage
 );
-
 
 module.exports = router;

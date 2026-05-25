@@ -14,7 +14,10 @@ jest.mock('express-jwt', () => ({
   expressjwt: jest.fn(() => (req, res, next) => {
     const authHeader = req.headers.authorization;
 
-    if (authHeader === 'Bearer valid-auth0-token' || authHeader?.startsWith('Bearer eyJ')) {
+    if (
+      authHeader === 'Bearer valid-auth0-token' ||
+      authHeader?.startsWith('Bearer eyJ')
+    ) {
       req.auth = { sub: 'auth0|user-1' };
       return next();
     }
@@ -32,8 +35,14 @@ jest.mock('../models', () => ({
 
 const { User } = require('../models');
 const sessionsRouter = require('../router/sessions');
-const { authenticatedAppSession } = require('../middleware/authenticatedAppSession');
-const { SESSION_HEADER, hashSessionId, SESSION_CONFLICT_CODE } = require('../utils/appSession');
+const {
+  authenticatedAppSession,
+} = require('../middleware/authenticatedAppSession');
+const {
+  SESSION_HEADER,
+  hashSessionId,
+  SESSION_CONFLICT_CODE,
+} = require('../utils/appSession');
 const { signApiToken } = require('../middleware/apiJwt');
 
 const buildApp = () => {
@@ -59,11 +68,17 @@ const buildUser = (overrides = {}) => ({
 });
 
 const buildRs256LikeToken = () => {
-  const header = Buffer.from(JSON.stringify({ alg: 'RS256', typ: 'JWT' })).toString('base64url');
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'RS256', typ: 'JWT' })
+  ).toString('base64url');
   const payload = Buffer.from(
     JSON.stringify({
       sub: 'auth0|user-1',
-      user: { id: 'user-1', email: 'user-1@example.com', auth0Id: 'auth0|user-1' },
+      user: {
+        id: 'user-1',
+        email: 'user-1@example.com',
+        auth0Id: 'auth0|user-1',
+      },
       tokenUse: 'api',
       exp: Math.floor(Date.now() / 1000) + 60,
     })
@@ -102,15 +117,24 @@ describe('auth and session routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(response.body.token).toEqual(expect.any(String));
-    expect(jwt.verify(response.body.token, process.env.API_JWT_SECRET, { algorithms: ['HS256'] })).toMatchObject({
+    expect(
+      jwt.verify(response.body.token, process.env.API_JWT_SECRET, {
+        algorithms: ['HS256'],
+      })
+    ).toMatchObject({
       sub: 'auth0|user-1',
       tokenUse: 'api',
       user: { id: 'user-1' },
     });
     expect(user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ activeSessionIdHash: hashSessionId('session-1') })
+      expect.objectContaining({
+        activeSessionIdHash: hashSessionId('session-1'),
+      })
     );
-    expect(revokeUserSessionsExcept).toHaveBeenCalledWith('user-1', 'session-1');
+    expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
+      'user-1',
+      'session-1'
+    );
   });
 
   it('rejects invalid/expired token when starting a session', async () => {
@@ -153,7 +177,9 @@ describe('auth and session routes', () => {
   });
 
   it('replaces a different active session by default', async () => {
-    const user = buildUser({ activeSessionIdHash: hashSessionId('other-session') });
+    const user = buildUser({
+      activeSessionIdHash: hashSessionId('other-session'),
+    });
     const revokeUserSessionsExcept = jest.fn();
 
     app.set('revokeUserSessionsExcept', revokeUserSessionsExcept);
@@ -168,13 +194,20 @@ describe('auth and session routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ activeSessionIdHash: hashSessionId('session-1') })
+      expect.objectContaining({
+        activeSessionIdHash: hashSessionId('session-1'),
+      })
     );
-    expect(revokeUserSessionsExcept).toHaveBeenCalledWith('user-1', 'session-1');
+    expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
+      'user-1',
+      'session-1'
+    );
   });
 
   it('handles SESSION_CONFLICT when replacing a session is explicitly disabled', async () => {
-    const user = buildUser({ activeSessionIdHash: hashSessionId('other-session') });
+    const user = buildUser({
+      activeSessionIdHash: hashSessionId('other-session'),
+    });
 
     User.findOne.mockResolvedValue(user);
     User.findByPk.mockResolvedValue(user);
@@ -195,7 +228,9 @@ describe('auth and session routes', () => {
   });
 
   it('allows force login to replace the active session', async () => {
-    const user = buildUser({ activeSessionIdHash: hashSessionId('other-session') });
+    const user = buildUser({
+      activeSessionIdHash: hashSessionId('other-session'),
+    });
     const revokeUserSessionsExcept = jest.fn();
 
     app.set('revokeUserSessionsExcept', revokeUserSessionsExcept);
@@ -211,9 +246,14 @@ describe('auth and session routes', () => {
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(user.update).toHaveBeenCalledWith(
-      expect.objectContaining({ activeSessionIdHash: hashSessionId('session-1') })
+      expect.objectContaining({
+        activeSessionIdHash: hashSessionId('session-1'),
+      })
     );
-    expect(revokeUserSessionsExcept).toHaveBeenCalledWith('user-1', 'session-1');
+    expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
+      'user-1',
+      'session-1'
+    );
   });
 
   it('logs out by clearing the active session', async () => {

@@ -5,11 +5,16 @@ process.env.APP_PORT = process.env.APP_PORT || '3000';
 const express = require('express');
 const request = require('supertest');
 
+const mockDetectModerationLabelsPromise = jest
+  .fn()
+  .mockResolvedValue({ ModerationLabels: [] });
+const mockDetectModerationLabels = jest.fn(() => ({
+  promise: mockDetectModerationLabelsPromise,
+}));
+
 jest.mock('aws-sdk', () => ({
   Rekognition: jest.fn(() => ({
-    detectModerationLabels: jest.fn(() => ({
-      promise: jest.fn().mockResolvedValue({ ModerationLabels: [] }),
-    })),
+    detectModerationLabels: mockDetectModerationLabels,
   })),
 }));
 
@@ -24,7 +29,9 @@ jest.mock('sharp', () => {
 
 jest.mock('../utils/s3', () => ({
   headObject: jest.fn(() => ({ promise: jest.fn().mockResolvedValue({}) })),
-  getObject: jest.fn(() => ({ promise: jest.fn().mockResolvedValue({ Body: Buffer.from('image') }) })),
+  getObject: jest.fn(() => ({
+    promise: jest.fn().mockResolvedValue({ Body: Buffer.from('image') }),
+  })),
   deleteObject: jest.fn(() => ({ promise: jest.fn().mockResolvedValue({}) })),
   putObject: jest.fn(() => ({ promise: jest.fn().mockResolvedValue({}) })),
 }));
@@ -32,7 +39,9 @@ jest.mock('../utils/s3', () => ({
 jest.mock('../router/uploads/s3/uploadMessageImage', () => {
   return jest.fn(() => (req, res, next) => {
     if (req.headers['x-test-upload-error'] === 'file-type') {
-      const error = new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.');
+      const error = new Error(
+        'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+      );
       error.code = 'LIMIT_UNEXPECTED_FILE';
       return next(error);
     }
@@ -61,7 +70,9 @@ jest.mock('../router/uploads/s3/uploadProfileImages', () => {
   return jest.fn(() => ({
     array: jest.fn(() => (req, res, next) => {
       if (req.headers['x-test-upload-error'] === 'file-type') {
-        const error = new Error('Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.');
+        const error = new Error(
+          'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+        );
         error.code = 'LIMIT_UNEXPECTED_FILE';
         return next(error);
       }
@@ -143,6 +154,9 @@ describe('uploads and images routes', () => {
   beforeEach(() => {
     app = buildApp();
     jest.clearAllMocks();
+    mockDetectModerationLabelsPromise.mockResolvedValue({
+      ModerationLabels: [],
+    });
 
     currentUser = buildUser();
     apiToken = signApiToken(currentUser);
@@ -168,22 +182,31 @@ describe('uploads and images routes', () => {
   it('generates upload URL only for authenticated user', async () => {
     Upload.create.mockResolvedValue({ id: 101 });
 
-    const unauthenticatedResponse = await request(app).post('/uploads/message-photos');
-    const authenticatedResponse = await authenticated(request(app).post('/uploads/message-photos'));
+    const unauthenticatedResponse = await request(app).post(
+      '/uploads/message-photos'
+    );
+    const authenticatedResponse = await authenticated(
+      request(app).post('/uploads/message-photos')
+    );
 
     expect(unauthenticatedResponse.status).toBe(401);
     expect(authenticatedResponse.status).toBe(200);
     expect(authenticatedResponse.body.files[0]).toMatchObject({
       id: 101,
       key: 'test/messages/message-photo.jpg',
-      secureUrl: expect.stringContaining('http://localhost:3000/uploads/files/test%2Fmessages%2Fmessage-photo.jpg?access_token='),
-      thumbnailUrl: expect.stringContaining('http://localhost:3000/uploads/files/test%2Fmessages%2Fthumbnail-message-photo.jpg?access_token='),
+      secureUrl: expect.stringContaining(
+        'http://localhost:3000/uploads/files/test%2Fmessages%2Fmessage-photo.jpg?access_token='
+      ),
+      thumbnailUrl: expect.stringContaining(
+        'http://localhost:3000/uploads/files/test%2Fmessages%2Fthumbnail-message-photo.jpg?access_token='
+      ),
     });
   });
 
   it('validates file type', async () => {
-    const response = await authenticated(request(app).post('/uploads/photos'))
-      .set('x-test-upload-error', 'file-type');
+    const response = await authenticated(
+      request(app).post('/uploads/photos')
+    ).set('x-test-upload-error', 'file-type');
 
     expect(response.status).toBe(413);
     expect(response.body).toEqual({ errors: [{ reason: 'Nepodržan format' }] });
@@ -191,11 +214,14 @@ describe('uploads and images routes', () => {
   });
 
   it('validates file size', async () => {
-    const response = await authenticated(request(app).post('/uploads/photos'))
-      .set('x-test-upload-error', 'file-size');
+    const response = await authenticated(
+      request(app).post('/uploads/photos')
+    ).set('x-test-upload-error', 'file-size');
 
     expect(response.status).toBe(413);
-    expect(response.body).toEqual({ errors: [{ reason: 'Datoteka je veća od 1 MB.' }] });
+    expect(response.body).toEqual({
+      errors: [{ reason: 'Datoteka je veća od 1 MB.' }],
+    });
     expect(Upload.create).not.toHaveBeenCalled();
   });
 
@@ -215,6 +241,57 @@ describe('uploads and images routes', () => {
     });
   });
 
+  it('checks profile photos with Rekognition before saving metadata', async () => {
+    Upload.findOne.mockResolvedValue(null);
+    Upload.create.mockResolvedValue({ id: 202 });
+
+    const response = await authenticated(request(app).post('/uploads/photos'));
+
+    expect(response.status).toBe(200);
+    expect(s3.headObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/profile.jpg',
+    });
+    expect(s3.getObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/profile.jpg',
+    });
+    expect(mockDetectModerationLabels).toHaveBeenCalledWith({
+      Image: { Bytes: Buffer.from('moderation-image') },
+      MinConfidence: 60,
+    });
+    expect(Upload.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        url: 'test/user/user-1/profile.jpg',
+        userId: 'user-1',
+      })
+    );
+  });
+
+  it('rejects profile photos blocked by Rekognition', async () => {
+    mockDetectModerationLabelsPromise.mockResolvedValueOnce({
+      ModerationLabels: [
+        { Name: 'Explicit Nudity', ParentName: '', Confidence: 95 },
+      ],
+    });
+
+    const response = await authenticated(request(app).post('/uploads/photos'));
+
+    expect(response.status).toBe(422);
+    expect(response.body.message).toBe(
+      'All images were rejected by moderation.'
+    );
+    expect(Upload.create).not.toHaveBeenCalled();
+    expect(s3.deleteObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/profile.jpg',
+    });
+    expect(s3.deleteObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/thumbnail-profile.jpg',
+    });
+  });
+
   it('replaces profile image', async () => {
     const oldProfilePhoto = {
       id: 201,
@@ -225,8 +302,9 @@ describe('uploads and images routes', () => {
     Upload.findOne.mockResolvedValue(oldProfilePhoto);
     Upload.create.mockResolvedValue({ id: 202 });
 
-    const response = await authenticated(request(app).post('/uploads/photos'))
-      .set('x-test-profile-photo', 'true');
+    const response = await authenticated(
+      request(app).post('/uploads/photos')
+    ).set('x-test-profile-photo', 'true');
 
     expect(response.status).toBe(200);
     expect(Upload.update).toHaveBeenCalledWith(
@@ -252,8 +330,9 @@ describe('uploads and images routes', () => {
     Upload.findOne.mockResolvedValue(oldProfilePhoto);
     Upload.create.mockResolvedValue({ id: 202 });
 
-    const response = await authenticated(request(app).post('/uploads/photos'))
-      .set('x-test-profile-photo', 'true');
+    const response = await authenticated(
+      request(app).post('/uploads/photos')
+    ).set('x-test-profile-photo', 'true');
 
     expect(response.status).toBe(200);
     expect(s3.deleteObject).toHaveBeenCalledWith({
@@ -266,7 +345,9 @@ describe('uploads and images routes', () => {
   it('falls back when user has no image', async () => {
     Upload.findOne.mockResolvedValue(null);
 
-    const response = await authenticated(request(app).get('/uploads/profile-photo/user-1'));
+    const response = await authenticated(
+      request(app).get('/uploads/profile-photo/user-1')
+    );
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ securePhotoUrl: null });

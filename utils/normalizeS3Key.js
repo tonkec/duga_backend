@@ -1,10 +1,12 @@
-const removeSpacesAndDashes = require("./removeSpacesAndDashes");
+const removeSpacesAndDashes = require('./removeSpacesAndDashes');
 
 const normalizeS3Key = (key) => {
   const envPrefix = `${process.env.NODE_ENV}/`;
 
   // Remove env prefix if it exists
-  const cleanKey = key.startsWith(envPrefix) ? key.slice(envPrefix.length) : key;
+  const cleanKey = key.startsWith(envPrefix)
+    ? key.slice(envPrefix.length)
+    : key;
 
   const lastSlashIndex = cleanKey.lastIndexOf('/');
   const path = cleanKey.substring(0, lastSlashIndex);

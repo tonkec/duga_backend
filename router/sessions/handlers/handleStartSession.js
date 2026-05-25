@@ -1,6 +1,10 @@
 const { User } = require('../../../models');
 const { signApiToken } = require('../../../middleware/apiJwt');
-const { getSessionId, hashSessionId, SESSION_CONFLICT_CODE } = require('../../../utils/appSession');
+const {
+  getSessionId,
+  hashSessionId,
+  SESSION_CONFLICT_CODE,
+} = require('../../../utils/appSession');
 
 const handleStartSession = async (req, res) => {
   const sessionId = getSessionId(req);

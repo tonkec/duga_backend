@@ -23,7 +23,7 @@ module.exports = {
         type: Sequelize.INTEGER,
         allowNull: false,
         references: {
-          model: 'Uploads', 
+          model: 'Uploads',
           key: 'id',
         },
         onUpdate: 'CASCADE',
@@ -48,5 +48,5 @@ module.exports = {
 
   down: async (queryInterface, Sequelize) => {
     await queryInterface.dropTable('photoComments');
-  }
+  },
 };

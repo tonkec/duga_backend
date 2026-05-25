@@ -13,8 +13,11 @@ const handleMessagePhotoUpload = async (req, res) => {
         message: 'All uploads were rejected',
         rejectedFiles,
         errors: [
-          ...rejectedFiles.map(f => ({ fileName: f.originalname, reason: f.reason || 'Rejected' }))
-        ]
+          ...rejectedFiles.map((f) => ({
+            fileName: f.originalname,
+            reason: f.reason || 'Rejected',
+          })),
+        ],
       });
     }
     if (!req.files?.length) {
@@ -26,7 +29,9 @@ const handleMessagePhotoUpload = async (req, res) => {
     const uploaded = await Promise.all(
       req.files.map(async (file) => {
         const key = file.transforms?.find((t) => t.id === 'original')?.key;
-        const thumbnailKey = file.transforms?.find((t) => t.id === 'thumbnail')?.key;
+        const thumbnailKey = file.transforms?.find(
+          (t) => t.id === 'thumbnail'
+        )?.key;
 
         console.log('🧩 Uploading key:', key);
 
@@ -37,7 +42,7 @@ const handleMessagePhotoUpload = async (req, res) => {
         const uploadRecord = await Upload.create({
           name: file.originalname,
           url: key,
-          filetype: file.mimetype, 
+          filetype: file.mimetype,
           userId: req.auth.user.id,
         });
 
@@ -56,7 +61,7 @@ const handleMessagePhotoUpload = async (req, res) => {
     return res.status(200).json({
       message: 'Upload successful',
       files: uploaded,
-      rejectedFiles, 
+      rejectedFiles,
     });
   } catch (error) {
     if (error.code === 'INVALID_FILE_TYPE') {

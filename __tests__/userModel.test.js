@@ -77,7 +77,9 @@ describe('User model', () => {
   });
 
   it('defines user associations', () => {
-    const belongsToManySpy = jest.spyOn(User, 'belongsToMany').mockImplementation(() => {});
+    const belongsToManySpy = jest
+      .spyOn(User, 'belongsToMany')
+      .mockImplementation(() => {});
     const hasManySpy = jest.spyOn(User, 'hasMany').mockImplementation(() => {});
     const hasOneSpy = jest.spyOn(User, 'hasOne').mockImplementation(() => {});
 

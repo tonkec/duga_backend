@@ -27,7 +27,13 @@ module.exports = {
   },
 
   async down(queryInterface) {
-    await queryInterface.removeConstraint('CommentMentions', 'fk_commentmentions_comment');
-    await queryInterface.removeConstraint('CommentMentions', 'fk_commentmentions_user');
+    await queryInterface.removeConstraint(
+      'CommentMentions',
+      'fk_commentmentions_comment'
+    );
+    await queryInterface.removeConstraint(
+      'CommentMentions',
+      'fk_commentmentions_user'
+    );
   },
 };

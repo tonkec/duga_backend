@@ -1,4 +1,3 @@
-
 /**
  * @swagger
  * /uploads/user/{id}:

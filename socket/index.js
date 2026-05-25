@@ -2,14 +2,16 @@ const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
 const User = require('../models').User;
-const PhotoComment = require("../models").PhotoComment;
+const PhotoComment = require('../models').PhotoComment;
+const ChatUser = require('../models').ChatUser;
 const users = new Map();
 const userSockets = new Map();
+const pendingOfflineTimers = new Map();
 const Notification = require('../models').Notification;
-const PhotoLikes = require("../models").PhotoLikes;
+const PhotoLikes = require('../models').PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
 const getSocketUser = require('../utils/socketAccess').getSocketUser;
-const normalizeS3Key = require("../utils/normalizeS3Key");
+const normalizeS3Key = require('../utils/normalizeS3Key');
 const Upload = require('../models').Upload;
 
 const jwt = require('jsonwebtoken');
@@ -21,18 +23,69 @@ const { hashSessionId } = require('../utils/appSession');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
+const API_JWT_SECRET =
+  process.env.API_JWT_SECRET ||
+  process.env.JWT_SECRET ||
+  'duga-api-test-secret';
+const SOCKET_OFFLINE_DELAY_MS = Number(
+  process.env.SOCKET_OFFLINE_DELAY_MS || 5000
+);
+const USER_STATUSES = new Set(['online', 'offline']);
+
+const allowSocketOrigin = (origin, callback) => {
+  callback(null, origin || true);
+};
 
 const client = jwksClient({
   jwksUri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
 });
 
 function getKey(header, callback) {
+  if (!header.kid) {
+    return callback(new Error('No KID specified'));
+  }
+
   client.getSigningKey(header.kid, (err, key) => {
     if (err) return callback(err);
     const signingKey = key.getPublicKey();
     callback(null, signingKey);
   });
 }
+
+const verifySocketToken = (token) =>
+  new Promise((resolve, reject) => {
+    const decodedHeader = jwt.decode(token, { complete: true });
+
+    if (decodedHeader?.header?.alg === 'RS256') {
+      jwt.verify(
+        token,
+        getKey,
+        {
+          audience: AUTH0_AUDIENCE,
+          issuer: `https://${AUTH0_DOMAIN}/`,
+          algorithms: ['RS256'],
+        },
+        (err, decoded) => {
+          if (err) return reject(err);
+          resolve(decoded);
+        }
+      );
+      return;
+    }
+
+    try {
+      const decoded = jwt.verify(token, API_JWT_SECRET, {
+        algorithms: ['HS256'],
+      });
+      if (decoded.tokenUse !== 'api') {
+        reject(new Error('Invalid token use'));
+        return;
+      }
+      resolve(decoded);
+    } catch (error) {
+      reject(error);
+    }
+  });
 
 const formatCommentSocketPayload = (comment, accessToken) => ({
   ...comment.toJSON(),
@@ -52,12 +105,29 @@ const parseCommentSocketPayload = (data) => {
   return {
     payload,
     commentId: parseInt(payload?.id ?? payload?.commentId, 10),
-    uploadId:
-      payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
+    uploadId: payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
   };
 };
 
+const joinSocketRooms = async (socket, user) => {
+  socket.join(`user:${user.id}`);
+
+  const memberships = await ChatUser.findAll({
+    where: { userId: user.id },
+    attributes: ['chatId'],
+  });
+  memberships.forEach(({ chatId }) => socket.join(`chat:${chatId}`));
+};
+
 const userSessionSockets = new Map();
+
+const clearPendingOfflineTimer = (userId) => {
+  const timer = pendingOfflineTimers.get(userId);
+  if (!timer) return;
+
+  clearTimeout(timer);
+  pendingOfflineTimers.delete(userId);
+};
 
 const trackSessionSocket = (userId, sessionId, socketId) => {
   if (!sessionId) return;
@@ -91,9 +161,10 @@ const untrackSessionSocket = (userId, sessionId, socketId) => {
 const SocketServer = (server, app) => {
   const io = socketIo(server, {
     cors: {
-      origin: '*',
-      methods: 'GET, HEAD, PUT, PATCH, POST, DELETE',
-      allowedHeaders: ['Content-Type'],
+      origin: allowSocketOrigin,
+      methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
+      allowedHeaders: ['Content-Type', 'Authorization', 'x-duga-session-id'],
+      credentials: true,
     },
   });
 
@@ -112,7 +183,7 @@ const SocketServer = (server, app) => {
     });
   });
 
-  io.use((socket, next) => {
+  io.use(async (socket, next) => {
     const token = socket.handshake.auth?.token;
     const sessionId = socket.handshake.auth?.sessionId;
     if (!token) {
@@ -122,48 +193,55 @@ const SocketServer = (server, app) => {
       return next(new Error('Missing app session'));
     }
 
-   jwt.verify(
-    token,
-    getKey,
-    {
-      audience: AUTH0_AUDIENCE,
-      issuer: `https://${AUTH0_DOMAIN}/`,
-      algorithms: ['RS256'],
-    },
-    async (err, decoded) => {
-      if (err) {
-        console.error('❌ JWT verification failed:', err.message);
+    try {
+      const decoded = await verifySocketToken(token);
+      if (!decoded?.sub) {
         return next(new Error('Unauthorized'));
       }
 
-      try {
-        const user = await User.findOne({ where: { auth0Id: decoded.sub } });
-        if (!user) {
-          return next(new Error('Unauthorized'));
-        }
-
-        if (!user.activeSessionIdHash || user.activeSessionIdHash !== hashSessionId(sessionId)) {
-          return next(new Error('Session revoked'));
-        }
-
-        socket.user = decoded;
-        socket.appUser = user;
-        socket.appSessionId = sessionId;
-        next();
-      } catch (error) {
-        next(error);
+      const user = await User.findOne({ where: { auth0Id: decoded.sub } });
+      if (!user) {
+        return next(new Error('Unauthorized'));
       }
+
+      if (
+        !user.activeSessionIdHash ||
+        user.activeSessionIdHash !== hashSessionId(sessionId)
+      ) {
+        return next(new Error('Session revoked'));
+      }
+
+      socket.user = decoded;
+      socket.appUser = user;
+      socket.appSessionId = sessionId;
+      next();
+    } catch (err) {
+      console.error('❌ JWT verification failed:', err.message);
+      return next(new Error('Unauthorized'));
     }
-  );
-});
+  });
 
   io.on('connection', (socket) => {
     console.log('New client connected');
-    socket.on('join', async () => { 
-      const user = socket.appUser || await User.findOne({ where: { auth0Id: socket.user?.sub } });
+    if (socket.appUser) {
+      joinSocketRooms(socket, socket.appUser).catch((error) => {
+        console.error('❌ Failed to join socket rooms:', error);
+      });
+    }
+
+    socket.on('join', async () => {
+      const user = socket.appUser || (await getSocketUser(socket));
+      if (!user) {
+        console.error('❌ Unauthorized join: user not found');
+        return;
+      }
       const userId = user.id;
+      clearPendingOfflineTimer(userId);
       setUsers(user, socket);
       trackSessionSocket(user.id, socket.appSessionId, socket.id);
+      await joinSocketRooms(socket, user);
+      await User.update({ status: 'online' }, { where: { id: userId } });
+
       const chatters = await getChatters(userId);
       chatters.forEach((chatterId) => {
         if (users.has(chatterId)) {
@@ -181,19 +259,19 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on("send-comment", async (data) => {
+    socket.on('send-comment', async (data) => {
       try {
         const { commentId: parsedCommentId, uploadId: parsedUploadId } =
           parseCommentSocketPayload(data);
 
         if (isNaN(parsedUploadId) || isNaN(parsedCommentId)) {
-          console.error("❌ Invalid send-comment payload");
+          console.error('❌ Invalid send-comment payload');
           return;
         }
 
         const user = await getSocketUser(socket);
         if (!user) {
-          console.error("❌ Unauthorized send-comment: user not found");
+          console.error('❌ Unauthorized send-comment: user not found');
           return;
         }
 
@@ -203,7 +281,7 @@ const SocketServer = (server, app) => {
           resourceId: parsedCommentId,
         });
         if (!hasAccess) {
-          console.error("❌ Forbidden send-comment");
+          console.error('❌ Forbidden send-comment');
           return;
         }
 
@@ -215,12 +293,12 @@ const SocketServer = (server, app) => {
         });
 
         if (!comment) {
-          console.error("❌ Comment not found:", parsedCommentId);
+          console.error('❌ Comment not found:', parsedCommentId);
           return;
         }
 
         if (parseInt(comment.uploadId, 10) !== parsedUploadId) {
-          console.error("❌ Comment uploadId mismatch on send-comment");
+          console.error('❌ Comment uploadId mismatch on send-comment');
           return;
         }
 
@@ -241,7 +319,10 @@ const SocketServer = (server, app) => {
 
         const photoOwnerId = results?.userId;
 
-        if (photoOwnerId && parseInt(photoOwnerId, 10) !== parseInt(user.id, 10)) {
+        if (
+          photoOwnerId &&
+          parseInt(photoOwnerId, 10) !== parseInt(user.id, 10)
+        ) {
           const notification = await Notification.create({
             userId: photoOwnerId,
             type: 'comment',
@@ -265,20 +346,19 @@ const SocketServer = (server, app) => {
           }
         }
       } catch (error) {
-        console.error("🔥 Error in send-comment:", error);
+        console.error('🔥 Error in send-comment:', error);
       }
     });
 
-
-    socket.on("markAsRead", async (data) => {
+    socket.on('markAsRead', async (data) => {
       const { userId, chatId } = data;
       try {
         if (!userId || !chatId) {
-          console.error("❌ Missing userId or chatId in markAsRead");
+          console.error('❌ Missing userId or chatId in markAsRead');
           return;
         }
 
-       const [lastNotification] = await sequelize.query(
+        const [lastNotification] = await sequelize.query(
           `SELECT * FROM "Notifications" WHERE "chatId" = :chatId
           ORDER BY "createdAt" DESC
           LIMIT 1`,
@@ -289,51 +369,59 @@ const SocketServer = (server, app) => {
         );
 
         if (lastNotification.length === 0) {
-          console.error("❌ No unread notifications found for chatId:", chatId);
+          console.error('❌ No unread notifications found for chatId:', chatId);
           return;
         }
 
-        const notificationId = lastNotification.id 
-      
+        const notificationId = lastNotification.id;
+
         if (!notificationId) {
-          console.error("❌ No notificationId found for chatId:", chatId);
+          console.error('❌ No notificationId found for chatId:', chatId);
           return;
         }
 
-        console.log("🔍 Notification ID to mark as read:", notificationId);
-        
+        console.log('🔍 Notification ID to mark as read:', notificationId);
+
         const notification = await Notification.findByPk(notificationId);
         if (!notification) {
-          console.error("❌ Notification not found:", notificationId);
+          console.error('❌ Notification not found:', notificationId);
           return;
         }
-    
+
         notification.isRead = true;
         await notification.save();
-    
+
         if (users.has(userId)) {
           users.get(userId).sockets.forEach((sockId) => {
             io.to(sockId).emit('markAsRead', notification);
           });
         }
-        
+
         return notification;
       } catch (error) {
-        console.error("🔥 Error in markAsRead:", error);
+        console.error('🔥 Error in markAsRead:', error);
       }
-    }
-    );
+    });
 
-    socket.on('set-status', async ({ status }) => {
-      const auth0Id = socket.user?.sub;
-      const user = await User.findOne({ where: { auth0Id } });
+    socket.on('set-status', async ({ status } = {}, ack) => {
+      const user = socket.appUser || (await getSocketUser(socket));
+      if (!user) {
+        console.error('❌ Unauthorized set-status: user not found');
+        ack?.({ ok: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!USER_STATUSES.has(status)) {
+        ack?.({ ok: false, error: 'Invalid status' });
+        return;
+      }
       const userId = user.id;
+      clearPendingOfflineTimer(userId);
       if (users.has(userId)) {
         users.get(userId).status = status;
       }
-    
+
       await User.update({ status }, { where: { id: userId } });
-    
+
       const chatters = await getChatters(userId);
       chatters.forEach((id) => {
         if (users.has(id)) {
@@ -342,26 +430,28 @@ const SocketServer = (server, app) => {
           });
         }
       });
-    
+
       if (users.has(userId)) {
         users.get(userId).sockets.forEach((sockId) => {
           io.to(sockId).emit('status-update', { userId, status });
         });
       }
+
+      ack?.({ ok: true, status });
     });
 
-    socket.on("delete-comment", async (data) => {
+    socket.on('delete-comment', async (data) => {
       try {
         const { commentId, uploadId } = parseCommentSocketPayload(data);
 
         if (isNaN(commentId)) {
-          console.error("❌ Invalid delete-comment payload");
+          console.error('❌ Invalid delete-comment payload');
           return;
         }
 
         const user = await getSocketUser(socket);
         if (!user) {
-          console.error("❌ Unauthorized delete-comment: user not found");
+          console.error('❌ Unauthorized delete-comment: user not found');
           return;
         }
 
@@ -371,13 +461,13 @@ const SocketServer = (server, app) => {
           resourceId: commentId,
         });
         if (!hasAccess) {
-          console.error("❌ Forbidden delete-comment");
+          console.error('❌ Forbidden delete-comment');
           return;
         }
 
         const comment = await PhotoComment.findByPk(commentId);
         if (!comment) {
-          console.error("❌ Comment not found:", commentId);
+          console.error('❌ Comment not found:', commentId);
           return;
         }
 
@@ -386,18 +476,18 @@ const SocketServer = (server, app) => {
           !isNaN(uploadId) &&
           parseInt(comment.uploadId, 10) !== uploadId
         ) {
-          console.error("❌ Comment uploadId mismatch on delete-comment");
+          console.error('❌ Comment uploadId mismatch on delete-comment');
           return;
         }
 
-        io.emit("remove-comment", {
+        io.emit('remove-comment', {
           data: {
             id: comment.id,
             uploadId: comment.uploadId,
           },
         });
       } catch (error) {
-        console.error("🔥 Error in delete-comment:", error);
+        console.error('🔥 Error in delete-comment:', error);
       }
     });
 
@@ -406,13 +496,13 @@ const SocketServer = (server, app) => {
         const { commentId, uploadId } = parseCommentSocketPayload(data);
 
         if (isNaN(commentId)) {
-          console.error("❌ Invalid edit-comment payload");
+          console.error('❌ Invalid edit-comment payload');
           return;
         }
 
         const user = await getSocketUser(socket);
         if (!user) {
-          console.error("❌ Unauthorized edit-comment: user not found");
+          console.error('❌ Unauthorized edit-comment: user not found');
           return;
         }
 
@@ -422,7 +512,7 @@ const SocketServer = (server, app) => {
           resourceId: commentId,
         });
         if (!hasAccess) {
-          console.error("❌ Forbidden edit-comment");
+          console.error('❌ Forbidden edit-comment');
           return;
         }
 
@@ -434,7 +524,7 @@ const SocketServer = (server, app) => {
         });
 
         if (!comment) {
-          console.error("❌ Comment not found:", commentId);
+          console.error('❌ Comment not found:', commentId);
           return;
         }
 
@@ -443,32 +533,31 @@ const SocketServer = (server, app) => {
           !isNaN(uploadId) &&
           parseInt(comment.uploadId, 10) !== uploadId
         ) {
-          console.error("❌ Comment uploadId mismatch on edit-comment");
+          console.error('❌ Comment uploadId mismatch on edit-comment');
           return;
         }
 
-        io.emit("update-comment", {
+        io.emit('update-comment', {
           data: formatCommentSocketPayload(
             comment,
             socket.handshake.auth?.token
           ),
         });
       } catch (error) {
-        console.error("🔥 Error in edit-comment:", error);
+        console.error('🔥 Error in edit-comment:', error);
       }
     });
 
-    socket.on("upvote-upload", async (data) => {
+    socket.on('upvote-upload', async (data) => {
       try {
         const like = data[0];
         const { photoId } = like;
-        const auth0Id = socket.user?.sub;
-        const user = await User.findOne({ where: { auth0Id } });
-        const userId = user.id;
+        const user = socket.appUser || (await getSocketUser(socket));
         if (!user) {
           console.error('User not found');
           return;
         }
+        const userId = user.id;
 
         const photoLike = await PhotoLikes.findOne({
           where: {
@@ -481,20 +570,24 @@ const SocketServer = (server, app) => {
           console.error('PhotoLike not found in upvote');
           return;
         }
-        const hasAccess = await socketCanAccess({ socket, model: PhotoLikes, resourceId: photoLike.id });
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoLikes,
+          resourceId: photoLike.id,
+        });
 
         if (!hasAccess) {
           throw new Error('Forbidden: You cannot like this upload.');
         }
-    
+
         const parsedPhotoId = parseInt(photoId);
         if (isNaN(parsedPhotoId)) {
-          console.error("Invalid photoId:", photoId);
+          console.error('Invalid photoId:', photoId);
           return;
         }
-    
-       const results = await sequelize.query(
-        `
+
+        const results = await sequelize.query(
+          `
           SELECT 
             "PhotoLikes".*,
             json_build_object('username', "Users"."username") AS user
@@ -502,20 +595,20 @@ const SocketServer = (server, app) => {
           JOIN "Users" ON "PhotoLikes"."userId" = "Users"."id"
           WHERE "PhotoLikes"."photoId" = :parsedPhotoId AND "PhotoLikes"."userId" = :userId
         `,
-        {
-          replacements: {
-            uploadId: parseInt(parsedPhotoId),
-            userId: parseInt(user.id),
-          },
-          type: sequelize.QueryTypes.SELECT,
-        }
-      );
-         io.emit("upvote-upload", {
+          {
+            replacements: {
+              parsedPhotoId,
+              userId: parseInt(user.id),
+            },
+            type: sequelize.QueryTypes.SELECT,
+          }
+        );
+        io.emit('upvote-upload', {
           uploadId: photoId,
           likes: results,
-         });
+        });
         const photoOwnerId = results?.userId;
-    
+
         if (photoOwnerId && parseInt(photoOwnerId) !== parseInt(userId)) {
           const notification = await Notification.create({
             userId: photoOwnerId,
@@ -524,7 +617,7 @@ const SocketServer = (server, app) => {
             actionId: parsedPhotoId,
             actionType: 'upload',
           });
-    
+
           if (users.has(photoOwnerId)) {
             users.get(photoOwnerId).sockets.forEach((sockId) => {
               io.to(sockId).emit('new_notification', {
@@ -540,15 +633,14 @@ const SocketServer = (server, app) => {
           }
         }
       } catch (error) {
-        console.error("🔥 Error in upvote-upload notification:", error);
+        console.error('🔥 Error in upvote-upload notification:', error);
       }
     });
-    
-    socket.on("downvote-upload", async (likeData) => {
+
+    socket.on('downvote-upload', async (likeData) => {
       try {
         const { uploadId } = likeData;
-        const auth0Id = socket.user?.sub;
-        const user = await User.findOne({ where: { auth0Id } });
+        const user = socket.appUser || (await getSocketUser(socket));
         if (!user) {
           console.error('User not found');
           return;
@@ -566,13 +658,17 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        const hasAccess = await socketCanAccess({ socket, model: PhotoLikes, resourceId: photoLike.id });
+        const hasAccess = await socketCanAccess({
+          socket,
+          model: PhotoLikes,
+          resourceId: photoLike.id,
+        });
         if (!hasAccess) {
           throw new Error('Forbidden: You cannot dislike this photo.');
         }
-    
+
         if (!uploadId) {
-          console.error("❌ Missing uploadId in downvote-upload");
+          console.error('❌ Missing uploadId in downvote-upload');
           return;
         }
 
@@ -587,133 +683,157 @@ const SocketServer = (server, app) => {
           `,
           {
             replacements: {
-              uploadId: parseInt(parsedPhotoId),
+              uploadId: parseInt(uploadId),
               userId: parseInt(user.id),
             },
             type: sequelize.QueryTypes.SELECT,
           }
         );
 
-        io.emit("downvote-upload", {
+        io.emit('downvote-upload', {
           uploadId,
           likes: results,
         });
       } catch (err) {
-        console.error("🔥 Error in downvote-upload:", err);
+        console.error('🔥 Error in downvote-upload:', err);
       }
     });
 
-    socket.on("deleteChat", ({ chatId}) => {
-      io.emit("chatDeleted", { chatId });
+    socket.on('deleteChat', ({ chatId }) => {
+      io.emit('chatDeleted', { chatId });
     });
-    
-  
-     socket.on('message', async (message) => {
-        let sockets = setUsers(message.fromUser, socket);
 
-        if (users.length > 0 && users.has(message.fromUser.id)) {
-          sockets = users.get(message.fromUser.id).sockets;
+    socket.on('message', async (message) => {
+      try {
+        const sender = socket.appUser || (await getSocketUser(socket));
+        const chatId = Number(message?.chatId);
+
+        if (!sender || !chatId) {
+          socket.emit('message_error', { message: 'Invalid message payload' });
+          return;
         }
-        message.toUserId.forEach((id) => {
-          if (users.has(id)) sockets = [...sockets, ...users.get(id).sockets];
+
+        const chatMembers = await ChatUser.findAll({
+          where: { chatId },
+          attributes: ['userId'],
+        });
+        const memberIds = chatMembers.map(({ userId }) => userId);
+
+        if (!memberIds.includes(sender.id)) {
+          socket.emit('message_error', {
+            message: 'You do not have access to this chat',
+          });
+          return;
+        }
+
+        socket.join(`user:${sender.id}`);
+        socket.join(`chat:${chatId}`);
+        const sockets = new Set(
+          users.get(sender.id)?.sockets || setUsers(sender, socket)
+        );
+        memberIds.forEach((id) => {
+          if (users.has(id)) {
+            users.get(id).sockets.forEach((sockId) => sockets.add(sockId));
+          }
         });
 
-        try {
-          // --- 1) Validate referenced image (if any) ---
-          let finalMessagePhotoUrl = null;
+        // --- 1) Validate referenced image (if any) ---
+        let finalMessagePhotoUrl = null;
 
-          if (message.type === 'gif') {
-            finalMessagePhotoUrl = message.messagePhotoUrl;
-          } else if (message.messagePhotoUrl) {
-            const envPrefix = `${process.env.NODE_ENV}/`;
-            const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
-              ? message.messagePhotoUrl
-              : `${envPrefix}${message.messagePhotoUrl}`;
+        if (message.type === 'gif') {
+          finalMessagePhotoUrl = message.messagePhotoUrl;
+        } else if (message.messagePhotoUrl) {
+          const envPrefix = `${process.env.NODE_ENV}/`;
+          const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
+            ? message.messagePhotoUrl
+            : `${envPrefix}${message.messagePhotoUrl}`;
 
-            const upload = await Upload.findOne({
-              where: {
-                url: removeSpacesAndDashes(candidateKey.toLowerCase()),
-                userId: message.fromUser.id,
-              },
-            });
-
-            if (!upload) {
-              socket.emit('message_rejected', {
-                reason: 'Image rejected by moderation. Message not sent.',
-                key: candidateKey,
-              });
-              return;
-            }
-
-            finalMessagePhotoUrl = upload.url;
-          }
-          // --- 2) Create the message (text-only or with allowed image) ---
-          const msgPayload = {
-            type: message.type,
-            fromUserId: message.fromUser.id,
-            chatId: message.chatId,
-            message: message.message,
-            messagePhotoUrl: finalMessagePhotoUrl, 
-          };
-
-
-          const savedMessage = await Message.create(msgPayload);
-
-          // --- 3) Prepare outgoing socket message for clients ---
-          const outbound = {
-            id: savedMessage.id,
-            chatId: savedMessage.chatId,
-            fromUserId: message.fromUser.id,
-            User: message.fromUser, 
-            type: savedMessage.type,
-            message: savedMessage.message,
-            createdAt: savedMessage.createdAt,
-            messagePhotoUrl: finalMessagePhotoUrl,
-            securePhotoUrl: finalMessagePhotoUrl
-              ? attachSecureUrl(API_BASE_URL, finalMessagePhotoUrl, socket.handshake.auth?.token)
-              : null,
-            toUserId: message.toUserId,
-          };
-
-          // --- 4) Notify recipients (unchanged) ---
-          for (const recipientId of message.toUserId) {
-            if (!recipientId) continue;
-
-            const notification = await Notification.create({
-              userId: recipientId,
-              type: 'message',
-              content: `Nova poruka od ${message.fromUser.username || 'someone'}`,
-              actionId: savedMessage.chatId,
-              actionType: 'message',
-              chatId: savedMessage.chatId,
-            });
-
-            if (users.has(recipientId)) {
-              users.get(recipientId).sockets.forEach((sockId) => {
-                io.to(sockId).emit('new_notification', {
-                  id: notification.id,
-                  type: notification.type,
-                  content: notification.content,
-                  actionId: notification.actionId,
-                  actionType: notification.actionType,
-                  isRead: notification.isRead,
-                  createdAt: notification.createdAt,
-                  chatId: notification.chatId,
-                });
-              });
-            }
-          }
-
-          // --- 5) Broadcast message to all sockets in this convo ---
-          sockets.forEach((sockId) => {
-            io.to(sockId).emit('received', outbound);
+          const upload = await Upload.findOne({
+            where: {
+              url: removeSpacesAndDashes(candidateKey.toLowerCase()),
+              userId: sender.id,
+            },
           });
-        } catch (e) {
-          console.error('❌ Error in socket message handler:', e);
-          socket.emit('message_error', { message: 'Failed to send message' });
-        }
-      });
 
+          if (!upload) {
+            socket.emit('message_rejected', {
+              reason: 'Image rejected by moderation. Message not sent.',
+              key: candidateKey,
+            });
+            return;
+          }
+
+          finalMessagePhotoUrl = upload.url;
+        }
+        // --- 2) Create the message (text-only or with allowed image) ---
+        const msgPayload = {
+          type: message.type || 'text',
+          fromUserId: sender.id,
+          chatId,
+          message: message.message || null,
+          messagePhotoUrl: finalMessagePhotoUrl,
+        };
+
+        const savedMessage = await Message.create(msgPayload);
+
+        // --- 3) Prepare outgoing socket message for clients ---
+        const outbound = {
+          id: savedMessage.id,
+          chatId: savedMessage.chatId,
+          fromUserId: sender.id,
+          User: sender.toJSON ? sender.toJSON() : sender,
+          type: savedMessage.type,
+          message: savedMessage.message,
+          createdAt: savedMessage.createdAt,
+          messagePhotoUrl: finalMessagePhotoUrl,
+          securePhotoUrl: finalMessagePhotoUrl
+            ? attachSecureUrl(
+                API_BASE_URL,
+                finalMessagePhotoUrl,
+                socket.handshake.auth?.token
+              )
+            : null,
+          toUserId: memberIds.filter((id) => id !== sender.id),
+        };
+
+        // --- 4) Notify recipients (unchanged) ---
+        for (const recipientId of memberIds.filter((id) => id !== sender.id)) {
+          if (!recipientId) continue;
+
+          const notification = await Notification.create({
+            userId: recipientId,
+            type: 'message',
+            content: `Nova poruka od ${sender.username || 'someone'}`,
+            actionId: savedMessage.chatId,
+            actionType: 'message',
+            chatId: savedMessage.chatId,
+          });
+
+          if (users.has(recipientId)) {
+            users.get(recipientId).sockets.forEach((sockId) => {
+              io.to(sockId).emit('new_notification', {
+                id: notification.id,
+                type: notification.type,
+                content: notification.content,
+                actionId: notification.actionId,
+                actionType: notification.actionType,
+                isRead: notification.isRead,
+                createdAt: notification.createdAt,
+                chatId: notification.chatId,
+              });
+            });
+          }
+        }
+
+        // --- 5) Broadcast message to all sockets in this convo ---
+        sockets.forEach((sockId) => {
+          io.to(sockId).emit('received', outbound);
+        });
+      } catch (e) {
+        console.error('❌ Error in socket message handler:', e);
+        socket.emit('message_error', { message: 'Failed to send message' });
+      }
+    });
 
     socket.on('typing', (data) => {
       data.toUserId.forEach((id) => {
@@ -722,7 +842,6 @@ const SocketServer = (server, app) => {
             io.to(socket).emit('typing', data);
           });
         }
-
       });
     });
 
@@ -734,7 +853,7 @@ const SocketServer = (server, app) => {
           });
         }
       });
-    } );
+    });
 
     socket.on('add-friend', (chats) => {
       try {
@@ -836,26 +955,42 @@ const SocketServer = (server, app) => {
 
             users.set(user.id, user);
           } else {
-            const chatters = await getChatters(user.id);
-            await User.update({ status: 'offline' }, { where: { id: user.id } });
-
-            for (let i = 0; i < chatters.length; i++) {
-              if (users.has(chatters[i])) {
-                users.get(chatters[i]).sockets.forEach((socket) => {
-                  try {
-                    io.to(socket).emit('status-update', {
-                      userId: user.id,
-                      status: 'offline',
-                    });
-                  } catch (e) {
-                    console.log(e);
-                  }
-                });
-              }
-            }
-
             userSockets.delete(socket.id);
             users.delete(user.id);
+            clearPendingOfflineTimer(user.id);
+            pendingOfflineTimers.set(
+              user.id,
+              setTimeout(() => {
+                pendingOfflineTimers.delete(user.id);
+                if (users.has(user.id)) return;
+
+                getChatters(user.id)
+                  .then(async (chatters) => {
+                    await User.update(
+                      { status: 'offline' },
+                      { where: { id: user.id } }
+                    );
+
+                    for (let i = 0; i < chatters.length; i++) {
+                      if (users.has(chatters[i])) {
+                        users.get(chatters[i]).sockets.forEach((socket) => {
+                          try {
+                            io.to(socket).emit('status-update', {
+                              userId: user.id,
+                              status: 'offline',
+                            });
+                          } catch (e) {
+                            console.log(e);
+                          }
+                        });
+                      }
+                    }
+                  })
+                  .catch((error) => {
+                    console.error('❌ Failed to mark user offline:', error);
+                  });
+              }, SOCKET_OFFLINE_DELAY_MS)
+            );
           }
         }
       }
@@ -865,7 +1000,7 @@ const SocketServer = (server, app) => {
 
 const getChatters = async (userId) => {
   try {
-    const [results, metadata] = await sequelize.query(`
+    const [results] = await sequelize.query(`
       select "cu"."userId" from "ChatUsers" as cu
       inner join (
           select "c"."id" from "Chats" as c
@@ -886,10 +1021,13 @@ const getChatters = async (userId) => {
 };
 
 const setUsers = (user, socket) => {
+  clearPendingOfflineTimer(user.id);
   let sockets = [];
   if (users.has(user.id)) {
     const existingUser = users.get(user.id);
-    existingUser.sockets = Array.from(new Set([...existingUser.sockets, socket.id]));
+    existingUser.sockets = Array.from(
+      new Set([...existingUser.sockets, socket.id])
+    );
     existingUser.status = existingUser.status || 'online';
     users.set(user.id, existingUser);
     sockets = existingUser.sockets;
@@ -897,7 +1035,7 @@ const setUsers = (user, socket) => {
     users.set(user.id, {
       id: user.id,
       sockets: [socket.id],
-      status: 'online'
+      status: 'online',
     });
 
     sockets = [socket.id];
@@ -907,7 +1045,5 @@ const setUsers = (user, socket) => {
 
   return sockets;
 };
-
-
 
 module.exports = SocketServer;

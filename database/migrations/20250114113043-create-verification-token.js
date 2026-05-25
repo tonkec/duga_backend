@@ -2,9 +2,13 @@
 
 module.exports = {
   async up(queryInterface, Sequelize) {
-    await queryInterface.dropTable('VerificationTokens', { cascade: true }).catch((error) => {
-      console.log('Table VerificationTokens does not exist, proceeding to create it.');
-    });
+    await queryInterface
+      .dropTable('VerificationTokens', { cascade: true })
+      .catch((error) => {
+        console.log(
+          'Table VerificationTokens does not exist, proceeding to create it.'
+        );
+      });
 
     // Create the table with the new relation
     await queryInterface.createTable('VerificationTokens', {

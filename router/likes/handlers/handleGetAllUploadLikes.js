@@ -9,8 +9,8 @@ const handleGetAllUploadLikes = async (req, res) => {
       include: [
         {
           model: User,
-          as: "user",
-          attributes: ["id", "username"],
+          as: 'user',
+          attributes: ['id', 'username'],
         },
       ],
     });

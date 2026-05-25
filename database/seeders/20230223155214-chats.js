@@ -1,5 +1,5 @@
-"use strict";
-const models = require("../../models");
+'use strict';
+const models = require('../../models');
 const User = models.User;
 const Chat = models.Chat;
 const ChatUser = models.ChatUser;
@@ -7,7 +7,7 @@ const Message = models.Message;
 
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
-  async up(queryInterface, Sequelize) {
+  async up() {
     /**
      * Add seed commands here.
      *
@@ -33,24 +33,24 @@ module.exports = {
 
     await Message.bulkCreate([
       {
-        message: "Hello",
+        message: 'Hello',
         chatId: chat.id,
         fromUserId: users[0].id,
       },
       {
-        message: "Zdravo",
+        message: 'Zdravo',
         chatId: chat.id,
         fromUserId: users[1].id,
       },
       {
-        message: "Hi",
+        message: 'Hi',
         chatId: chat.id,
         fromUserId: users[1].id,
       },
     ]);
   },
 
-  async down(queryInterface, Sequelize) {
+  async down() {
     /**
      * Add commands to revert seed here.
      *

@@ -1,7 +1,8 @@
 const Upload = require('../../../models').Upload;
-const addSecureUrlsToList = require('../../../utils/secureUploadUrl').addSecureUrlsToList;
+const addSecureUrlsToList =
+  require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
-const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 
 const handleGetProfilePhoto = async (req, res) => {
   const { id } = req.params;
@@ -20,7 +21,13 @@ const handleGetProfilePhoto = async (req, res) => {
     }
 
     const accessToken = getBearerToken(req);
-    const [secureUpload] = addSecureUrlsToList([upload], API_BASE_URL, 'url', 'securePhotoUrl', accessToken);
+    const [secureUpload] = addSecureUrlsToList(
+      [upload],
+      API_BASE_URL,
+      'url',
+      'securePhotoUrl',
+      accessToken
+    );
     return res.json({ securePhotoUrl: secureUpload.securePhotoUrl });
   } catch (error) {
     console.error('Error fetching profile photo:', error);

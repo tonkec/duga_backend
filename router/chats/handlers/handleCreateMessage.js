@@ -1,5 +1,4 @@
-
-const ChatUser = require("./../../../models").ChatUser
+const ChatUser = require('./../../../models').ChatUser;
 const { Chat } = require('./../../../models');
 const { User } = require('./../../../models');
 const { sequelize } = require('./../../../models');
@@ -14,7 +13,9 @@ const handleCreateMessage = async (req, res) => {
   }
 
   if (partnerId === id) {
-    return res.status(400).json({ error: 'Cannot create a chat with yourself' });
+    return res
+      .status(400)
+      .json({ error: 'Cannot create a chat with yourself' });
   }
 
   const partner = await User.findByPk(partnerId);
@@ -25,14 +26,18 @@ const handleCreateMessage = async (req, res) => {
   try {
     const user = await User.findOne({
       where: { id },
-      include: [{
-        model: Chat,
-        where: { type: 'dual' },
-        include: [{
-          model: ChatUser,
-          where: { userId: partnerId },
-        }],
-      }],
+      include: [
+        {
+          model: Chat,
+          where: { type: 'dual' },
+          include: [
+            {
+              model: ChatUser,
+              where: { userId: partnerId },
+            },
+          ],
+        },
+      ],
     });
 
     if (user && user.Chats.length > 0) {
@@ -43,10 +48,13 @@ const handleCreateMessage = async (req, res) => {
 
     const chat = await Chat.create({ type: 'dual' }, { transaction: t });
 
-    await ChatUser.bulkCreate([
-      { chatId: chat.id, userId: id },
-      { chatId: chat.id, userId: partnerId },
-    ], { transaction: t });
+    await ChatUser.bulkCreate(
+      [
+        { chatId: chat.id, userId: id },
+        { chatId: chat.id, userId: partnerId },
+      ],
+      { transaction: t }
+    );
 
     await t.commit();
 

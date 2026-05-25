@@ -2,11 +2,17 @@ const User = require('../../../models').User;
 
 const handleGetUserById = async (req, res) => {
   try {
-
     const user = await User.findByPk(req.params.id, {
-      attributes: { exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'] },
+      attributes: {
+        exclude: [
+          'password',
+          'auth0Id',
+          'activeSessionIdHash',
+          'activeSessionStartedAt',
+        ],
+      },
     });
-    
+
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }

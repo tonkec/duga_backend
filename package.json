@@ -7,7 +7,12 @@
     "start": "node index.js",
     "dev": "npx nodemon index.js",
     "migrate": "npx sequelize db:migrate",
-    "test": "jest"
+    "test": "jest",
+    "lint": "eslint . --ext .js",
+    "lint:fix": "eslint . --ext .js --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "husky"
   },
   "keywords": [],
   "author": "",
@@ -41,7 +46,10 @@
     "node": "16.20.2"
   },
   "devDependencies": {
+    "eslint": "^8.57.1",
+    "husky": "^9.1.7",
     "jest": "^30.4.2",
+    "prettier": "^3.8.3",
     "supertest": "^7.2.2"
   }
 }

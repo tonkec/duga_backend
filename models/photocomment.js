@@ -21,13 +21,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'uploadId',
         foreignKeyConstraint: true,
       });
-      
+
       this.belongsToMany(models.User, {
         through: models.CommentMention,
         as: 'taggedUsers',
         foreignKey: 'commentId',
       });
-      
     }
   }
   PhotoComment.init(
@@ -38,7 +37,7 @@ module.exports = (sequelize, DataTypes) => {
       imageUrl: {
         type: DataTypes.STRING,
         allowNull: true,
-      }
+      },
     },
     {
       sequelize,

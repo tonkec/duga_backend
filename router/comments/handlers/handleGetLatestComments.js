@@ -1,7 +1,7 @@
 const { PhotoComment, User } = require('../../../models');
 const { addSecureUrlsToList } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
-const { API_BASE_URL } = require("../../../consts/apiBaseUrl");
+const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 
 const handleGetLatestComments = async (req, res) => {
   try {
@@ -34,7 +34,9 @@ const handleGetLatestComments = async (req, res) => {
     return res.status(200).json(commentsWithSecureUrls);
   } catch (error) {
     console.error('❌ Error in /comments/latest:', error);
-    return res.status(500).json({ message: 'Error occurred while fetching comments' });
+    return res
+      .status(500)
+      .json({ message: 'Error occurred while fetching comments' });
   }
 };
 

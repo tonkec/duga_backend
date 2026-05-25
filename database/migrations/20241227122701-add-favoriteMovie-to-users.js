@@ -5,7 +5,7 @@ module.exports = {
   up: async (queryInterface, Sequelize) => {
     await queryInterface.addColumn('Users', 'favoriteMovie', {
       type: Sequelize.STRING,
-      allowNull: true, 
+      allowNull: true,
     });
   },
 

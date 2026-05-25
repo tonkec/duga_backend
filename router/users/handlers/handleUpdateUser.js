@@ -25,13 +25,11 @@ const PROFILE_FIELDS = {
 };
 
 const sanitizeUser = (user) => {
-  const {
-    password,
-    auth0Id,
-    activeSessionIdHash,
-    activeSessionStartedAt,
-    ...safeUser
-  } = user;
+  const safeUser = { ...user };
+  delete safeUser.password;
+  delete safeUser.auth0Id;
+  delete safeUser.activeSessionIdHash;
+  delete safeUser.activeSessionStartedAt;
 
   return safeUser;
 };
@@ -45,23 +43,23 @@ const handleUpdateUser = async (req, res) => {
       return res.status(400).json({ error: 'Profile data is required' });
     }
 
-    const updateData = Object.entries(PROFILE_FIELDS).reduce((acc, [requestField, modelField]) => {
-      if (Object.prototype.hasOwnProperty.call(data, requestField)) {
-        acc[modelField] = data[requestField] ?? null;
-      }
-      return acc;
-    }, {});
-
-    const [rows, result] = await User.update(
-      updateData,
-      {
-        where: {
-          id: userId,
-        },
-        returning: true,
-        individualHooks: true,
-      }
+    const updateData = Object.entries(PROFILE_FIELDS).reduce(
+      (acc, [requestField, modelField]) => {
+        if (Object.prototype.hasOwnProperty.call(data, requestField)) {
+          acc[modelField] = data[requestField] ?? null;
+        }
+        return acc;
+      },
+      {}
     );
+
+    const [rows, result] = await User.update(updateData, {
+      where: {
+        id: userId,
+      },
+      returning: true,
+      individualHooks: true,
+    });
 
     if (!rows || !result?.[0]) {
       return res.status(404).json({ error: 'User not found' });
@@ -76,4 +74,4 @@ const handleUpdateUser = async (req, res) => {
   }
 };
 
-module.exports = handleUpdateUser
+module.exports = handleUpdateUser;

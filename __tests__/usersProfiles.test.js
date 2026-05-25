@@ -70,14 +70,21 @@ describe('users and profiles routes', () => {
       username: 'antonija',
     });
 
-    const response = await authenticated(request(app).get('/users/current-user'));
+    const response = await authenticated(
+      request(app).get('/users/current-user')
+    );
 
     expect(response.status).toBe(200);
     expect(User.findByPk).toHaveBeenCalledWith(
       'user-1',
       expect.objectContaining({
         attributes: {
-          exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'],
+          exclude: [
+            'password',
+            'auth0Id',
+            'activeSessionIdHash',
+            'activeSessionStartedAt',
+          ],
         },
       })
     );
@@ -102,7 +109,12 @@ describe('users and profiles routes', () => {
       'user-2',
       expect.objectContaining({
         attributes: {
-          exclude: ['password', 'auth0Id', 'activeSessionIdHash', 'activeSessionStartedAt'],
+          exclude: [
+            'password',
+            'auth0Id',
+            'activeSessionIdHash',
+            'activeSessionStartedAt',
+          ],
         },
       })
     );
@@ -124,7 +136,9 @@ describe('users and profiles routes', () => {
 
     User.update.mockResolvedValue([1, [updatedUser]]);
 
-    const response = await authenticated(request(app).post('/users/update-user')).send({
+    const response = await authenticated(
+      request(app).post('/users/update-user')
+    ).send({
       data: {
         firstName: 'Ana',
         lastName: 'Duga',
@@ -153,7 +167,9 @@ describe('users and profiles routes', () => {
   });
 
   it('validates required fields when updating profile', async () => {
-    const response = await authenticated(request(app).post('/users/update-user')).send({});
+    const response = await authenticated(
+      request(app).post('/users/update-user')
+    ).send({});
 
     expect(response.status).toBe(400);
     expect(response.body).toEqual({ error: 'Profile data is required' });
@@ -172,7 +188,9 @@ describe('users and profiles routes', () => {
 
     User.update.mockResolvedValue([1, [updatedUser]]);
 
-    const response = await authenticated(request(app).post('/users/update-user')).send({
+    const response = await authenticated(
+      request(app).post('/users/update-user')
+    ).send({
       data: {
         firstName: 'Ana',
         id: 'user-2',
@@ -199,10 +217,14 @@ describe('users and profiles routes', () => {
   it('returns 404 for missing user', async () => {
     User.findByPk.mockResolvedValue(null);
 
-    const getResponse = await authenticated(request(app).get('/users/missing-user'));
+    const getResponse = await authenticated(
+      request(app).get('/users/missing-user')
+    );
 
     User.update.mockResolvedValue([0, []]);
-    const updateResponse = await authenticated(request(app).post('/users/update-user')).send({
+    const updateResponse = await authenticated(
+      request(app).post('/users/update-user')
+    ).send({
       data: { firstName: 'Ana' },
     });
 
@@ -225,7 +247,9 @@ describe('users and profiles routes', () => {
 
     User.update.mockResolvedValue([1, [updatedUser]]);
 
-    const response = await authenticated(request(app).post('/users/update-user')).send({
+    const response = await authenticated(
+      request(app).post('/users/update-user')
+    ).send({
       data: { firstName: 'Ana' },
     });
 

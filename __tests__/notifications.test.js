@@ -30,7 +30,14 @@ jest.mock('../models', () => ({
   },
 }));
 
-const { ChatUser, Message, Notification, PhotoLikes, Upload, User } = require('../models');
+const {
+  ChatUser,
+  Message,
+  Notification,
+  PhotoLikes,
+  Upload,
+  User,
+} = require('../models');
 const likesRouter = require('../router/photolikes');
 const messagesRouter = require('../router/messages');
 const notificationsRouter = require('../router/notifications');
@@ -87,7 +94,12 @@ describe('notification routes and side effects', () => {
       .set(SESSION_HEADER, 'session-1');
 
   it('creates notification after message', async () => {
-    const savedMessage = { id: 501, chatId: 101, fromUserId: 1, message: 'Hello' };
+    const savedMessage = {
+      id: 501,
+      chatId: 101,
+      fromUserId: 1,
+      message: 'Hello',
+    };
     const notification = { id: 900, userId: 2, type: 'message', chatId: 101 };
 
     ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
@@ -110,7 +122,10 @@ describe('notification routes and side effects', () => {
       chatId: 101,
     });
     expect(app.get('io').to).toHaveBeenCalledWith('user:2');
-    expect(app.get('io').to().emit).toHaveBeenCalledWith('new_notification', notification);
+    expect(app.get('io').to().emit).toHaveBeenCalledWith(
+      'new_notification',
+      notification
+    );
   });
 
   it('creates notification after like', async () => {
@@ -120,7 +135,9 @@ describe('notification routes and side effects', () => {
     Upload.findByPk.mockResolvedValue({ id: 101, userId: 2 });
     Notification.create.mockResolvedValue({ id: 901, userId: 2, type: 'like' });
 
-    const response = await authenticated(request(app).post('/likes/upvote/101'));
+    const response = await authenticated(
+      request(app).post('/likes/upvote/101')
+    );
 
     expect(response.status).toBe(201);
     expect(Notification.create).toHaveBeenCalledWith({
@@ -135,9 +152,16 @@ describe('notification routes and side effects', () => {
   it('does not notify yourself', async () => {
     ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
     ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
-    Message.create.mockResolvedValue({ id: 501, chatId: 101, fromUserId: 1, message: 'Hello' });
+    Message.create.mockResolvedValue({
+      id: 501,
+      chatId: 101,
+      fromUserId: 1,
+      message: 'Hello',
+    });
 
-    const messageResponse = await authenticated(request(app).post('/messages')).send({
+    const messageResponse = await authenticated(
+      request(app).post('/messages')
+    ).send({
       chatId: 101,
       message: 'Hello',
     });
@@ -147,7 +171,9 @@ describe('notification routes and side effects', () => {
     PhotoLikes.findAll.mockResolvedValue([{ id: 10, userId: 1, photoId: 101 }]);
     Upload.findByPk.mockResolvedValue({ id: 101, userId: 1 });
 
-    const likeResponse = await authenticated(request(app).post('/likes/upvote/101'));
+    const likeResponse = await authenticated(
+      request(app).post('/likes/upvote/101')
+    );
 
     expect(messageResponse.status).toBe(201);
     expect(likeResponse.status).toBe(201);
@@ -164,7 +190,9 @@ describe('notification routes and side effects', () => {
 
     Notification.findByPk.mockResolvedValue(notification);
 
-    const response = await authenticated(request(app).put('/notifications/900/read'));
+    const response = await authenticated(
+      request(app).put('/notifications/900/read')
+    );
 
     expect(response.status).toBe(200);
     expect(notification.isRead).toBe(true);
@@ -178,7 +206,9 @@ describe('notification routes and side effects', () => {
 
     Notification.findAll.mockResolvedValue(notifications);
 
-    const response = await authenticated(request(app).get('/notifications?unread=true'));
+    const response = await authenticated(
+      request(app).get('/notifications?unread=true')
+    );
 
     expect(response.status).toBe(200);
     expect(Notification.findAll).toHaveBeenCalledWith({
@@ -192,14 +222,18 @@ describe('notification routes and side effects', () => {
   it('clears notifications by marking all as read', async () => {
     Notification.update.mockResolvedValue([3]);
 
-    const response = await authenticated(request(app).put('/notifications/mark-all-read'));
+    const response = await authenticated(
+      request(app).put('/notifications/mark-all-read')
+    );
 
     expect(response.status).toBe(200);
     expect(Notification.update).toHaveBeenCalledWith(
       { isRead: true },
       { where: { userId: 1, isRead: false } }
     );
-    expect(response.body).toEqual({ message: 'Marked 3 notifications as read.' });
+    expect(response.body).toEqual({
+      message: 'Marked 3 notifications as read.',
+    });
   });
 
   it('deletes notification', async () => {
@@ -211,7 +245,9 @@ describe('notification routes and side effects', () => {
 
     Notification.findByPk.mockResolvedValue(notification);
 
-    const response = await authenticated(request(app).delete('/notifications/900'));
+    const response = await authenticated(
+      request(app).delete('/notifications/900')
+    );
 
     expect(response.status).toBe(200);
     expect(notification.destroy).toHaveBeenCalledTimes(1);
