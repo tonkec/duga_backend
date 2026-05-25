@@ -149,6 +149,7 @@ describe('SocketServer', () => {
     jest.dontMock('jwks-rsa');
     jest.dontMock('../models');
     jest.dontMock('../utils/secureUploadUrl');
+    jest.useRealTimers();
   });
 
   it('rejects socket connections without complete auth data', async () => {
@@ -231,6 +232,86 @@ describe('SocketServer', () => {
     });
     expect(oldSocket.disconnect).toHaveBeenCalledWith(true);
     expect(activeSocket.disconnect).not.toHaveBeenCalled();
+  });
+
+  it('persists online status when a user joins', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    models.ChatUser.findAll.mockResolvedValue([]);
+    models.sequelize.query.mockResolvedValue([[], {}]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+    await socket.handlers.join();
+
+    expect(models.User.update).toHaveBeenCalledWith(
+      { status: 'online' },
+      { where: { id: user.id } }
+    );
+  });
+
+  it('persists explicit status changes and acknowledges the socket event', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+    const ack = jest.fn();
+
+    models.ChatUser.findAll.mockResolvedValue([]);
+    models.sequelize.query.mockResolvedValue([[], {}]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+    await socket.handlers.join();
+    models.User.update.mockClear();
+    io.targetEmits.length = 0;
+
+    await socket.handlers['set-status']({ status: 'offline' }, ack);
+
+    expect(models.User.update).toHaveBeenCalledWith(
+      { status: 'offline' },
+      { where: { id: user.id } }
+    );
+    expect(io.targetEmits).toContainEqual({
+      target: socket.id,
+      event: 'status-update',
+      payload: { userId: user.id, status: 'offline' },
+    });
+    expect(ack).toHaveBeenCalledWith({ ok: true, status: 'offline' });
+  });
+
+  it('does not persist offline when a user reconnects before the disconnect grace period', async () => {
+    jest.useFakeTimers();
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const firstSocket = buildSocket({ id: 'socket-first', appUser: user });
+    const secondSocket = buildSocket({ id: 'socket-second', appUser: user });
+
+    models.ChatUser.findAll.mockResolvedValue([]);
+    models.sequelize.query.mockResolvedValue([[], {}]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(firstSocket);
+    await firstSocket.handlers.join();
+    models.User.update.mockClear();
+
+    await firstSocket.handlers.disconnect();
+    expect(models.User.update).not.toHaveBeenCalledWith(
+      { status: 'offline' },
+      { where: { id: user.id } }
+    );
+
+    io.connectionHandler(secondSocket);
+    await secondSocket.handlers.join();
+    jest.advanceTimersByTime(5000);
+    await Promise.resolve();
+
+    expect(models.User.update).not.toHaveBeenCalledWith(
+      { status: 'offline' },
+      { where: { id: user.id } }
+    );
+    jest.useRealTimers();
   });
 
   it('emits receive-comment when an authorized user sends a valid comment event', async () => {

@@ -6,6 +6,7 @@ const PhotoComment = require('../models').PhotoComment;
 const ChatUser = require('../models').ChatUser;
 const users = new Map();
 const userSockets = new Map();
+const pendingOfflineTimers = new Map();
 const Notification = require('../models').Notification;
 const PhotoLikes = require('../models').PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
@@ -26,6 +27,10 @@ const API_JWT_SECRET =
   process.env.API_JWT_SECRET ||
   process.env.JWT_SECRET ||
   'duga-api-test-secret';
+const SOCKET_OFFLINE_DELAY_MS = Number(
+  process.env.SOCKET_OFFLINE_DELAY_MS || 5000
+);
+const USER_STATUSES = new Set(['online', 'offline']);
 
 const allowSocketOrigin = (origin, callback) => {
   callback(null, origin || true);
@@ -115,6 +120,14 @@ const joinSocketRooms = async (socket, user) => {
 };
 
 const userSessionSockets = new Map();
+
+const clearPendingOfflineTimer = (userId) => {
+  const timer = pendingOfflineTimers.get(userId);
+  if (!timer) return;
+
+  clearTimeout(timer);
+  pendingOfflineTimers.delete(userId);
+};
 
 const trackSessionSocket = (userId, sessionId, socketId) => {
   if (!sessionId) return;
@@ -223,9 +236,11 @@ const SocketServer = (server, app) => {
         return;
       }
       const userId = user.id;
+      clearPendingOfflineTimer(userId);
       setUsers(user, socket);
       trackSessionSocket(user.id, socket.appSessionId, socket.id);
       await joinSocketRooms(socket, user);
+      await User.update({ status: 'online' }, { where: { id: userId } });
 
       const chatters = await getChatters(userId);
       chatters.forEach((chatterId) => {
@@ -388,13 +403,19 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on('set-status', async ({ status }) => {
+    socket.on('set-status', async ({ status } = {}, ack) => {
       const user = socket.appUser || (await getSocketUser(socket));
       if (!user) {
         console.error('❌ Unauthorized set-status: user not found');
+        ack?.({ ok: false, error: 'Unauthorized' });
+        return;
+      }
+      if (!USER_STATUSES.has(status)) {
+        ack?.({ ok: false, error: 'Invalid status' });
         return;
       }
       const userId = user.id;
+      clearPendingOfflineTimer(userId);
       if (users.has(userId)) {
         users.get(userId).status = status;
       }
@@ -415,6 +436,8 @@ const SocketServer = (server, app) => {
           io.to(sockId).emit('status-update', { userId, status });
         });
       }
+
+      ack?.({ ok: true, status });
     });
 
     socket.on('delete-comment', async (data) => {
@@ -932,29 +955,42 @@ const SocketServer = (server, app) => {
 
             users.set(user.id, user);
           } else {
-            const chatters = await getChatters(user.id);
-            await User.update(
-              { status: 'offline' },
-              { where: { id: user.id } }
-            );
-
-            for (let i = 0; i < chatters.length; i++) {
-              if (users.has(chatters[i])) {
-                users.get(chatters[i]).sockets.forEach((socket) => {
-                  try {
-                    io.to(socket).emit('status-update', {
-                      userId: user.id,
-                      status: 'offline',
-                    });
-                  } catch (e) {
-                    console.log(e);
-                  }
-                });
-              }
-            }
-
             userSockets.delete(socket.id);
             users.delete(user.id);
+            clearPendingOfflineTimer(user.id);
+            pendingOfflineTimers.set(
+              user.id,
+              setTimeout(() => {
+                pendingOfflineTimers.delete(user.id);
+                if (users.has(user.id)) return;
+
+                getChatters(user.id)
+                  .then(async (chatters) => {
+                    await User.update(
+                      { status: 'offline' },
+                      { where: { id: user.id } }
+                    );
+
+                    for (let i = 0; i < chatters.length; i++) {
+                      if (users.has(chatters[i])) {
+                        users.get(chatters[i]).sockets.forEach((socket) => {
+                          try {
+                            io.to(socket).emit('status-update', {
+                              userId: user.id,
+                              status: 'offline',
+                            });
+                          } catch (e) {
+                            console.log(e);
+                          }
+                        });
+                      }
+                    }
+                  })
+                  .catch((error) => {
+                    console.error('❌ Failed to mark user offline:', error);
+                  });
+              }, SOCKET_OFFLINE_DELAY_MS)
+            );
           }
         }
       }
@@ -985,6 +1021,7 @@ const getChatters = async (userId) => {
 };
 
 const setUsers = (user, socket) => {
+  clearPendingOfflineTimer(user.id);
   let sockets = [];
   if (users.has(user.id)) {
     const existingUser = users.get(user.id);
