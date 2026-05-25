@@ -32,6 +32,15 @@ module.exports = (sequelize, DataTypes) => {
         as: 'mentionedIn',
         foreignKey: 'userId',
       });
+
+      this.hasMany(models.Question, {
+        as: 'questions',
+        foreignKey: 'userId',
+      });
+      this.hasMany(models.Answer, {
+        as: 'answers',
+        foreignKey: 'userId',
+      });
     }
   }
   User.init(
