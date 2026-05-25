@@ -13,6 +13,7 @@ const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
 const s3 = require('../../../utils/s3');
+const { BUCKET } = require('../../uploads/s3/rekognitionConfiguration');
 
 const getManagementApiToken = async () => {
   try {
@@ -37,16 +38,50 @@ const getManagementApiToken = async () => {
   }
 };
 
-const deleteAllUserImagesFromS3 = async (userId) => {
-  const Bucket = 'duga-user-photo';
+const getUploadS3Key = (url) => {
+  if (!url) return null;
+
+  let key = String(url);
+
+  try {
+    if (/^https?:\/\//.test(key)) {
+      key = new URL(key).pathname;
+    }
+  } catch (error) {
+    // Keep the original value if it is not a valid absolute URL.
+  }
+
+  const secureFilePrefix = '/uploads/files/';
+  const secureFileIndex = key.indexOf(secureFilePrefix);
+  if (secureFileIndex !== -1) {
+    key = key.slice(secureFileIndex + secureFilePrefix.length);
+  }
+
+  key = key.replace(/^\/+/, '');
+
+  try {
+    return decodeURIComponent(key);
+  } catch (error) {
+    return key;
+  }
+};
+
+const deleteAllUserImagesFromS3 = async (userId, uploads = []) => {
+  const Bucket = BUCKET;
   const Prefix = `user/${userId}/`;
 
   try {
     const list = await s3.listObjectsV2({ Bucket, Prefix }).promise();
+    const keys = new Set((list.Contents || []).map((obj) => obj.Key));
 
-    if (!list.Contents.length) return;
+    uploads.forEach((upload) => {
+      const key = getUploadS3Key(upload.url);
+      if (key) keys.add(key);
+    });
 
-    const objects = list.Contents.map((obj) => ({ Key: obj.Key }));
+    if (!keys.size) return;
+
+    const objects = [...keys].map((Key) => ({ Key }));
 
     await s3
       .deleteObjects({
@@ -77,12 +112,19 @@ const deleteUser = async (req, res) => {
 
   const t = await sequelize.transaction();
   try {
+    const uploads = await Upload.findAll({
+      where: { userId },
+      attributes: ['url'],
+      transaction: t,
+    });
+
+    await deleteAllUserImagesFromS3(userId, uploads);
+
     await Notification.destroy({ where: { userId }, transaction: t });
     await PhotoComment.destroy({ where: { userId }, transaction: t });
     await PhotoLikes.destroy({ where: { userId }, transaction: t });
     await Upload.destroy({ where: { userId }, transaction: t });
     await Message.destroy({ where: { fromUserId: userId }, transaction: t });
-    await deleteAllUserImagesFromS3(userId);
 
     await sequelize.query(`DELETE FROM "ChatUsers" WHERE "userId" = :userId`, {
       replacements: { userId },

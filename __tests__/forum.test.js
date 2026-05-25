@@ -16,6 +16,9 @@ jest.mock('../models', () => ({
     sum: jest.fn(),
   },
   Category: {},
+  Notification: {
+    create: jest.fn(),
+  },
   Question: {
     create: jest.fn(),
     findAndCountAll: jest.fn(),
@@ -100,6 +103,7 @@ jest.mock('../utils/s3', () => ({
 const {
   Answer,
   AnswerVote,
+  Notification,
   Question,
   QuestionVote,
   sequelize,
@@ -121,6 +125,9 @@ const buildApp = (io) => {
 const authHeaders = { Authorization: 'Bearer test-token' };
 const buildIoMock = () => ({
   emit: jest.fn(),
+  to: jest.fn(function () {
+    return this;
+  }),
 });
 
 describe('forum routes', () => {
@@ -522,7 +529,7 @@ describe('forum routes', () => {
   });
 
   it('creates an answer for an existing question', async () => {
-    Question.findByPk.mockResolvedValue({ id: 10 });
+    Question.findByPk.mockResolvedValue({ id: 10, userId: 1 });
     Answer.create.mockResolvedValue({ id: 22 });
     Answer.findByPk.mockResolvedValue({
       id: 22,
@@ -545,8 +552,76 @@ describe('forum routes', () => {
     expect(response.body.data.id).toBe(22);
   });
 
+  it('notifies the question owner when another user answers', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Question.findByPk.mockResolvedValue({ id: 10, userId: 2 });
+    Answer.create.mockResolvedValue({ id: 22 });
+    Answer.findByPk.mockResolvedValue({
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      body: 'This is a new answer.',
+    });
+    Notification.create.mockResolvedValue({
+      id: 99,
+      userId: 2,
+      type: 'forum_answer',
+      content: 'Netko je odgovorio na tvoje pitanje.',
+      actionId: 10,
+      actionType: 'forum_question',
+      isRead: false,
+    });
+
+    const response = await request(app)
+      .post('/forum/questions/10/answers')
+      .set(authHeaders)
+      .send({ body: 'This is a new answer.' });
+
+    expect(response.status).toBe(201);
+    expect(Notification.create).toHaveBeenCalledWith({
+      userId: 2,
+      type: 'forum_answer',
+      content: 'Netko je odgovorio na tvoje pitanje.',
+      actionId: 10,
+      actionType: 'forum_question',
+    });
+    expect(io.to).toHaveBeenCalledWith('user:2');
+    expect(io.emit).toHaveBeenCalledWith(
+      'new_notification',
+      expect.objectContaining({
+        id: 99,
+        type: 'forum_answer',
+        actionId: 10,
+        actionType: 'forum_question',
+      })
+    );
+  });
+
+  it('does not notify when the question owner answers their own question', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Question.findByPk.mockResolvedValue({ id: 10, userId: 1 });
+    Answer.create.mockResolvedValue({ id: 22 });
+    Answer.findByPk.mockResolvedValue({
+      id: 22,
+      questionId: 10,
+      userId: 1,
+      body: 'Answering my own question.',
+    });
+
+    const response = await request(app)
+      .post('/forum/questions/10/answers')
+      .set(authHeaders)
+      .send({ body: 'Answering my own question.' });
+
+    expect(response.status).toBe(201);
+    expect(Notification.create).not.toHaveBeenCalled();
+    expect(io.to).not.toHaveBeenCalled();
+  });
+
   it('creates an answer with a moderated image', async () => {
-    Question.findByPk.mockResolvedValue({ id: 10 });
+    Question.findByPk.mockResolvedValue({ id: 10, userId: 1 });
     Answer.create.mockResolvedValue({ id: 23 });
     Answer.findByPk.mockResolvedValue({
       id: 23,
@@ -647,6 +722,68 @@ describe('forum routes', () => {
       voteScore: 3,
       voteCount: 5,
     });
+  });
+
+  it('notifies the question owner when another user upvotes their question', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Question.findByPk.mockResolvedValue({ id: 10, userId: 2 });
+    QuestionVote.findOne.mockResolvedValue(null);
+    QuestionVote.create.mockResolvedValue({ id: 1 });
+    QuestionVote.sum.mockResolvedValue(1);
+    QuestionVote.count.mockResolvedValue(1);
+    Notification.create.mockResolvedValue({
+      id: 101,
+      userId: 2,
+      type: 'forum_question_upvote',
+      content: 'Netko je upvoteao tvoje pitanje.',
+      actionId: 10,
+      actionType: 'forum_question',
+      isRead: false,
+    });
+
+    const response = await request(app)
+      .post('/forum/questions/10/votes')
+      .set(authHeaders)
+      .send({ value: 1 });
+
+    expect(response.status).toBe(200);
+    expect(Notification.create).toHaveBeenCalledWith({
+      userId: 2,
+      type: 'forum_question_upvote',
+      content: 'Netko je upvoteao tvoje pitanje.',
+      actionId: 10,
+      actionType: 'forum_question',
+    });
+    expect(io.to).toHaveBeenCalledWith('user:2');
+    expect(io.emit).toHaveBeenCalledWith(
+      'new_notification',
+      expect.objectContaining({
+        id: 101,
+        type: 'forum_question_upvote',
+        actionId: 10,
+        actionType: 'forum_question',
+      })
+    );
+  });
+
+  it('does not notify when a user upvotes their own question', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Question.findByPk.mockResolvedValue({ id: 10, userId: 1 });
+    QuestionVote.findOne.mockResolvedValue(null);
+    QuestionVote.create.mockResolvedValue({ id: 1 });
+    QuestionVote.sum.mockResolvedValue(1);
+    QuestionVote.count.mockResolvedValue(1);
+
+    const response = await request(app)
+      .post('/forum/questions/10/votes')
+      .set(authHeaders)
+      .send({ value: 1 });
+
+    expect(response.status).toBe(200);
+    expect(Notification.create).not.toHaveBeenCalled();
+    expect(io.to).not.toHaveBeenCalled();
   });
 
   it('sets a question downvote for the authenticated user', async () => {
@@ -755,6 +892,49 @@ describe('forum routes', () => {
       },
       questionId: 10,
     });
+  });
+
+  it('notifies the answer owner when another user upvotes their answer', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10, userId: 2 });
+    AnswerVote.findOne.mockResolvedValue(null);
+    AnswerVote.create.mockResolvedValue({ id: 1 });
+    AnswerVote.sum.mockResolvedValue(1);
+    AnswerVote.count.mockResolvedValue(1);
+    Notification.create.mockResolvedValue({
+      id: 102,
+      userId: 2,
+      type: 'forum_answer_upvote',
+      content: 'Netko je upvoteao tvoj odgovor.',
+      actionId: 22,
+      actionType: 'forum_answer',
+      isRead: false,
+    });
+
+    const response = await request(app)
+      .post('/forum/answers/22/votes')
+      .set(authHeaders)
+      .send({ value: 1 });
+
+    expect(response.status).toBe(200);
+    expect(Notification.create).toHaveBeenCalledWith({
+      userId: 2,
+      type: 'forum_answer_upvote',
+      content: 'Netko je upvoteao tvoj odgovor.',
+      actionId: 22,
+      actionType: 'forum_answer',
+    });
+    expect(io.to).toHaveBeenCalledWith('user:2');
+    expect(io.emit).toHaveBeenCalledWith(
+      'new_notification',
+      expect.objectContaining({
+        id: 102,
+        type: 'forum_answer_upvote',
+        actionId: 22,
+        actionType: 'forum_answer',
+      })
+    );
   });
 
   it('sets an answer downvote for the authenticated user', async () => {

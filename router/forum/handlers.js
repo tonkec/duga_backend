@@ -3,6 +3,7 @@ const {
   Answer,
   AnswerVote,
   Category,
+  Notification,
   Question,
   QuestionVote,
   Upload,
@@ -71,6 +72,22 @@ const emitForumEvent = (req, event, payload) => {
   if (io) {
     io.emit(event, payload);
   }
+};
+
+const emitUserNotification = (req, userId, notification) => {
+  const io = req.app.get('io');
+  if (io?.to) {
+    io.to(`user:${userId}`).emit('new_notification', notification);
+  }
+};
+
+const notifyUser = async (req, userId, payload) => {
+  const notification = await Notification.create({
+    userId,
+    ...payload,
+  });
+
+  emitUserNotification(req, userId, notification);
 };
 
 const getForumEnv = () => process.env.NODE_ENV || 'development';
@@ -424,6 +441,19 @@ const handleCreateAnswer = async (req, res) => {
       questionId: question.id,
     });
 
+    const currentUserId = getAuthenticatedUserId(req);
+    if (Number(question.userId) !== Number(currentUserId)) {
+      const notification = await Notification.create({
+        userId: question.userId,
+        type: 'forum_answer',
+        content: 'Netko je odgovorio na tvoje pitanje.',
+        actionId: question.id,
+        actionType: 'forum_question',
+      });
+
+      emitUserNotification(req, question.userId, notification);
+    }
+
     return res.status(201).json({ data });
   } catch (error) {
     console.error('Error creating forum answer:', error);
@@ -625,6 +655,21 @@ const handleVoteQuestion = async (req, res) => {
       await QuestionVote.create({ questionId, userId, value });
     }
 
+    const shouldNotifyUpvote =
+      value === 1 &&
+      question.userId &&
+      Number(question.userId) !== Number(userId) &&
+      Number(existingVote?.value) !== 1;
+
+    if (shouldNotifyUpvote) {
+      await notifyUser(req, question.userId, {
+        type: 'forum_question_upvote',
+        content: 'Netko je upvoteao tvoje pitanje.',
+        actionId: questionId,
+        actionType: 'forum_question',
+      });
+    }
+
     const summary = await getQuestionVoteSummary(questionId);
     const data = {
       questionId,
@@ -701,6 +746,21 @@ const handleVoteAnswer = async (req, res) => {
       await existingVote.update({ value });
     } else {
       await AnswerVote.create({ answerId, userId, value });
+    }
+
+    const shouldNotifyUpvote =
+      value === 1 &&
+      answer.userId &&
+      Number(answer.userId) !== Number(userId) &&
+      Number(existingVote?.value) !== 1;
+
+    if (shouldNotifyUpvote) {
+      await notifyUser(req, answer.userId, {
+        type: 'forum_answer_upvote',
+        content: 'Netko je upvoteao tvoj odgovor.',
+        actionId: answerId,
+        actionType: 'forum_answer',
+      });
     }
 
     const summary = await getAnswerVoteSummary(answerId);
