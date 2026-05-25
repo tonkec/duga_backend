@@ -38,6 +38,12 @@ describe('User model', () => {
         firstName: expect.any(Object),
         lastName: expect.any(Object),
         bio: expect.any(Object),
+        favoriteSong: expect.objectContaining({
+          type: expect.any(DataTypes.TEXT),
+        }),
+        favoriteMovie: expect.objectContaining({
+          type: expect.any(DataTypes.TEXT),
+        }),
         avatar: expect.any(Object),
       })
     );

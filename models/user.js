@@ -113,11 +113,11 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       favoriteSong: {
-        type: DataTypes.STRING,
+        type: DataTypes.TEXT,
         allowNull: true,
       },
       favoriteMovie: {
-        type: DataTypes.STRING,
+        type: DataTypes.TEXT,
         allowNull: true,
       },
       interests: {

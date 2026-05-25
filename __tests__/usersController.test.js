@@ -210,6 +210,58 @@ describe('users controller handlers', () => {
     );
   });
 
+  it('normalizes empty optional profile enums when updating', async () => {
+    const req = {
+      auth: { user: { id: 1 } },
+      body: {
+        data: {
+          lookingFor: '',
+          relationshipStatus: '',
+          favoriteDay: '',
+          favoriteSong: 'https://www.youtube.com/embed/2ElwsEdX1UA',
+          favoriteMovie: 'https://www.imdb.com/title/tt0111161/',
+          cigarettes: false,
+        },
+      },
+    };
+    const res = buildResponse();
+    const updatedUser = {
+      avatar: 'avatar.jpg',
+      get: jest.fn(() => ({
+        id: 1,
+        lookingFor: null,
+        relationshipStatus: null,
+        favoriteDayOfWeek: null,
+        favoriteSong: 'https://www.youtube.com/embed/2ElwsEdX1UA',
+        favoriteMovie: 'https://www.imdb.com/title/tt0111161/',
+      })),
+    };
+
+    User.update.mockResolvedValue([1, [updatedUser]]);
+
+    await handleUpdateUser(req, res);
+
+    expect(User.update).toHaveBeenCalledWith(
+      {
+        lookingFor: null,
+        relationshipStatus: null,
+        favoriteDayOfWeek: null,
+        favoriteSong: 'https://www.youtube.com/embed/2ElwsEdX1UA',
+        favoriteMovie: 'https://www.imdb.com/title/tt0111161/',
+        cigarettes: false,
+      },
+      expect.objectContaining({
+        where: { id: 1 },
+      })
+    );
+    expect(res.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        favoriteSong: 'https://www.youtube.com/embed/2ElwsEdX1UA',
+        favoriteMovie: 'https://www.imdb.com/title/tt0111161/',
+      })
+    );
+  });
+
   it('validates profile update payload', async () => {
     const req = { auth: { user: { id: 1 } }, body: {} };
     const res = buildResponse();

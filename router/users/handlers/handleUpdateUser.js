@@ -24,6 +24,24 @@ const PROFILE_FIELDS = {
   ending: 'ending',
 };
 
+const OPTIONAL_ENUM_FIELDS = new Set([
+  'lookingFor',
+  'relationshipStatus',
+  'favoriteDayOfWeek',
+]);
+
+const normalizeProfileValue = (modelField, value) => {
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (OPTIONAL_ENUM_FIELDS.has(modelField) && value === '') {
+    return null;
+  }
+
+  return value;
+};
+
 const sanitizeUser = (user) => {
   const safeUser = { ...user };
   delete safeUser.password;
@@ -46,7 +64,10 @@ const handleUpdateUser = async (req, res) => {
     const updateData = Object.entries(PROFILE_FIELDS).reduce(
       (acc, [requestField, modelField]) => {
         if (Object.prototype.hasOwnProperty.call(data, requestField)) {
-          acc[modelField] = data[requestField] ?? null;
+          acc[modelField] = normalizeProfileValue(
+            modelField,
+            data[requestField]
+          );
         }
         return acc;
       },
