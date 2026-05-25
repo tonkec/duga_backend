@@ -23,13 +23,20 @@ module.exports = (sequelize, DataTypes) => {
   }
   PhotoLikes.init(
     {
-      count: DataTypes.NUMBER,
-      userId: DataTypes.NUMBER,
-      photoId: DataTypes.NUMBER,
+      count: DataTypes.INTEGER,
+      userId: DataTypes.INTEGER,
+      photoId: DataTypes.INTEGER,
     },
     {
       sequelize,
       modelName: 'PhotoLikes',
+      indexes: [
+        {
+          unique: true,
+          fields: ['photoId', 'userId'],
+          name: 'photo_likes_unique_photo_user',
+        },
+      ],
     }
   );
   return PhotoLikes;

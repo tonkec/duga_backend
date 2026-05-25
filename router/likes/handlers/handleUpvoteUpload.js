@@ -1,25 +1,46 @@
 const { Notification, PhotoLikes, Upload } = require('../../../models');
 
+const isUniqueLikeConstraintError = (error) =>
+  error?.name === 'SequelizeUniqueConstraintError';
+
 const handleUpvoteUpload = async (req, res) => {
   try {
     const uploadId = parseInt(req.params.id);
     const userId = req.auth.user.id;
+    const likeWhere = {
+      userId,
+      photoId: uploadId,
+    };
+
+    const getPhotoLikes = () =>
+      PhotoLikes.findAll({
+        where: {
+          photoId: uploadId,
+        },
+      });
 
     const photoLike = await PhotoLikes.findOne({
-      where: {
-        userId,
-        photoId: uploadId,
-      },
+      where: likeWhere,
     });
 
     if (photoLike) {
-      return res.status(400).json({ message: 'You already liked this photo' });
+      const photoLikes = await getPhotoLikes();
+      return res.status(200).json(photoLikes);
     }
 
-    await PhotoLikes.create({
-      userId,
-      photoId: uploadId,
-    });
+    try {
+      await PhotoLikes.create({
+        userId,
+        photoId: uploadId,
+      });
+    } catch (error) {
+      if (isUniqueLikeConstraintError(error)) {
+        const photoLikes = await getPhotoLikes();
+        return res.status(200).json(photoLikes);
+      }
+
+      throw error;
+    }
 
     const upload = await Upload.findByPk(uploadId);
     if (upload?.userId && Number(upload.userId) !== Number(userId)) {
@@ -32,11 +53,7 @@ const handleUpvoteUpload = async (req, res) => {
       });
     }
 
-    const photoLikes = await PhotoLikes.findAll({
-      where: {
-        photoId: uploadId,
-      },
-    });
+    const photoLikes = await getPhotoLikes();
 
     req.app.get('io').emit('upvote-upload', {
       uploadId,

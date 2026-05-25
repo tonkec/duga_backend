@@ -105,20 +105,43 @@ describe('photo likes routes', () => {
     });
   });
 
-  it('prevents duplicate photo likes', async () => {
+  it('returns existing likes when the user already liked the photo', async () => {
+    const likes = [{ id: 1, userId: 'user-1', photoId: 101 }];
+
     PhotoLikes.findOne.mockResolvedValue({
       id: 1,
       userId: 'user-1',
       photoId: 101,
     });
+    PhotoLikes.findAll.mockResolvedValue(likes);
 
     const response = await authenticated(
       request(app).post('/likes/upvote/101')
     );
 
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({ message: 'You already liked this photo' });
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(likes);
     expect(PhotoLikes.create).not.toHaveBeenCalled();
+    expect(app.get('io').emit).not.toHaveBeenCalled();
+  });
+
+  it('treats unique constraint races as an idempotent like', async () => {
+    const likes = [{ id: 1, userId: 'user-1', photoId: 101 }];
+    const uniqueConstraintError = new Error('duplicate key value');
+    uniqueConstraintError.name = 'SequelizeUniqueConstraintError';
+
+    PhotoLikes.findOne.mockResolvedValue(null);
+    PhotoLikes.create.mockRejectedValue(uniqueConstraintError);
+    PhotoLikes.findAll.mockResolvedValue(likes);
+
+    const response = await authenticated(
+      request(app).post('/likes/upvote/101')
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(likes);
+    expect(Upload.findByPk).not.toHaveBeenCalled();
+    expect(Notification.create).not.toHaveBeenCalled();
     expect(app.get('io').emit).not.toHaveBeenCalled();
   });
 
