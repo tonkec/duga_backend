@@ -11,7 +11,11 @@ const handleGetPhotoById = async (req, res) => {
         id: req.params.id,
       },
       include: [
-        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+        {
+          model: User,
+          as: 'taggedUsers',
+          attributes: ['id', 'publicId', 'username'],
+        },
       ],
     });
 

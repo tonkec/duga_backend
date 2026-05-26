@@ -16,7 +16,11 @@ const handleGetLatestPhotos = async (req, res) => {
         },
       },
       include: [
-        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+        {
+          model: User,
+          as: 'taggedUsers',
+          attributes: ['id', 'publicId', 'username'],
+        },
       ],
       limit: 3,
       order: [['createdAt', 'DESC']],

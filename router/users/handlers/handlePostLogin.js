@@ -46,6 +46,7 @@ const handlePostLogin = async (req, res) => {
       ok: true,
       user: {
         id: user.id,
+        publicId: user.publicId,
         auth0_user_id: user.auth0_user_id,
         username: user.username,
         age: user.age,

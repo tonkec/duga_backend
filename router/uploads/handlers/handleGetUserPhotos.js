@@ -15,7 +15,11 @@ const handleGetUserPhotos = async (req, res) => {
       where: { userId },
       attributes: ['id', 'url', 'description', 'createdAt'],
       include: [
-        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+        {
+          model: User,
+          as: 'taggedUsers',
+          attributes: ['id', 'publicId', 'username'],
+        },
       ],
     });
 

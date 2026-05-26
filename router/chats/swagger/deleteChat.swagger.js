@@ -16,6 +16,19 @@
  *     responses:
  *       200:
  *         description: Chat deleted successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 chatId:
+ *                   type: number
+ *                 notifyUsers:
+ *                   type: array
+ *                   items:
+ *                     type: number
+ *       400:
+ *         description: Invalid or missing chatId
  *       403:
  *         description: User is not a chat member or is not a group admin
  *       404:

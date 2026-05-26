@@ -66,6 +66,12 @@ module.exports = (sequelize, DataTypes) => {
         as: 'messageReactions',
         foreignKey: 'userId',
       });
+      this.belongsToMany(models.Message, {
+        through: models.MessageMention,
+        as: 'mentionedInMessages',
+        foreignKey: 'userId',
+        otherKey: 'messageId',
+      });
       this.hasMany(models.ProfileView, {
         as: 'profileViewsReceived',
         foreignKey: 'viewedUserId',
@@ -78,6 +84,12 @@ module.exports = (sequelize, DataTypes) => {
   }
   User.init(
     {
+      publicId: {
+        type: DataTypes.UUID,
+        allowNull: false,
+        defaultValue: DataTypes.UUIDV4,
+        unique: true,
+      },
       firstName: {
         type: DataTypes.STRING,
         allowNull: true, // Allows NULL values

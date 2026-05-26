@@ -17,16 +17,26 @@ jest.mock('../models', () => ({
     findByPk: jest.fn(),
     findOne: jest.fn(),
   },
+  MessageMention: {
+    bulkCreate: jest.fn(),
+  },
   MessageReaction: {},
   Notification: {
     create: jest.fn(),
   },
   User: {
+    findAll: jest.fn(),
     findOne: jest.fn(),
   },
 }));
 
-const { ChatUser, Message, Notification, User } = require('../models');
+const {
+  ChatUser,
+  Message,
+  MessageMention,
+  Notification,
+  User,
+} = require('../models');
 const chatsRouter = require('../router/chat');
 const messagesRouter = require('../router/messages');
 const { signApiToken } = require('../middleware/apiJwt');
@@ -112,7 +122,7 @@ describe('message routes', () => {
     expect(ChatUser.findOne).toHaveBeenCalledWith({
       where: { chatId: 101, userId: 1 },
     });
-    expect(response.body.data).toEqual(savedMessage);
+    expect(response.body.data).toEqual({ ...savedMessage, mentionedUsers: [] });
   });
 
   it('rejects message from non-member', async () => {
@@ -166,6 +176,90 @@ describe('message routes', () => {
       message: 'Hello',
       messagePhotoUrl: null,
     });
+  });
+
+  it('saves mentions in one-on-one chat messages', async () => {
+    const savedMessage = {
+      id: 501,
+      chatId: 101,
+      fromUserId: 1,
+      type: 'text',
+      message: 'Hello @duga',
+      messagePhotoUrl: null,
+    };
+    const mentionedUsers = [{ id: 2, username: 'duga', avatar: 'avatar.jpg' }];
+
+    ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
+    ChatUser.findAll.mockResolvedValue([{ userId: 1 }, { userId: 2 }]);
+    Message.create.mockResolvedValue(savedMessage);
+    MessageMention.bulkCreate.mockResolvedValue([]);
+    User.findAll.mockResolvedValue(mentionedUsers);
+
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      message: 'Hello @duga',
+      mentions: [2],
+    });
+
+    expect(response.status).toBe(201);
+    expect(MessageMention.bulkCreate).toHaveBeenCalledWith([
+      { messageId: 501, userId: 2 },
+    ]);
+    expect(response.body.data.mentionedUsers).toEqual(mentionedUsers);
+  });
+
+  it('saves mentions in group chat messages', async () => {
+    const savedMessage = {
+      id: 502,
+      chatId: 202,
+      fromUserId: 1,
+      type: 'text',
+      message: 'Hi @duga and @rainbow',
+      messagePhotoUrl: null,
+    };
+    const mentionedUsers = [
+      { id: 2, username: 'duga', avatar: 'avatar-2.jpg' },
+      { id: 3, username: 'rainbow', avatar: 'avatar-3.jpg' },
+    ];
+
+    ChatUser.findOne.mockResolvedValue({ chatId: 202, userId: 1 });
+    ChatUser.findAll.mockResolvedValue([
+      { userId: 1 },
+      { userId: 2 },
+      { userId: 3 },
+    ]);
+    Message.create.mockResolvedValue(savedMessage);
+    MessageMention.bulkCreate.mockResolvedValue([]);
+    User.findAll.mockResolvedValue(mentionedUsers);
+
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 202,
+      message: 'Hi @duga and @rainbow',
+      mentions: [2, 3],
+    });
+
+    expect(response.status).toBe(201);
+    expect(MessageMention.bulkCreate).toHaveBeenCalledWith([
+      { messageId: 502, userId: 2 },
+      { messageId: 502, userId: 3 },
+    ]);
+    expect(response.body.data.mentionedUsers).toEqual(mentionedUsers);
+  });
+
+  it('rejects mentions for users outside the chat', async () => {
+    ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
+    ChatUser.findAll.mockResolvedValue([{ userId: 1 }, { userId: 2 }]);
+
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      message: 'Hello @not-in-chat',
+      mentions: [3],
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'Mentions must be chat members' });
+    expect(Message.create).not.toHaveBeenCalled();
+    expect(MessageMention.bulkCreate).not.toHaveBeenCalled();
   });
 
   it('lists messages for chat', async () => {
@@ -294,9 +388,9 @@ describe('message routes', () => {
 
     expect(response.status).toBe(201);
     expect(app.get('io').to).toHaveBeenCalledWith('chat:101');
-    expect(app.get('io').to().emit).toHaveBeenCalledWith(
-      'received',
-      savedMessage
-    );
+    expect(app.get('io').to().emit).toHaveBeenCalledWith('received', {
+      ...savedMessage,
+      mentionedUsers: [],
+    });
   });
 });

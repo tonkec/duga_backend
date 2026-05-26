@@ -198,8 +198,12 @@ const handleAddComment = async (req, res) => {
 
     const fullComment = await PhotoComment.findByPk(photoComment.id, {
       include: [
-        { model: User, as: 'user', attributes: ['id', 'username'] },
-        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+        { model: User, as: 'user', attributes: ['id', 'publicId', 'username'] },
+        {
+          model: User,
+          as: 'taggedUsers',
+          attributes: ['id', 'publicId', 'username'],
+        },
       ],
     });
 

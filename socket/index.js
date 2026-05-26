@@ -1,6 +1,7 @@
 const socketIo = require('socket.io');
 const { sequelize } = require('../models');
 const Message = require('../models').Message;
+const MessageMention = require('../models').MessageMention;
 const MessageReaction = require('../models').MessageReaction;
 const User = require('../models').User;
 const PhotoComment = require('../models').PhotoComment;
@@ -21,6 +22,12 @@ const { API_BASE_URL } = require('../consts/apiBaseUrl');
 const { attachSecureUrl } = require('../utils/secureUploadUrl');
 const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
 const { hashSessionId } = require('../utils/appSession');
+const {
+  buildMentionRows,
+  getMentionUserIdsOutsideChat,
+  hasInvalidMentionUserIds,
+  normalizeMentionUserIds,
+} = require('../utils/messageMentions');
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
@@ -801,11 +808,29 @@ const SocketServer = (server, app) => {
           where: { chatId },
           attributes: ['userId'],
         });
-        const memberIds = chatMembers.map(({ userId }) => userId);
+        const memberIds = chatMembers.map(({ userId }) => Number(userId));
+        const mentionUserIds = normalizeMentionUserIds(message?.mentions);
 
         if (!memberIds.includes(sender.id)) {
           socket.emit('message_error', {
             message: 'You do not have access to this chat',
+          });
+          return;
+        }
+
+        if (!mentionUserIds || hasInvalidMentionUserIds(mentionUserIds)) {
+          socket.emit('message_error', { message: 'Invalid mentions' });
+          return;
+        }
+
+        const invalidMentionUserIds = getMentionUserIdsOutsideChat(
+          mentionUserIds,
+          memberIds
+        );
+
+        if (invalidMentionUserIds.length > 0) {
+          socket.emit('message_error', {
+            message: 'Mentions must be chat members',
           });
           return;
         }
@@ -860,6 +885,20 @@ const SocketServer = (server, app) => {
 
         const savedMessage = await Message.create(msgPayload);
 
+        if (mentionUserIds.length > 0) {
+          await MessageMention.bulkCreate(
+            buildMentionRows(savedMessage.id, mentionUserIds)
+          );
+        }
+
+        const mentionedUsers =
+          mentionUserIds.length > 0
+            ? await User.findAll({
+                where: { id: mentionUserIds },
+                attributes: ['id', 'publicId', 'username', 'avatar'],
+              })
+            : [];
+
         // --- 3) Prepare outgoing socket message for clients ---
         const outbound = {
           id: savedMessage.id,
@@ -880,6 +919,7 @@ const SocketServer = (server, app) => {
           reactions: [],
           reactionCount: 0,
           userReactions: [],
+          mentionedUsers,
           toUserId: memberIds.filter((id) => id !== sender.id),
         };
 

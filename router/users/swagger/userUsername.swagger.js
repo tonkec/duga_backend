@@ -15,7 +15,5 @@
  *         description: Username to search for
  *     responses:
  *       200:
- *         description: Matching users
- *       404:
- *         description: User not found
+ *         description: Matching users. Each user includes id, publicId, and username.
  */

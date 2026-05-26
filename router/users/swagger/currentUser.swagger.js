@@ -8,7 +8,7 @@
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Current user object
+ *         description: Current user object. Includes publicId.
  *       401:
  *         description: Unauthorized
  */

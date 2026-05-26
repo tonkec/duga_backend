@@ -49,7 +49,7 @@ const handleGetAllChats = async (req, res) => {
           include: [
             {
               model: User,
-              attributes: ['username', 'id'],
+              attributes: ['username', 'id', 'publicId'],
               where: {
                 [Op.not]: { id: user.id },
               },
@@ -59,12 +59,18 @@ const handleGetAllChats = async (req, res) => {
               include: [
                 {
                   model: User,
-                  attributes: ['id', 'username', 'avatar'],
+                  attributes: ['id', 'publicId', 'username', 'avatar'],
                 },
                 {
                   model: MessageReaction,
                   as: 'reactions',
                   attributes: ['emoji', 'userId'],
+                },
+                {
+                  model: User,
+                  as: 'mentionedUsers',
+                  attributes: ['id', 'publicId', 'username', 'avatar'],
+                  through: { attributes: [] },
                 },
               ],
               limit: 20,

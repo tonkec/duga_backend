@@ -2,7 +2,7 @@
  * @swagger
  * /users/{id}:
  *   get:
- *     summary: Get user by ID
+ *     summary: Get user by internal ID or public UUID
  *     tags: [Users]
  *     security:
  *       - bearerAuth: []
@@ -12,10 +12,10 @@
  *         required: true
  *         schema:
  *           type: string
- *         description: User ID
+ *         description: Internal user ID or publicId UUID
  *     responses:
  *       200:
- *         description: User object
+ *         description: User object. Includes publicId.
  *       404:
  *         description: User not found
  */

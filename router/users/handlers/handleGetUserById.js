@@ -1,10 +1,13 @@
 const { ProfileView, User } = require('../../../models');
 
+const UUID_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 const handleGetUserById = async (req, res) => {
   try {
-    const viewedUserId = req.params.id;
+    const requestedUserId = req.params.id;
     const viewerId = req.auth.user.id;
-    const user = await User.findByPk(req.params.id, {
+    const queryOptions = {
       attributes: {
         exclude: [
           'password',
@@ -13,11 +16,19 @@ const handleGetUserById = async (req, res) => {
           'activeSessionStartedAt',
         ],
       },
-    });
+    };
+    const user = UUID_PATTERN.test(requestedUserId)
+      ? await User.findOne({
+          where: { publicId: requestedUserId },
+          ...queryOptions,
+        })
+      : await User.findByPk(requestedUserId, queryOptions);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
     }
+
+    const viewedUserId = user.id;
 
     if (String(viewedUserId) !== String(viewerId)) {
       const profileView = await ProfileView.create({
@@ -36,6 +47,7 @@ const handleGetUserById = async (req, res) => {
             viewedUserId,
             viewer: {
               id: viewer?.id,
+              publicId: viewer?.publicId,
               username: viewer?.username,
               firstName: viewer?.firstName,
               lastName: viewer?.lastName,

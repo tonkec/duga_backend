@@ -329,7 +329,7 @@ describe('photo comments CRUD routes', () => {
         include: expect.arrayContaining([
           expect.objectContaining({
             as: 'user',
-            attributes: ['id', 'username'],
+            attributes: ['id', 'publicId', 'username'],
           }),
         ]),
       })
@@ -550,7 +550,7 @@ describe('photo comments CRUD routes', () => {
         include: expect.arrayContaining([
           expect.objectContaining({
             as: 'user',
-            attributes: ['id', 'username'],
+            attributes: ['id', 'publicId', 'username'],
           }),
         ]),
       })

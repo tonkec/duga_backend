@@ -18,7 +18,14 @@ const getBearerToken = require('../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../consts/apiBaseUrl');
 const { BUCKET } = require('../uploads/s3/rekognitionConfiguration');
 
-const USER_ATTRIBUTES = ['id', 'username', 'firstName', 'lastName', 'avatar'];
+const USER_ATTRIBUTES = [
+  'id',
+  'publicId',
+  'username',
+  'firstName',
+  'lastName',
+  'avatar',
+];
 const questionVoteAttributes = [
   [
     sequelize.literal(

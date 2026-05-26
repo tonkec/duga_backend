@@ -8,5 +8,5 @@
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of chats
+ *         description: List of chats. User objects include publicId. Recent messages can include mentionedUsers.
  */

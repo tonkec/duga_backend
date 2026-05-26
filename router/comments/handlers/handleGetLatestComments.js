@@ -12,12 +12,12 @@ const handleGetLatestComments = async (req, res) => {
         {
           model: User,
           as: 'user',
-          attributes: ['id', 'username'],
+          attributes: ['id', 'publicId', 'username'],
         },
         {
           model: User,
           as: 'taggedUsers',
-          attributes: ['id', 'username'],
+          attributes: ['id', 'publicId', 'username'],
           through: { attributes: [] },
         },
       ],

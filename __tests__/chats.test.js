@@ -201,6 +201,64 @@ describe('chat routes', () => {
     });
   });
 
+  it('creates group chat from public user IDs', async () => {
+    const members = [
+      buildUser({
+        id: 2,
+        publicId: '11111111-1111-4111-8111-111111111111',
+        auth0Id: 'auth0|user-2',
+        username: 'duga',
+        avatar: 'avatar-2.jpg',
+      }),
+      buildUser({
+        id: 3,
+        publicId: '22222222-2222-4222-8222-222222222222',
+        auth0Id: 'auth0|user-3',
+        username: 'rainbow',
+        avatar: 'avatar-3.jpg',
+      }),
+    ];
+    const createdChat = { id: 203, type: 'group', name: 'Public group' };
+
+    User.findAll.mockResolvedValueOnce(members).mockResolvedValueOnce(members);
+    Chat.create.mockResolvedValue(createdChat);
+    ChatUser.bulkCreate.mockResolvedValue([]);
+
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
+      userPublicIds: [
+        '11111111-1111-4111-8111-111111111111',
+        '22222222-2222-4222-8222-222222222222',
+      ],
+      name: 'Public group',
+    });
+
+    expect(response.status).toBe(201);
+    expect(ChatUser.bulkCreate).toHaveBeenCalledWith(
+      [
+        { chatId: 203, userId: 1, role: 'admin' },
+        { chatId: 203, userId: 2, role: 'member' },
+        { chatId: 203, userId: 3, role: 'member' },
+      ],
+      { transaction }
+    );
+    expect(response.body.Users).toEqual([
+      {
+        id: 2,
+        publicId: '11111111-1111-4111-8111-111111111111',
+        username: 'duga',
+        avatar: 'avatar-2.jpg',
+      },
+      {
+        id: 3,
+        publicId: '22222222-2222-4222-8222-222222222222',
+        username: 'rainbow',
+        avatar: 'avatar-3.jpg',
+      },
+    ]);
+  });
+
   it('rejects group chat with fewer than two other users', async () => {
     const response = await authenticated(
       request(app).post('/chats/create')

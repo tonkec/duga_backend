@@ -1,9 +1,9 @@
 /**
  * @swagger
- * /auth/post-login:
+ * /users/post-login:
  *   post:
- *     summary: Upsert user after login and mark onboarding as done
- *     tags: [Auth]
+ *     summary: Mark onboarding as done after login
+ *     tags: [Users]
  *     security:
  *       - bearerAuth: []
  *     requestBody:
@@ -12,27 +12,30 @@
  *         application/json:
  *           schema:
  *             type: object
- *             required:
- *               - username
- *               - age
- *               - acceptPrivacy
- *               - acceptTerms
  *             properties:
- *               username:
- *                 type: string
- *                 example: duga_user
- *               age:
- *                 type: integer
- *                 example: 21
- *               acceptPrivacy:
- *                 type: boolean
- *                 example: true
- *               acceptTerms:
- *                 type: boolean
- *                 example: true
+ *               data:
+ *                 type: object
+ *                 required:
+ *                   - username
+ *                   - age
+ *                   - acceptPrivacy
+ *                   - acceptTerms
+ *                 properties:
+ *                   username:
+ *                     type: string
+ *                     example: duga_user
+ *                   age:
+ *                     type: integer
+ *                     example: 21
+ *                   acceptPrivacy:
+ *                     type: boolean
+ *                     example: true
+ *                   acceptTerms:
+ *                     type: boolean
+ *                     example: true
  *     responses:
  *       200:
- *         description: User created/updated successfully
+ *         description: User updated successfully. Response user includes publicId.
  *       400:
  *         description: Invalid input (missing or invalid fields)
  *       401:

@@ -214,7 +214,7 @@ describe('photo likes routes', () => {
         {
           model: User,
           as: 'user',
-          attributes: ['id', 'username'],
+          attributes: ['id', 'publicId', 'username'],
         },
       ],
     });

@@ -1,13 +1,36 @@
-const { ChatUser, Message, Notification } = require('../../../models');
+const {
+  ChatUser,
+  Message,
+  MessageMention,
+  Notification,
+  User,
+} = require('../../../models');
+const {
+  buildMentionRows,
+  getMentionUserIdsOutsideChat,
+  hasInvalidMentionUserIds,
+  normalizeMentionUserIds,
+} = require('../../../utils/messageMentions');
 
 const handleCreateMessage = async (req, res) => {
   try {
     const userId = req.auth.user.id;
-    const { chatId, message, type = 'text', messagePhotoUrl = null } = req.body;
+    const {
+      chatId,
+      message,
+      mentions,
+      type = 'text',
+      messagePhotoUrl = null,
+    } = req.body;
     const parsedChatId = Number(chatId);
+    const mentionUserIds = normalizeMentionUserIds(mentions);
 
     if (!parsedChatId) {
       return res.status(400).json({ error: 'Invalid or missing chatId' });
+    }
+
+    if (!mentionUserIds || hasInvalidMentionUserIds(mentionUserIds)) {
+      return res.status(400).json({ error: 'Invalid mentions' });
     }
 
     if (
@@ -32,6 +55,20 @@ const handleCreateMessage = async (req, res) => {
         .json({ error: 'You do not have access to this chat' });
     }
 
+    const chatMembers = await ChatUser.findAll({
+      where: { chatId: parsedChatId },
+      attributes: ['userId'],
+    });
+    const memberIds = chatMembers.map((member) => Number(member.userId));
+    const invalidMentionUserIds = getMentionUserIdsOutsideChat(
+      mentionUserIds,
+      memberIds
+    );
+
+    if (invalidMentionUserIds.length > 0) {
+      return res.status(400).json({ error: 'Mentions must be chat members' });
+    }
+
     const savedMessage = await Message.create({
       chatId: parsedChatId,
       fromUserId: userId,
@@ -40,10 +77,24 @@ const handleCreateMessage = async (req, res) => {
       messagePhotoUrl,
     });
 
-    const chatMembers = await ChatUser.findAll({
-      where: { chatId: parsedChatId },
-      attributes: ['userId'],
-    });
+    if (mentionUserIds.length > 0) {
+      await MessageMention.bulkCreate(
+        buildMentionRows(savedMessage.id, mentionUserIds)
+      );
+    }
+
+    const mentionedUsers =
+      mentionUserIds.length > 0
+        ? await User.findAll({
+            where: { id: mentionUserIds },
+            attributes: ['id', 'publicId', 'username', 'avatar'],
+          })
+        : [];
+
+    const payload = {
+      ...(savedMessage.toJSON ? savedMessage.toJSON() : savedMessage),
+      mentionedUsers,
+    };
 
     const io = req.app.get('io');
     await Promise.all(
@@ -69,12 +120,12 @@ const handleCreateMessage = async (req, res) => {
     );
 
     if (io?.to) {
-      io.to(`chat:${parsedChatId}`).emit('received', savedMessage);
+      io.to(`chat:${parsedChatId}`).emit('received', payload);
     } else if (io?.emit) {
-      io.emit('received', savedMessage);
+      io.emit('received', payload);
     }
 
-    return res.status(201).json({ data: savedMessage });
+    return res.status(201).json({ data: payload });
   } catch (error) {
     console.error('❌ Error creating message:', error);
     return res

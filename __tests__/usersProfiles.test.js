@@ -157,6 +157,50 @@ describe('users and profiles routes', () => {
     );
   });
 
+  it('gets user by public id', async () => {
+    const publicId = '11111111-1111-4111-8111-111111111111';
+    User.findOne.mockImplementation(({ where }) => {
+      if (where?.auth0Id === currentUser.auth0Id) {
+        return Promise.resolve(currentUser);
+      }
+      if (where?.publicId === publicId) {
+        return Promise.resolve({
+          id: 'user-2',
+          publicId,
+          firstName: 'Duga',
+          username: 'duga',
+        });
+      }
+      return Promise.resolve(null);
+    });
+    ProfileView.create.mockResolvedValue({
+      id: 11,
+      viewerId: 'user-1',
+      viewedUserId: 'user-2',
+      createdAt: '2026-05-25T19:11:00.000Z',
+    });
+
+    const response = await authenticated(
+      request(app).get(`/users/${publicId}`)
+    );
+
+    expect(response.status).toBe(200);
+    expect(User.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { publicId },
+      })
+    );
+    expect(response.body).toMatchObject({
+      id: 'user-2',
+      publicId,
+      username: 'duga',
+    });
+    expect(ProfileView.create).toHaveBeenCalledWith({
+      viewerId: 'user-1',
+      viewedUserId: 'user-2',
+    });
+  });
+
   it('does not record a profile view when viewing yourself', async () => {
     User.findByPk.mockResolvedValue({
       id: 'user-1',

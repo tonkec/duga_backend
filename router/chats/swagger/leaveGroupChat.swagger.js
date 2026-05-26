@@ -15,7 +15,23 @@
  *           type: number
  *     responses:
  *       200:
- *         description: User left the group chat
+ *         description: User left the group chat. If the leaving user was admin, newAdminUserId contains the promoted member ID.
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 chatId:
+ *                   type: number
+ *                 userId:
+ *                   type: number
+ *                 notifyUsers:
+ *                   type: array
+ *                   items:
+ *                     type: number
+ *                 newAdminUserId:
+ *                   type: number
+ *                   nullable: true
  *       400:
  *         description: Invalid chat ID or not a group chat
  *       403:

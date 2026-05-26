@@ -16,7 +16,11 @@ const handleGetAllUserUploads = async (req, res) => {
     const uploads = await Upload.findAll({
       where: { userId },
       include: [
-        { model: User, as: 'taggedUsers', attributes: ['id', 'username'] },
+        {
+          model: User,
+          as: 'taggedUsers',
+          attributes: ['id', 'publicId', 'username'],
+        },
       ],
     });
     const data = await s3.listObjectsV2(params).promise();

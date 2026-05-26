@@ -15,7 +15,7 @@ const handleGetUserByUsername = async (req, res) => {
           [Op.iLike]: `${username}%`,
         },
       },
-      attributes: ['id', 'username'],
+      attributes: ['id', 'publicId', 'username'],
       limit: 10,
     });
 

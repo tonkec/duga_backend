@@ -129,7 +129,7 @@ describe('users controller handlers', () => {
     expect(res.json).toHaveBeenCalledWith(user);
     expect(ProfileView.create).toHaveBeenCalledWith({
       viewerId: 1,
-      viewedUserId: '2',
+      viewedUserId: 2,
     });
   });
 
@@ -185,7 +185,7 @@ describe('users controller handlers', () => {
           [Op.iLike]: 'du%',
         },
       },
-      attributes: ['id', 'username'],
+      attributes: ['id', 'publicId', 'username'],
       limit: 10,
     });
     expect(res.json).toHaveBeenCalledWith({ users });

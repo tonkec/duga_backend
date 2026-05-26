@@ -92,12 +92,16 @@ const loadSocketServer = () => {
       create: jest.fn(),
       findByPk: jest.fn(),
     },
+    MessageMention: {
+      bulkCreate: jest.fn(),
+    },
     MessageReaction: {
       create: jest.fn(),
       findAll: jest.fn(),
       findOne: jest.fn(),
     },
     User: {
+      findAll: jest.fn().mockResolvedValue([]),
       findOne: jest.fn(),
       update: jest.fn(),
     },
@@ -441,6 +445,7 @@ describe('SocketServer', () => {
       reactions: [],
       reactionCount: 0,
       userReactions: [],
+      mentionedUsers: [],
       toUserId: [recipient.id],
     };
 

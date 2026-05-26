@@ -67,6 +67,12 @@ const handleGetAllMessages = async (req, res) => {
         as: 'reactions',
         attributes: ['emoji', 'userId'],
       },
+      {
+        model: User,
+        as: 'mentionedUsers',
+        attributes: ['id', 'publicId', 'username', 'avatar'],
+        through: { attributes: [] },
+      },
     ],
     limit,
     offset,

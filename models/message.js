@@ -16,6 +16,12 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'messageId',
         onDelete: 'CASCADE',
       });
+      this.belongsToMany(models.User, {
+        through: models.MessageMention,
+        as: 'mentionedUsers',
+        foreignKey: 'messageId',
+        otherKey: 'userId',
+      });
     }
   }
   Message.init(

@@ -8,7 +8,7 @@
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: List of all users
+ *         description: List of all users. Each user includes publicId.
  *       401:
  *         description: Unauthorized
  */

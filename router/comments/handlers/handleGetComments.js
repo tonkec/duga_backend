@@ -25,13 +25,13 @@ const handleGetComments = async (req, res) => {
         {
           model: User,
           as: 'taggedUsers',
-          attributes: ['id', 'username'],
+          attributes: ['id', 'publicId', 'username'],
           through: { attributes: [] },
         },
         {
           model: User,
           as: 'user',
-          attributes: ['id', 'username'],
+          attributes: ['id', 'publicId', 'username'],
         },
       ],
     };

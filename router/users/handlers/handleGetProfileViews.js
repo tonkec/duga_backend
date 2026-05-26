@@ -1,6 +1,13 @@
 const { ProfileView, User } = require('../../../models');
 
-const VIEWER_ATTRIBUTES = ['id', 'username', 'firstName', 'lastName', 'avatar'];
+const VIEWER_ATTRIBUTES = [
+  'id',
+  'publicId',
+  'username',
+  'firstName',
+  'lastName',
+  'avatar',
+];
 
 const handleGetProfileViews = async (req, res) => {
   try {

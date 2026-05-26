@@ -10,7 +10,10 @@ const handleGetIsReadMessage = require('./messages/handlers/handleGetIsReadMessa
 const handleCreateMessage = require('./messages/handlers/handleCreateMessage');
 const handleDeleteMessage = require('./messages/handlers/handleDeleteMessage');
 
+require('./messages/swagger/createMessage.swagger');
 router.post('/', authenticatedAppSession, handleCreateMessage);
+
+require('./messages/swagger/deleteMessage.swagger');
 router.delete('/:id', authenticatedAppSession, handleDeleteMessage);
 
 require('./messages/swagger/readMessage.swagger');
