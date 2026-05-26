@@ -1,5 +1,9 @@
 'use strict';
 const { Model } = require('sequelize');
+const {
+  decryptMessage,
+  encryptMessage,
+} = require('../utils/messageEncryption');
 module.exports = (sequelize, DataTypes) => {
   class Message extends Model {
     /**
@@ -38,7 +42,10 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.TEXT,
         get() {
           const content = this.getDataValue('message');
-          return content;
+          return decryptMessage(content);
+        },
+        set(value) {
+          this.setDataValue('message', encryptMessage(value));
         },
       },
       messagePhotoUrl: {
