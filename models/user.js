@@ -1,6 +1,21 @@
 'use strict';
 const { Model } = require('sequelize');
 const config = require('../config/app');
+const {
+  decryptMessage,
+  encryptMessage,
+} = require('../utils/messageEncryption');
+
+const buildEncryptedTextField = (DataTypes, attributeName) => ({
+  type: DataTypes.TEXT,
+  allowNull: true,
+  get() {
+    return decryptMessage(this.getDataValue(attributeName));
+  },
+  set(value) {
+    this.setDataValue(attributeName, encryptMessage(value));
+  },
+});
 module.exports = (sequelize, DataTypes) => {
   class User extends Model {
     /**
@@ -147,32 +162,25 @@ module.exports = (sequelize, DataTypes) => {
         allowNull: true,
       },
       spirituality: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'spirituality'),
       },
       embarasement: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'embarasement'),
       },
       tooOldFor: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'tooOldFor'),
       },
       makesMyDay: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'makesMyDay'),
       },
       ending: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'ending'),
       },
       favoriteSong: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'favoriteSong'),
       },
       favoriteMovie: {
-        type: DataTypes.TEXT,
-        allowNull: true,
+        ...buildEncryptedTextField(DataTypes, 'favoriteMovie'),
       },
       interests: {
         type: DataTypes.STRING,
@@ -200,7 +208,7 @@ module.exports = (sequelize, DataTypes) => {
       },
       gender: DataTypes.STRING,
       isVerified: DataTypes.BOOLEAN,
-      bio: DataTypes.TEXT,
+      bio: buildEncryptedTextField(DataTypes, 'bio'),
       sexuality: DataTypes.STRING,
       location: DataTypes.STRING,
       age: DataTypes.INTEGER,

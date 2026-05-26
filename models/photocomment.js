@@ -1,5 +1,9 @@
 'use strict';
 const { Model } = require('sequelize');
+const {
+  decryptMessage,
+  encryptMessage,
+} = require('../utils/messageEncryption');
 module.exports = (sequelize, DataTypes) => {
   class PhotoComment extends Model {
     /**
@@ -33,7 +37,15 @@ module.exports = (sequelize, DataTypes) => {
     {
       userId: DataTypes.STRING,
       uploadId: DataTypes.STRING,
-      comment: DataTypes.TEXT,
+      comment: {
+        type: DataTypes.TEXT,
+        get() {
+          return decryptMessage(this.getDataValue('comment'));
+        },
+        set(value) {
+          this.setDataValue('comment', encryptMessage(value));
+        },
+      },
       imageUrl: {
         type: DataTypes.STRING,
         allowNull: true,

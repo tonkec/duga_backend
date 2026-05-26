@@ -1,5 +1,9 @@
 'use strict';
 const { Model } = require('sequelize');
+const {
+  decryptMessage,
+  encryptMessage,
+} = require('../utils/messageEncryption');
 module.exports = (sequelize, DataTypes) => {
   class Notification extends Model {
     /**
@@ -23,6 +27,12 @@ module.exports = (sequelize, DataTypes) => {
       content: {
         type: DataTypes.STRING,
         allowNull: false,
+        get() {
+          return decryptMessage(this.getDataValue('content'));
+        },
+        set(value) {
+          this.setDataValue('content', encryptMessage(value));
+        },
       },
       isRead: {
         type: DataTypes.BOOLEAN,

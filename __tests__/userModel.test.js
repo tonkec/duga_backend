@@ -1,8 +1,10 @@
 process.env.APP_URL = 'http://localhost';
 process.env.APP_PORT = '3000';
 
+const crypto = require('crypto');
 const { Sequelize, DataTypes } = require('sequelize');
 const defineUser = require('../models/user');
+const { isEncryptedMessage } = require('../utils/messageEncryption');
 
 describe('User model', () => {
   let sequelize;
@@ -80,6 +82,47 @@ describe('User model', () => {
     });
 
     expect(user.avatar).toBe('http://localhost:3000/user/avatar.jpg');
+  });
+
+  it('encrypts personal profile answer fields and decrypts reads', () => {
+    const originalKey = process.env.MESSAGE_ENCRYPTION_KEY;
+    process.env.MESSAGE_ENCRYPTION_KEY = crypto
+      .randomBytes(32)
+      .toString('base64');
+
+    try {
+      const user = User.build({
+        email: 'user@example.com',
+        bio: 'Private bio',
+        spirituality: 'Private spirituality answer',
+        favoriteMovie: 'Private movie answer',
+      });
+
+      expect(user.getDataValue('bio')).not.toBe('Private bio');
+      expect(user.getDataValue('spirituality')).not.toBe(
+        'Private spirituality answer'
+      );
+      expect(user.getDataValue('favoriteMovie')).not.toBe(
+        'Private movie answer'
+      );
+      expect(isEncryptedMessage(user.getDataValue('bio'))).toBe(true);
+      expect(user.bio).toBe('Private bio');
+      expect(user.spirituality).toBe('Private spirituality answer');
+      expect(user.favoriteMovie).toBe('Private movie answer');
+    } finally {
+      if (originalKey === undefined) {
+        delete process.env.MESSAGE_ENCRYPTION_KEY;
+      } else {
+        process.env.MESSAGE_ENCRYPTION_KEY = originalKey;
+      }
+    }
+  });
+
+  it('keeps legacy plaintext profile answers readable', () => {
+    const user = User.build({ email: 'user@example.com' });
+    user.setDataValue('bio', 'Legacy plaintext bio');
+
+    expect(user.bio).toBe('Legacy plaintext bio');
   });
 
   it('defines user associations', () => {
