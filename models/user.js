@@ -58,6 +58,10 @@ module.exports = (sequelize, DataTypes) => {
         as: 'answerReplies',
         foreignKey: 'userId',
       });
+      this.hasMany(models.AnswerReplyReaction, {
+        as: 'answerReplyReactions',
+        foreignKey: 'userId',
+      });
       this.hasMany(models.MessageReaction, {
         as: 'messageReactions',
         foreignKey: 'userId',

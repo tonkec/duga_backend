@@ -601,4 +601,29 @@ describe('SocketServer', () => {
       message: 'You do not have access to this chat',
     });
   });
+
+  it('rejects message reactions that are not emoji', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+    const ack = jest.fn();
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['react-message'](
+      { messageId: 501, emoji: 'like' },
+      ack
+    );
+
+    expect(models.Message.findByPk).not.toHaveBeenCalled();
+    expect(models.MessageReaction.create).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledWith({
+      ok: false,
+      error: 'emoji must be an emoji',
+    });
+    expect(socket.emit).toHaveBeenCalledWith('message_reaction_error', {
+      message: 'emoji must be an emoji',
+    });
+  });
 });

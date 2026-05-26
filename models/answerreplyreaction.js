@@ -2,27 +2,22 @@
 const { Model } = require('sequelize');
 
 module.exports = (sequelize, DataTypes) => {
-  class AnswerReply extends Model {
+  class AnswerReplyReaction extends Model {
     static associate(models) {
-      this.belongsTo(models.Answer, {
-        as: 'answer',
-        foreignKey: 'answerId',
+      this.belongsTo(models.AnswerReply, {
+        as: 'reply',
+        foreignKey: 'answerReplyId',
       });
       this.belongsTo(models.User, {
         as: 'user',
         foreignKey: 'userId',
       });
-      this.hasMany(models.AnswerReplyReaction, {
-        as: 'reactions',
-        foreignKey: 'answerReplyId',
-        onDelete: 'CASCADE',
-      });
     }
   }
 
-  AnswerReply.init(
+  AnswerReplyReaction.init(
     {
-      answerId: {
+      answerReplyId: {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
@@ -30,16 +25,16 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.INTEGER,
         allowNull: false,
       },
-      body: {
-        type: DataTypes.TEXT,
+      emoji: {
+        type: DataTypes.STRING(32),
         allowNull: false,
       },
     },
     {
       sequelize,
-      modelName: 'AnswerReply',
+      modelName: 'AnswerReplyReaction',
     }
   );
 
-  return AnswerReply;
+  return AnswerReplyReaction;
 };

@@ -18,6 +18,11 @@ jest.mock('../models', () => ({
     create: jest.fn(),
     findByPk: jest.fn(),
   },
+  AnswerReplyReaction: {
+    create: jest.fn(),
+    findAll: jest.fn(),
+    findOne: jest.fn(),
+  },
   Category: {},
   Notification: {
     create: jest.fn(),
@@ -107,6 +112,7 @@ const {
   Answer,
   AnswerReaction,
   AnswerReply,
+  AnswerReplyReaction,
   Notification,
   Question,
   QuestionVote,
@@ -201,6 +207,10 @@ describe('forum routes', () => {
               answerId: 22,
               userId: 1,
               body: 'Thanks, this helped.',
+              reactions: [
+                { emoji: '❤️', userId: 1 },
+                { emoji: '❤️', userId: 2 },
+              ],
             },
           ],
         },
@@ -230,6 +240,9 @@ describe('forum routes', () => {
               expect.objectContaining({
                 id: 31,
                 body: 'Thanks, this helped.',
+                reactions: [{ emoji: '❤️', count: 2 }],
+                reactionCount: 2,
+                userReactions: ['❤️'],
               }),
             ],
           }),
@@ -866,6 +879,130 @@ describe('forum routes', () => {
     expect(response.status).toBe(400);
     expect(response.body.errors).toEqual(['body is required']);
     expect(AnswerReply.create).not.toHaveBeenCalled();
+  });
+
+  it('adds an emoji reaction to an answer reply', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    AnswerReply.findByPk.mockResolvedValue({
+      id: 31,
+      answerId: 22,
+      userId: 2,
+    });
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+    AnswerReplyReaction.findOne.mockResolvedValue(null);
+    AnswerReplyReaction.create.mockResolvedValue({ id: 1 });
+    AnswerReplyReaction.findAll.mockResolvedValue([
+      { emoji: '❤️', userId: 1 },
+      { emoji: '❤️', userId: 3 },
+      { emoji: '👍', userId: 1 },
+    ]);
+    Notification.create.mockResolvedValue({
+      id: 105,
+      userId: 2,
+      type: 'forum_answer_reply_reaction',
+      actionId: 31,
+      actionType: 'forum_answer_reply',
+    });
+
+    const response = await request(app)
+      .post('/forum/answer-replies/31/reactions')
+      .set(authHeaders)
+      .send({ emoji: '❤️' });
+
+    expect(response.status).toBe(200);
+    expect(AnswerReplyReaction.create).toHaveBeenCalledWith({
+      answerReplyId: 31,
+      userId: 1,
+      emoji: '❤️',
+    });
+    expect(response.body.data).toEqual({
+      answerReplyId: 31,
+      answerId: 22,
+      reactions: [
+        { emoji: '❤️', count: 2 },
+        { emoji: '👍', count: 1 },
+      ],
+      reactionCount: 3,
+      userReactions: ['❤️', '👍'],
+    });
+    expect(Notification.create).toHaveBeenCalledWith({
+      userId: 2,
+      type: 'forum_answer_reply_reaction',
+      content: 'Netko je reagirao na tvoj odgovor u threadu.',
+      actionId: 31,
+      actionType: 'forum_answer_reply',
+    });
+    expect(io.emit).toHaveBeenCalledWith(
+      'forum-answer-reply-reaction-updated',
+      {
+        data: response.body.data,
+        answerId: 22,
+        questionId: 10,
+      }
+    );
+  });
+
+  it('does not duplicate an existing answer reply reaction', async () => {
+    AnswerReply.findByPk.mockResolvedValue({
+      id: 31,
+      answerId: 22,
+      userId: 1,
+    });
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+    AnswerReplyReaction.findOne.mockResolvedValue({ id: 1 });
+    AnswerReplyReaction.findAll.mockResolvedValue([{ emoji: '👍', userId: 1 }]);
+
+    const response = await request(app)
+      .post('/forum/answer-replies/31/reactions')
+      .set(authHeaders)
+      .send({ emoji: '👍' });
+
+    expect(response.status).toBe(200);
+    expect(AnswerReplyReaction.create).not.toHaveBeenCalled();
+    expect(Notification.create).not.toHaveBeenCalled();
+    expect(response.body.data.userReactions).toEqual(['👍']);
+  });
+
+  it('removes an emoji reaction from an answer reply', async () => {
+    const existingReaction = {
+      id: 1,
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    AnswerReply.findByPk.mockResolvedValue({
+      id: 31,
+      answerId: 22,
+      userId: 2,
+    });
+    Answer.findByPk.mockResolvedValue({ id: 22, questionId: 10 });
+    AnswerReplyReaction.findOne.mockResolvedValue(existingReaction);
+    AnswerReplyReaction.findAll.mockResolvedValue([]);
+
+    const response = await request(app)
+      .delete('/forum/answer-replies/31/reactions')
+      .set(authHeaders)
+      .send({ emoji: '👍' });
+
+    expect(response.status).toBe(200);
+    expect(existingReaction.destroy).toHaveBeenCalledTimes(1);
+    expect(response.body.data).toEqual({
+      answerReplyId: 31,
+      answerId: 22,
+      reactions: [],
+      reactionCount: 0,
+      userReactions: [],
+    });
+  });
+
+  it('validates answer reply reaction emoji', async () => {
+    const response = await request(app)
+      .post('/forum/answer-replies/31/reactions')
+      .set(authHeaders)
+      .send({ emoji: 'not-an-emoji' });
+
+    expect(response.status).toBe(400);
+    expect(response.body.errors).toEqual(['emoji must be an emoji']);
+    expect(AnswerReplyReaction.create).not.toHaveBeenCalled();
   });
 
   it('sets a question vote for the authenticated user', async () => {

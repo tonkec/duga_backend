@@ -16,6 +16,7 @@ jest.mock('../models', () => ({
   Message: {
     findAndCountAll: jest.fn(),
   },
+  MessageReaction: {},
   User: {
     findByPk: jest.fn(),
     findOne: jest.fn(),
@@ -212,6 +213,10 @@ describe('chat routes', () => {
             chatId: 101,
             message: 'Hi',
             messagePhotoUrl: null,
+            reactions: [
+              { emoji: '❤️', userId: 1 },
+              { emoji: '❤️', userId: 2 },
+            ],
           }),
         },
       ],
@@ -245,6 +250,9 @@ describe('chat routes', () => {
             chatId: 101,
             message: 'Hi',
             messagePhotoUrl: null,
+            reactions: [{ emoji: '❤️', count: 2 }],
+            reactionCount: 2,
+            userReactions: ['❤️'],
             securePhotoUrl: null,
           },
         ],

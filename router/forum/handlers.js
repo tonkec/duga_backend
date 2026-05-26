@@ -3,6 +3,7 @@ const {
   Answer,
   AnswerReaction,
   AnswerReply,
+  AnswerReplyReaction,
   Category,
   Notification,
   Question,
@@ -38,6 +39,11 @@ const QUESTION_INCLUDE = [
 ];
 const ANSWER_REPLY_INCLUDE = [
   { model: User, as: 'user', attributes: USER_ATTRIBUTES },
+  {
+    model: AnswerReplyReaction,
+    as: 'reactions',
+    attributes: ['emoji', 'userId'],
+  },
 ];
 const ANSWER_INCLUDE = [
   { model: User, as: 'user', attributes: USER_ATTRIBUTES },
@@ -145,6 +151,9 @@ const serializeForumItem = (item, req) => {
 
   if (Array.isArray(plain.replies)) {
     plain.replyCount = plain.replies.length;
+    plain.replies = plain.replies.map((reply) =>
+      serializeForumItem(reply, req)
+    );
   }
 
   if (Array.isArray(plain.reactions)) {
@@ -791,6 +800,15 @@ const getAnswerReactionSummary = async (answerId, userId) => {
   return summarizeAnswerReactions(reactions, userId);
 };
 
+const getAnswerReplyReactionSummary = async (answerReplyId, userId) => {
+  const reactions = await AnswerReplyReaction.findAll({
+    where: { answerReplyId },
+    attributes: ['emoji', 'userId'],
+  });
+
+  return summarizeAnswerReactions(reactions, userId);
+};
+
 const handleVoteQuestion = async (req, res) => {
   try {
     const value = validateVoteValue(req.body.value);
@@ -983,6 +1001,115 @@ const handleRemoveAnswerReaction = async (req, res) => {
   }
 };
 
+const handleReactToAnswerReply = async (req, res) => {
+  try {
+    const emoji = validateReactionEmoji(req.body?.emoji);
+    if (!emoji) {
+      return res.status(400).json({ errors: ['emoji must be an emoji'] });
+    }
+
+    const answerReplyId = Number(req.params.id);
+    const reply = await AnswerReply.findByPk(answerReplyId);
+    if (!reply) {
+      return res.status(404).json({ message: 'Answer reply not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const existingReaction = await AnswerReplyReaction.findOne({
+      where: { answerReplyId, userId, emoji },
+    });
+
+    if (!existingReaction) {
+      await AnswerReplyReaction.create({ answerReplyId, userId, emoji });
+    }
+
+    const answer = await Answer.findByPk(reply.answerId);
+    if (
+      !existingReaction &&
+      reply.userId &&
+      Number(reply.userId) !== Number(userId)
+    ) {
+      await notifyUser(req, reply.userId, {
+        type: 'forum_answer_reply_reaction',
+        content: 'Netko je reagirao na tvoj odgovor u threadu.',
+        actionId: answerReplyId,
+        actionType: 'forum_answer_reply',
+      });
+    }
+
+    const summary = await getAnswerReplyReactionSummary(answerReplyId, userId);
+    const data = {
+      answerReplyId,
+      answerId: reply.answerId,
+      ...summary,
+    };
+
+    emitForumEvent(req, 'forum-answer-reply-reaction-updated', {
+      data,
+      answerId: reply.answerId,
+      questionId: answer?.questionId,
+    });
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    console.error('Error reacting to forum answer reply:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error reacting to forum answer reply' });
+  }
+};
+
+const handleRemoveAnswerReplyReaction = async (req, res) => {
+  try {
+    const emoji = validateReactionEmoji(req.body?.emoji || req.query.emoji);
+    if (!emoji) {
+      return res.status(400).json({ errors: ['emoji must be an emoji'] });
+    }
+
+    const answerReplyId = Number(req.params.id);
+    const reply = await AnswerReply.findByPk(answerReplyId);
+    if (!reply) {
+      return res.status(404).json({ message: 'Answer reply not found' });
+    }
+
+    const userId = getAuthenticatedUserId(req);
+    const existingReaction = await AnswerReplyReaction.findOne({
+      where: { answerReplyId, userId, emoji },
+    });
+
+    if (!existingReaction) {
+      return res.status(400).json({
+        message: 'You have not reacted to this answer reply with that emoji',
+      });
+    }
+
+    await existingReaction.destroy();
+
+    const [answer, summary] = await Promise.all([
+      Answer.findByPk(reply.answerId),
+      getAnswerReplyReactionSummary(answerReplyId, userId),
+    ]);
+    const data = {
+      answerReplyId,
+      answerId: reply.answerId,
+      ...summary,
+    };
+
+    emitForumEvent(req, 'forum-answer-reply-reaction-updated', {
+      data,
+      answerId: reply.answerId,
+      questionId: answer?.questionId,
+    });
+
+    return res.status(200).json({ data });
+  } catch (error) {
+    console.error('Error removing forum answer reply reaction:', error);
+    return res
+      .status(500)
+      .json({ message: 'Error removing forum answer reply reaction' });
+  }
+};
+
 module.exports = {
   handleAcceptAnswer,
   handleCreateAnswer,
@@ -996,7 +1123,9 @@ module.exports = {
   handleGetQuestionById,
   handleGetQuestions,
   handleReactToAnswer,
+  handleReactToAnswerReply,
   handleRemoveAnswerReaction,
+  handleRemoveAnswerReplyReaction,
   handleRemoveQuestionVote,
   handleUpdateAnswer,
   handleUpdateAnswerReply,

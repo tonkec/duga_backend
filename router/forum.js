@@ -19,7 +19,9 @@ const {
   handleGetQuestionById,
   handleGetQuestions,
   handleReactToAnswer,
+  handleReactToAnswerReply,
   handleRemoveAnswerReaction,
+  handleRemoveAnswerReplyReaction,
   handleRemoveQuestionVote,
   handleUpdateAnswer,
   handleUpdateAnswerReply,
@@ -96,6 +98,16 @@ router.delete(
   '/answers/:id/reactions',
   authenticatedAppSession,
   handleRemoveAnswerReaction
+);
+router.post(
+  '/answer-replies/:id/reactions',
+  authenticatedAppSession,
+  handleReactToAnswerReply
+);
+router.delete(
+  '/answer-replies/:id/reactions',
+  authenticatedAppSession,
+  handleRemoveAnswerReplyReaction
 );
 router.post(
   '/answers/:id/replies',
