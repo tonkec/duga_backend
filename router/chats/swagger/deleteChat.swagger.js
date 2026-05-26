@@ -2,7 +2,7 @@
  * @swagger
  * /chats/{id}:
  *   delete:
- *     summary: Delete a chat (admin or owner only)
+ *     summary: Delete a chat. Group chats require admin membership.
  *     tags: [Chats]
  *     security:
  *       - bearerAuth: []
@@ -17,5 +17,7 @@
  *       200:
  *         description: Chat deleted successfully
  *       403:
- *         description: Forbidden
+ *         description: User is not a chat member or is not a group admin
+ *       404:
+ *         description: Chat not found
  */

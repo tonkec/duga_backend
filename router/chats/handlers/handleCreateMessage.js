@@ -2,11 +2,103 @@ const ChatUser = require('./../../../models').ChatUser;
 const { Chat } = require('./../../../models');
 const { User } = require('./../../../models');
 const { sequelize } = require('./../../../models');
+const { Op } = require('sequelize');
+
+const MAX_GROUP_MEMBERS = 50;
+
+const buildSafeUser = (user) => ({
+  id: user.id,
+  username: user.username,
+  avatar: user.avatar,
+});
+
+const handleCreateGroupChat = async (req, res) => {
+  const { userIds, name } = req.body;
+  const id = req.auth.user.id;
+  let t;
+
+  if (!Array.isArray(userIds)) {
+    return res.status(400).json({ error: 'Invalid or missing userIds' });
+  }
+
+  const memberIds = [
+    ...new Set(userIds.map((userId) => Number(userId))),
+  ].filter((userId) => userId !== id);
+
+  if (
+    memberIds.length < 2 ||
+    memberIds.some((userId) => !Number.isInteger(userId) || userId <= 0)
+  ) {
+    return res.status(400).json({
+      error: 'Group chats require at least two valid userIds',
+    });
+  }
+
+  if (memberIds.length + 1 > MAX_GROUP_MEMBERS) {
+    return res.status(400).json({
+      error: `Group chats can have up to ${MAX_GROUP_MEMBERS} members`,
+    });
+  }
+
+  const trimmedName = typeof name === 'string' ? name.trim() : null;
+
+  try {
+    const users = await User.findAll({
+      where: {
+        id: {
+          [Op.in]: memberIds,
+        },
+      },
+    });
+
+    if (users.length !== memberIds.length) {
+      return res.status(404).json({ error: 'One or more users not found' });
+    }
+
+    t = await sequelize.transaction();
+
+    const chat = await Chat.create(
+      { type: 'group', name: trimmedName || null },
+      { transaction: t }
+    );
+
+    await ChatUser.bulkCreate(
+      [
+        { chatId: chat.id, userId: id, role: 'admin' },
+        ...memberIds.map((userId) => ({
+          chatId: chat.id,
+          userId,
+          role: 'member',
+        })),
+      ],
+      { transaction: t }
+    );
+
+    await t.commit();
+
+    return res.status(201).json({
+      id: chat.id,
+      type: 'group',
+      name: chat.name,
+      Users: users.map(buildSafeUser),
+      Messages: [],
+    });
+  } catch (e) {
+    if (t) {
+      await t.rollback();
+    }
+    return res.status(500).json({ error: e.message });
+  }
+};
 
 const handleCreateMessage = async (req, res) => {
   const { partnerId } = req.body;
   const id = req.auth.user.id;
   let t;
+
+  if (Array.isArray(req.body.userIds)) {
+    return handleCreateGroupChat(req, res);
+  }
 
   if (!partnerId || typeof partnerId !== 'number') {
     return res.status(400).json({ error: 'Invalid or missing partnerId' });
@@ -60,17 +152,9 @@ const handleCreateMessage = async (req, res) => {
 
     const creator = await User.findByPk(id);
 
-    const safePartner = {
-      id: partner.id,
-      username: partner.username,
-      avatar: partner.avatar,
-    };
+    const safePartner = buildSafeUser(partner);
 
-    const safeCreator = {
-      id: creator.id,
-      username: creator.username,
-      avatar: creator.avatar,
-    };
+    const safeCreator = buildSafeUser(creator);
 
     const forCreator = {
       id: chat.id,

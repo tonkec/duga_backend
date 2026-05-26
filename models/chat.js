@@ -20,6 +20,7 @@ module.exports = (sequelize, DataTypes) => {
   Chat.init(
     {
       type: DataTypes.STRING,
+      name: DataTypes.STRING,
     },
     {
       sequelize,

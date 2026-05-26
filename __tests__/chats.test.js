@@ -8,9 +8,11 @@ const request = require('supertest');
 jest.mock('../models', () => ({
   Chat: {
     create: jest.fn(),
+    findOne: jest.fn(),
   },
   ChatUser: {
     bulkCreate: jest.fn(),
+    destroy: jest.fn(),
     findOne: jest.fn(),
   },
   Message: {
@@ -18,6 +20,7 @@ jest.mock('../models', () => ({
   },
   MessageReaction: {},
   User: {
+    findAll: jest.fn(),
     findByPk: jest.fn(),
     findOne: jest.fn(),
   },
@@ -142,6 +145,110 @@ describe('chat routes', () => {
         Messages: [],
       },
     ]);
+  });
+
+  it('creates group chat between users', async () => {
+    const members = [
+      buildUser({
+        id: 2,
+        auth0Id: 'auth0|user-2',
+        username: 'duga',
+        avatar: 'avatar-2.jpg',
+      }),
+      buildUser({
+        id: 3,
+        auth0Id: 'auth0|user-3',
+        username: 'rainbow',
+        avatar: 'avatar-3.jpg',
+      }),
+    ];
+    const createdChat = { id: 202, type: 'group', name: 'Weekend plans' };
+
+    User.findAll.mockResolvedValue(members);
+    Chat.create.mockResolvedValue(createdChat);
+    ChatUser.bulkCreate.mockResolvedValue([]);
+
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
+      userIds: [2, 3],
+      name: 'Weekend plans',
+    });
+
+    expect(response.status).toBe(201);
+    expect(Chat.create).toHaveBeenCalledWith(
+      { type: 'group', name: 'Weekend plans' },
+      { transaction }
+    );
+    expect(ChatUser.bulkCreate).toHaveBeenCalledWith(
+      [
+        { chatId: 202, userId: 1, role: 'admin' },
+        { chatId: 202, userId: 2, role: 'member' },
+        { chatId: 202, userId: 3, role: 'member' },
+      ],
+      { transaction }
+    );
+    expect(transaction.commit).toHaveBeenCalledTimes(1);
+    expect(response.body).toEqual({
+      id: 202,
+      type: 'group',
+      name: 'Weekend plans',
+      Users: [
+        { id: 2, username: 'duga', avatar: 'avatar-2.jpg' },
+        { id: 3, username: 'rainbow', avatar: 'avatar-3.jpg' },
+      ],
+      Messages: [],
+    });
+  });
+
+  it('rejects group chat with fewer than two other users', async () => {
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
+      userIds: [2],
+      name: 'Too small',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: 'Group chats require at least two valid userIds',
+    });
+    expect(Chat.create).not.toHaveBeenCalled();
+    expect(ChatUser.bulkCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects group chat with more than fifty total members', async () => {
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
+      userIds: Array.from({ length: 50 }, (_, index) => index + 2),
+      name: 'Too many people',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: 'Group chats can have up to 50 members',
+    });
+    expect(User.findAll).not.toHaveBeenCalled();
+    expect(Chat.create).not.toHaveBeenCalled();
+    expect(ChatUser.bulkCreate).not.toHaveBeenCalled();
+  });
+
+  it('rejects group chat with unknown users', async () => {
+    User.findAll.mockResolvedValue([
+      buildUser({ id: 2, auth0Id: 'auth0|user-2' }),
+    ]);
+
+    const response = await authenticated(
+      request(app).post('/chats/create')
+    ).send({
+      userIds: [2, 999],
+    });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'One or more users not found' });
+    expect(Chat.create).not.toHaveBeenCalled();
+    expect(ChatUser.bulkCreate).not.toHaveBeenCalled();
   });
 
   it('prevents duplicate one-on-one chat', async () => {
@@ -272,6 +379,163 @@ describe('chat routes', () => {
       error: 'You do not have access to this chat',
     });
     expect(Message.findAndCountAll).not.toHaveBeenCalled();
+  });
+
+  it('allows a member to leave group chat', async () => {
+    Chat.findOne.mockResolvedValue({
+      id: 202,
+      type: 'group',
+      Users: [{ id: 1 }, { id: 2 }, { id: 3 }],
+    });
+    ChatUser.findOne.mockResolvedValue({
+      chatId: 202,
+      userId: 1,
+      role: 'member',
+    });
+    ChatUser.destroy.mockResolvedValue(1);
+
+    const response = await authenticated(request(app).post('/chats/202/leave'));
+
+    expect(response.status).toBe(200);
+    expect(ChatUser.destroy).toHaveBeenCalledWith({
+      where: { chatId: 202, userId: 1 },
+    });
+    expect(response.body).toEqual({
+      chatId: 202,
+      userId: 1,
+      notifyUsers: [2, 3],
+      newAdminUserId: null,
+    });
+  });
+
+  it('promotes oldest remaining member when group admin leaves', async () => {
+    const update = jest.fn().mockResolvedValue(undefined);
+    Chat.findOne.mockResolvedValue({
+      id: 202,
+      type: 'group',
+      Users: [{ id: 1 }, { id: 2 }, { id: 3 }],
+    });
+    ChatUser.findOne
+      .mockResolvedValueOnce({ chatId: 202, userId: 1, role: 'admin' })
+      .mockResolvedValueOnce({
+        id: 22,
+        chatId: 202,
+        userId: 2,
+        role: 'member',
+        update,
+      });
+    ChatUser.destroy.mockResolvedValue(1);
+
+    const response = await authenticated(request(app).post('/chats/202/leave'));
+
+    expect(response.status).toBe(200);
+    expect(update).toHaveBeenCalledWith({ role: 'admin' });
+    expect(ChatUser.destroy).toHaveBeenCalledWith({
+      where: { chatId: 202, userId: 1 },
+    });
+    expect(response.body).toEqual({
+      chatId: 202,
+      userId: 1,
+      notifyUsers: [2, 3],
+      newAdminUserId: 2,
+    });
+  });
+
+  it('rejects leaving one-on-one chat', async () => {
+    Chat.findOne.mockResolvedValue({
+      id: 101,
+      type: 'dual',
+      Users: [{ id: 1 }, { id: 2 }],
+    });
+
+    const response = await authenticated(request(app).post('/chats/101/leave'));
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'Only group chats can be left' });
+    expect(ChatUser.destroy).not.toHaveBeenCalled();
+  });
+
+  it('rejects leaving group chat when user is not a member', async () => {
+    Chat.findOne.mockResolvedValue({
+      id: 202,
+      type: 'group',
+      Users: [{ id: 2 }, { id: 3 }],
+    });
+    ChatUser.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(request(app).post('/chats/202/leave'));
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: 'You do not have access to this chat',
+    });
+    expect(ChatUser.destroy).not.toHaveBeenCalled();
+  });
+
+  it('allows a group admin to delete group chat', async () => {
+    const destroy = jest.fn().mockResolvedValue(undefined);
+    Chat.findOne.mockResolvedValue({
+      id: 202,
+      type: 'group',
+      Users: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      destroy,
+    });
+    ChatUser.findOne.mockResolvedValue({
+      chatId: 202,
+      userId: 1,
+      role: 'admin',
+    });
+
+    const response = await authenticated(request(app).delete('/chats/202'));
+
+    expect(response.status).toBe(200);
+    expect(destroy).toHaveBeenCalledTimes(1);
+    expect(response.body).toEqual({
+      chatId: 202,
+      notifyUsers: [1, 2, 3],
+    });
+  });
+
+  it('rejects deleting group chat for regular members', async () => {
+    const destroy = jest.fn().mockResolvedValue(undefined);
+    Chat.findOne.mockResolvedValue({
+      id: 202,
+      type: 'group',
+      Users: [{ id: 1 }, { id: 2 }, { id: 3 }],
+      destroy,
+    });
+    ChatUser.findOne.mockResolvedValue({
+      chatId: 202,
+      userId: 1,
+      role: 'member',
+    });
+
+    const response = await authenticated(request(app).delete('/chats/202'));
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: 'Only group admins can delete group chats',
+    });
+    expect(destroy).not.toHaveBeenCalled();
+  });
+
+  it('rejects deleting chat when user is not a member', async () => {
+    const destroy = jest.fn().mockResolvedValue(undefined);
+    Chat.findOne.mockResolvedValue({
+      id: 202,
+      type: 'group',
+      Users: [{ id: 2 }, { id: 3 }],
+      destroy,
+    });
+    ChatUser.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(request(app).delete('/chats/202'));
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({
+      error: 'You do not have access to this chat',
+    });
+    expect(destroy).not.toHaveBeenCalled();
   });
 
   it('rejects creating chat with invalid user', async () => {
