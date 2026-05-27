@@ -5,6 +5,13 @@ jest.mock('../models', () => ({
   },
 }));
 
+jest.mock('axios', () => ({
+  get: jest.fn(),
+}));
+
+process.env.AUTH0_DOMAIN = 'auth.example.com';
+
+const axios = require('axios');
 const { User } = require('../models');
 const handleRegister = require('../router/auth/handlers/handleRegister');
 
@@ -50,6 +57,7 @@ describe('register handler', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    axios.get.mockResolvedValue({ data: {} });
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -104,6 +112,66 @@ describe('register handler', () => {
         username: 'token-user',
       },
     });
+  });
+
+  it('creates users from namespaced Auth0 access token email claims', async () => {
+    const createdUser = buildUser();
+    const req = {
+      auth: {
+        sub: 'auth0|token-user',
+        'https://duga.app/email': 'Token@Example.com',
+      },
+      body: { username: 'token-user' },
+    };
+    const res = buildResponse();
+
+    User.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    User.create.mockResolvedValue(createdUser);
+
+    await handleRegister(req, res);
+
+    expect(User.create).toHaveBeenCalledWith({
+      auth0Id: 'auth0|token-user',
+      email: 'token@example.com',
+      username: 'token-user',
+    });
+    expect(res.status).toHaveBeenCalledWith(201);
+  });
+
+  it('falls back to Auth0 userinfo when access token has no email claim', async () => {
+    const createdUser = buildUser();
+    const req = {
+      auth: { sub: 'auth0|token-user' },
+      headers: { authorization: 'Bearer auth0-access-token' },
+      body: { username: 'token-user' },
+    };
+    const res = buildResponse();
+
+    axios.get.mockResolvedValue({
+      data: {
+        sub: 'auth0|token-user',
+        email: 'Token@Example.com',
+      },
+    });
+    User.findOne.mockResolvedValueOnce(null).mockResolvedValueOnce(null);
+    User.create.mockResolvedValue(createdUser);
+
+    await handleRegister(req, res);
+
+    expect(axios.get).toHaveBeenCalledWith(
+      'https://auth.example.com/userinfo',
+      {
+        headers: {
+          Authorization: 'Bearer auth0-access-token',
+        },
+      }
+    );
+    expect(User.create).toHaveBeenCalledWith({
+      auth0Id: 'auth0|token-user',
+      email: 'token@example.com',
+      username: 'token-user',
+    });
+    expect(res.status).toHaveBeenCalledWith(201);
   });
 
   it('trims username before creating a user', async () => {

@@ -11,15 +11,18 @@ const {
   buildRateLimitKeys,
   consumeAuthRateLimit,
 } = require('../../../utils/authRateLimit');
+const { getAuth0IdentityClaims } = require('../../../utils/auth0Claims');
 
 const START_SESSION_RATE_LIMIT_MS = Number(
   process.env.START_SESSION_RATE_LIMIT_MS ?? 10 * 1000
 );
 
 const handleStartSession = async (req, res) => {
-  const auth0Id = req.auth?.sub;
-  const email = req.auth?.email;
-  const emailVerified = req.auth?.email_verified;
+  const {
+    sub: auth0Id,
+    email,
+    email_verified: emailVerified,
+  } = getAuth0IdentityClaims(req.auth);
 
   if (!auth0Id) {
     return res.status(401).json({ ok: false, errors: ['missing_auth0_sub'] });

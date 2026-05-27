@@ -5,9 +5,6 @@ const {
   getApiJwtSecret,
 } = require('../utils/apiJwtConfig');
 
-const API_JWT_SECRET = getApiJwtSecret();
-const API_JWT_EXPIRES_IN = getApiJwtExpiresIn();
-
 const signApiToken = (user) =>
   jwt.sign(
     {
@@ -19,10 +16,10 @@ const signApiToken = (user) =>
       },
       tokenUse: 'api',
     },
-    API_JWT_SECRET,
+    getApiJwtSecret(),
     {
       algorithm: 'HS256',
-      expiresIn: API_JWT_EXPIRES_IN,
+      expiresIn: getApiJwtExpiresIn(),
     }
   );
 
@@ -36,7 +33,7 @@ const verifyApiJwt =
     }
 
     try {
-      const decoded = jwt.verify(token, API_JWT_SECRET, {
+      const decoded = jwt.verify(token, getApiJwtSecret(), {
         algorithms: ['HS256'],
       });
 

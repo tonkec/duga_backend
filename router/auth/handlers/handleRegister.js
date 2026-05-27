@@ -1,4 +1,7 @@
+const axios = require('axios');
 const { User } = require('../../../models');
+const { getAuth0IdentityClaims } = require('../../../utils/auth0Claims');
+const getBearerToken = require('../../../utils/getBearerToken');
 
 const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,30}$/;
 const SAFE_USER_FIELDS = ['id', 'publicId', 'email', 'username'];
@@ -17,16 +20,29 @@ const serializeUser = (user) => {
   }, {});
 };
 
+const getUserInfoClaims = async (req) => {
+  const token = getBearerToken(req);
+  if (!token || !process.env.AUTH0_DOMAIN) {
+    return {};
+  }
+
+  const response = await axios.get(
+    `https://${process.env.AUTH0_DOMAIN}/userinfo`,
+    {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  return getAuth0IdentityClaims(response.data);
+};
+
 const handleRegister = async (req, res) => {
-  const auth0Id = req.auth?.sub;
-  const email = req.auth?.email;
+  let { sub: auth0Id, email } = getAuth0IdentityClaims(req.auth);
   const { username } = req.body || {};
   const normalizedUsername =
     typeof username === 'string' ? username.trim() : username;
-
-  if (!auth0Id || !email) {
-    return res.status(401).json({ message: 'Missing Auth0 identity claims' });
-  }
 
   if (!normalizedUsername) {
     return res.status(400).json({ message: 'Missing required fields' });
@@ -43,6 +59,20 @@ const handleRegister = async (req, res) => {
   }
 
   try {
+    if (auth0Id && !email) {
+      const userInfoClaims = await getUserInfoClaims(req);
+
+      if (userInfoClaims.sub && userInfoClaims.sub !== auth0Id) {
+        return res.status(401).json({ message: 'Auth0 identity mismatch' });
+      }
+
+      email = userInfoClaims.email;
+    }
+
+    if (!auth0Id || !email) {
+      return res.status(401).json({ message: 'Missing Auth0 identity claims' });
+    }
+
     const normalizedEmail = email.toLowerCase();
 
     let user = await User.findOne({ where: { auth0Id } });
