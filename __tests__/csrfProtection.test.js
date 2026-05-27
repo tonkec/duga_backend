@@ -5,6 +5,11 @@ jest.mock('../models', () => ({
   AppSession: {
     findOne: jest.fn(),
   },
+  Sequelize: {
+    Op: {
+      gt: Symbol.for('sequelize.gt'),
+    },
+  },
 }));
 
 const { AppSession } = require('../models');
@@ -59,11 +64,11 @@ describe('csrfProtection', () => {
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true });
     expect(AppSession.findOne).toHaveBeenCalledWith({
-      where: {
+      where: expect.objectContaining({
         sessionIdHash: hashSessionId('session-value'),
         csrfTokenHash: hashSessionId('csrf'),
         revokedAt: null,
-      },
+      }),
     });
   });
 });

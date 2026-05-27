@@ -1,4 +1,4 @@
-const { AppSession } = require('../models');
+const { AppSession, Sequelize } = require('../models');
 const {
   CSRF_HEADER,
   getCookie,
@@ -39,6 +39,9 @@ const csrfProtection = async (req, res, next) => {
         sessionIdHash: hashSessionId(sessionId),
         csrfTokenHash: hashSessionId(csrfCookie),
         revokedAt: null,
+        ...(Sequelize?.Op
+          ? { expiresAt: { [Sequelize.Op.gt]: new Date() } }
+          : {}),
       },
     });
 
