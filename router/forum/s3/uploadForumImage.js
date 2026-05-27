@@ -7,11 +7,6 @@ const allowedMimeTypes = require('../../../consts/allowedFileTypes');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
 const {
-  SVG_CONTENT_TYPE,
-  isSvgFile,
-  sanitizeSvg,
-} = require('../../../utils/svgSecurity');
-const {
   BUCKET,
   EXPLICIT_BLOCK_THRESHOLD,
   SUGGESTIVE_BLOCK_THRESHOLD,
@@ -36,7 +31,7 @@ const memoryUpload = multer({
     }
 
     const error = new Error(
-      'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+      'Invalid file type. Only PNG, JPG, and JPEG are allowed.'
     );
     error.code = 'INVALID_FILE_TYPE';
     cb(error);
@@ -105,9 +100,7 @@ const uploadForumImage = (target) => [
         return next();
       }
 
-      const isSvg = isSvgFile(file);
-      const uploadBody = isSvg ? sanitizeSvg(file.buffer) : file.buffer;
-      const normalized = await sharp(uploadBody)
+      const normalized = await sharp(file.buffer)
         .rotate()
         .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 90 })
@@ -142,16 +135,14 @@ const uploadForumImage = (target) => [
       const base = removeSpacesAndDashes(
         path.basename(file.originalname, ext).toLowerCase().trim()
       );
-      const storedExt = isSvg ? '.svg' : '.jpg';
-      const contentType = isSvg ? SVG_CONTENT_TYPE : 'image/jpeg';
-      const key = `${env}/forum/${target}/${req.auth.user.id}/${Date.now()}/${base}${storedExt}`;
+      const key = `${env}/forum/${target}/${req.auth.user.id}/${Date.now()}/${base}.jpg`;
 
       await s3
         .putObject({
           Bucket: BUCKET,
           Key: key,
-          Body: isSvg ? uploadBody : normalized,
-          ContentType: contentType,
+          Body: normalized,
+          ContentType: 'image/jpeg',
           ACL: 'private',
         })
         .promise();
@@ -159,7 +150,7 @@ const uploadForumImage = (target) => [
       req.forumImage = {
         key,
         name: `${base}${ext}`,
-        mimetype: contentType,
+        mimetype: 'image/jpeg',
         moderation: labels,
       };
 

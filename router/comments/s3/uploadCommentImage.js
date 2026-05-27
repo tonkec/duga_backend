@@ -5,10 +5,6 @@ const s3 = require('../../../utils/s3');
 const allowedMimeTypes = require('./../../../consts/allowedFileTypes');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
-const {
-  createSvgSanitizerStream,
-  isSvgFile,
-} = require('../../../utils/svgSecurity');
 
 const uploadCommentImage = multer({
   storage: multerS3({
@@ -28,12 +24,7 @@ const uploadCommentImage = multer({
           cb(null, path);
         },
         transform: function (req, file, cb) {
-          cb(
-            null,
-            isSvgFile(file)
-              ? createSvgSanitizerStream()
-              : sharp().resize(1024).jpeg({ quality: 80 })
-          );
+          cb(null, sharp().resize(1024).jpeg({ quality: 80 }));
         },
       },
     ],
@@ -44,7 +35,7 @@ const uploadCommentImage = multer({
       cb(null, true);
     } else {
       const error = new Error(
-        'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+        'Invalid file type. Only PNG, JPG, and JPEG are allowed.'
       );
       error.code = 'INVALID_FILE_TYPE';
       cb(error);

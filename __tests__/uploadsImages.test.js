@@ -40,7 +40,7 @@ jest.mock('../router/uploads/s3/uploadMessageImage', () => {
   return jest.fn(() => (req, res, next) => {
     if (req.headers['x-test-upload-error'] === 'file-type') {
       const error = new Error(
-        'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+        'Invalid file type. Only PNG, JPG, JPEG, and WEBP are allowed.'
       );
       error.code = 'LIMIT_UNEXPECTED_FILE';
       return next(error);
@@ -71,7 +71,7 @@ jest.mock('../router/uploads/s3/uploadProfileImages', () => {
     array: jest.fn(() => (req, res, next) => {
       if (req.headers['x-test-upload-error'] === 'file-type') {
         const error = new Error(
-          'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
+          'Invalid file type. Only PNG, JPG, and JPEG are allowed.'
         );
         error.code = 'LIMIT_UNEXPECTED_FILE';
         return next(error);

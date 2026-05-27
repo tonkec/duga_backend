@@ -3,10 +3,6 @@ const multerS3 = require('multer-s3-transform');
 const sharp = require('sharp');
 const allowedMimeTypes = require('../../../consts/allowedFileTypes');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
-const {
-  createSvgSanitizerStream,
-  isSvgFile,
-} = require('../../../utils/svgSecurity');
 
 const uploadProfileImages = (s3) => {
   return multer({
@@ -32,12 +28,7 @@ const uploadProfileImages = (s3) => {
             );
           },
           transform: function (req, file, cb) {
-            cb(
-              null,
-              isSvgFile(file)
-                ? createSvgSanitizerStream()
-                : sharp().resize(600, 600)
-            );
+            cb(null, sharp().resize(600, 600));
           },
         },
         {
@@ -54,12 +45,7 @@ const uploadProfileImages = (s3) => {
             );
           },
           transform: function (req, file, cb) {
-            cb(
-              null,
-              isSvgFile(file)
-                ? createSvgSanitizerStream()
-                : sharp().resize(100, 100)
-            );
+            cb(null, sharp().resize(100, 100));
           },
         },
       ],
@@ -70,9 +56,7 @@ const uploadProfileImages = (s3) => {
         cb(null, true);
       } else {
         cb(
-          new Error(
-            'Invalid file type. Only PNG, JPG, JPEG, and SVG are allowed.'
-          )
+          new Error('Invalid file type. Only PNG, JPG, and JPEG are allowed.')
         );
       }
     },

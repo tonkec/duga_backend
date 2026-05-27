@@ -1,8 +1,3 @@
-const allowedMimeTypes = [
-  'image/png',
-  'image/jpg',
-  'image/jpeg',
-  'image/svg+xml',
-];
+const allowedMimeTypes = ['image/png', 'image/jpg', 'image/jpeg'];
 
 module.exports = allowedMimeTypes;
