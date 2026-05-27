@@ -62,12 +62,18 @@ const streamS3File = async (key, res) => {
     ? key
     : `${process.env.NODE_ENV}/${removeSpacesAndDashes(key)}`;
 
-  const s3Stream = s3
+  const s3Object = await s3
     .getObject({
       Bucket: 'duga-user-photo',
-      Key: normalizedKey.toLowerCase(),
+      Key: normalizedKey,
     })
-    .createReadStream();
+    .promise();
+  const s3Stream = s3Object.Body;
+
+  if (!s3Stream?.pipe) {
+    res.status(500).json({ message: 'Unable to stream image' });
+    return;
+  }
 
   s3Stream.on('error', (err) => {
     console.error('❌ Stream error:', err);

@@ -45,7 +45,7 @@ describe('SVG security', () => {
     PhotoComment.findOne.mockResolvedValue(null);
     Message.findOne.mockResolvedValue(null);
     s3.getObject.mockReturnValue({
-      createReadStream: () => Readable.from(['<svg></svg>']),
+      promise: () => Promise.resolve({ Body: Readable.from(['<svg></svg>']) }),
     });
   });
 
