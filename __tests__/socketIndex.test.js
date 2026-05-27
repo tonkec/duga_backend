@@ -3,7 +3,6 @@ process.env.AUTH0_DOMAIN = 'auth.example.com';
 process.env.AUTH0_AUDIENCE = 'duga-api';
 process.env.NODE_ENV = 'test';
 
-const jwt = require('jsonwebtoken');
 const { hashSessionId } = require('../utils/appSession');
 
 const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
@@ -26,6 +25,7 @@ const buildSocket = ({
   token = 'token',
   sessionId = VALID_SESSION_ID,
   appUser = null,
+  cookieSessionId = sessionId,
 } = {}) => {
   const handlers = {};
 
@@ -35,6 +35,9 @@ const buildSocket = ({
     appSessionId: sessionId,
     handshake: {
       auth: { token, sessionId },
+      headers: cookieSessionId
+        ? { cookie: `duga_session=${cookieSessionId}` }
+        : {},
     },
     handlers,
     join: jest.fn(),
@@ -91,6 +94,14 @@ const loadSocketServer = () => {
     sequelize: {
       query: jest.fn().mockResolvedValue([[], {}]),
       QueryTypes: { SELECT: 'SELECT' },
+    },
+    Sequelize: {
+      Op: {
+        gt: Symbol.for('sequelize.gt'),
+      },
+    },
+    AppSession: {
+      findOne: jest.fn(),
     },
     Message: {
       create: jest.fn(),
@@ -175,18 +186,15 @@ describe('SocketServer', () => {
     jest.useRealTimers();
   });
 
-  it('rejects socket connections without complete auth data', async () => {
+  it('rejects socket connections without a session cookie', async () => {
     const { SocketServer, io } = loadSocketServer();
     SocketServer({}, buildApp());
 
-    const missingTokenNext = jest.fn();
-    await io.middleware(buildSocket({ token: null }), missingTokenNext);
-
-    expect(missingTokenNext).toHaveBeenCalledWith(expect.any(Error));
-    expect(missingTokenNext.mock.calls[0][0].message).toBe('Missing token');
-
     const missingSessionNext = jest.fn();
-    await io.middleware(buildSocket({ sessionId: null }), missingSessionNext);
+    await io.middleware(
+      buildSocket({ sessionId: null, cookieSessionId: null }),
+      missingSessionNext
+    );
 
     expect(missingSessionNext).toHaveBeenCalledWith(expect.any(Error));
     expect(missingSessionNext.mock.calls[0][0].message).toBe(
@@ -211,17 +219,17 @@ describe('SocketServer', () => {
     expect(deniedCallback).toHaveBeenCalledWith(expect.any(Error), false);
   });
 
-  it('authenticates HS256 API tokens with an active app session', async () => {
+  it('authenticates sockets with an active app session cookie', async () => {
     const { SocketServer, io, models } = loadSocketServer();
     const user = buildUser();
-    const token = jwt.sign(
-      { sub: user.auth0Id, tokenUse: 'api' },
-      process.env.API_JWT_SECRET,
-      { algorithm: 'HS256' }
-    );
-    const socket = buildSocket({ token, sessionId: VALID_SESSION_ID });
+    const appSession = {
+      auth0Id: user.auth0Id,
+      userId: user.id,
+    };
+    const socket = buildSocket({ sessionId: VALID_SESSION_ID });
     const next = jest.fn();
 
+    models.AppSession.findOne.mockResolvedValue(appSession);
     models.User.findOne.mockResolvedValue(user);
     SocketServer({}, buildApp());
 
@@ -231,8 +239,9 @@ describe('SocketServer', () => {
     expect(models.User.findOne).toHaveBeenCalledWith({
       where: { auth0Id: user.auth0Id },
     });
-    expect(socket.user).toMatchObject({ sub: user.auth0Id, tokenUse: 'api' });
+    expect(socket.user).toMatchObject({ sub: user.auth0Id });
     expect(socket.appUser).toBe(user);
+    expect(socket.appSession).toBe(appSession);
     expect(socket.appSessionId).toBe(VALID_SESSION_ID);
   });
 

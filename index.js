@@ -5,6 +5,7 @@ const cors = require('cors');
 const helmet = require('helmet');
 const { redactForLogs } = require('./utils/logRedaction');
 const { allowHttpCorsOrigin } = require('./utils/originAllowlist');
+const csrfProtection = require('./middleware/csrfProtection');
 
 const logUnhandledError = (label, error) => {
   console.error(
@@ -80,6 +81,7 @@ app.use(
 app.use(cors({ origin: allowHttpCorsOrigin, credentials: true }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
+app.use(csrfProtection);
 app.use(router);
 app.use(express.static(__dirname + '/public'));
 app.use((err, req, res, next) => {

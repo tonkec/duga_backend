@@ -1,4 +1,9 @@
-const { getSessionId, hashSessionId } = require('../../../utils/appSession');
+const { AppSession } = require('../../../models');
+const {
+  clearSessionCookies,
+  getSessionId,
+  hashSessionId,
+} = require('../../../utils/appSession');
 
 const handleLogoutSession = async (req, res) => {
   const sessionId = getSessionId(req);
@@ -13,12 +18,31 @@ const handleLogoutSession = async (req, res) => {
   }
 
   try {
-    if (user.activeSessionIdHash === hashSessionId(sessionId)) {
+    const sessionIdHash = hashSessionId(sessionId);
+    const now = new Date();
+
+    if (req.appSession?.update) {
+      await req.appSession.update({ revokedAt: now });
+    } else if (AppSession?.update) {
+      await AppSession.update(
+        { revokedAt: now },
+        { where: { sessionIdHash, userId: user.id, revokedAt: null } }
+      );
+    }
+
+    if (user.activeSessionIdHash === sessionIdHash) {
       await user.update({
         activeSessionIdHash: null,
         activeSessionStartedAt: null,
       });
     }
+
+    const revokeUserSession = req.app.get('revokeUserSession');
+    if (typeof revokeUserSession === 'function') {
+      revokeUserSession(user.id, sessionId);
+    }
+
+    clearSessionCookies(res);
 
     return res.json({ ok: true });
   } catch (error) {

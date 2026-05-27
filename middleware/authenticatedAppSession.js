@@ -3,6 +3,7 @@ const { checkJwt, checkJwtForFiles } = require('./auth');
 const { checkApiJwt, checkApiJwtForFiles } = require('./apiJwt');
 const requireActiveSession = require('./requireActiveSession');
 const getBearerToken = require('../utils/getBearerToken');
+const { getCookie, SESSION_COOKIE } = require('../utils/appSession');
 const jwt = require('jsonwebtoken');
 
 const isAuth0Token = (req) => {
@@ -22,16 +23,37 @@ const verifyFileJwt = (req, res, next) => {
   return verifier(req, res, next);
 };
 
-const authenticatedAppSession = [
-  verifyAppJwt,
-  attachCurrentUser,
-  requireActiveSession,
-];
-const authenticatedFileSession = [
-  verifyFileJwt,
-  attachCurrentUser,
-  requireActiveSession,
-];
+const runMiddlewares = (middlewares, req, res, next) => {
+  let index = 0;
+
+  const runNext = (error) => {
+    if (error) return next(error);
+
+    const middleware = middlewares[index];
+    index += 1;
+
+    if (!middleware) return next();
+    return middleware(req, res, runNext);
+  };
+
+  return runNext();
+};
+
+const authenticateWithCookieOrJwt = (verifyJwt) => (req, res, next) => {
+  if (getCookie(req, SESSION_COOKIE)) {
+    return requireActiveSession(req, res, next);
+  }
+
+  return runMiddlewares(
+    [verifyJwt, attachCurrentUser, requireActiveSession],
+    req,
+    res,
+    next
+  );
+};
+
+const authenticatedAppSession = [authenticateWithCookieOrJwt(verifyAppJwt)];
+const authenticatedFileSession = [authenticateWithCookieOrJwt(verifyFileJwt)];
 
 module.exports = {
   authenticatedAppSession,

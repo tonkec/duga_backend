@@ -1,5 +1,5 @@
 const socketIo = require('socket.io');
-const { sequelize } = require('../models');
+const { Sequelize, sequelize } = require('../models');
 const Message = require('../models').Message;
 const MessageMention = require('../models').MessageMention;
 const MessageReaction = require('../models').MessageReaction;
@@ -8,6 +8,7 @@ const PhotoComment = require('../models').PhotoComment;
 const Chat = require('../models').Chat;
 const ChatUser = require('../models').ChatUser;
 const UploadMention = require('../models').UploadMention;
+const AppSession = require('../models').AppSession;
 const users = new Map();
 const userSockets = new Map();
 const pendingOfflineTimers = new Map();
@@ -17,12 +18,14 @@ const socketCanAccess = require('../utils/socketAccess');
 const getSocketUser = require('../utils/socketAccess').getSocketUser;
 const normalizeS3Key = require('../utils/normalizeS3Key');
 
-const jwt = require('jsonwebtoken');
-const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
 const { attachSecureUrl } = require('../utils/secureUploadUrl');
-const { hashSessionId, isValidSessionId } = require('../utils/appSession');
-const { getApiJwtSecret } = require('../utils/apiJwtConfig');
+const {
+  getCookie,
+  hashSessionId,
+  isValidSessionId,
+  SESSION_COOKIE,
+} = require('../utils/appSession');
 const { allowSocketOrigin } = require('../utils/originAllowlist');
 const { resolveMessagePhotoUrl } = require('../utils/resolveMessagePhotoUrl');
 const { sanitizePlainText } = require('../utils/plainText');
@@ -33,9 +36,6 @@ const {
   normalizeMentionUserIds,
 } = require('../utils/messageMentions');
 
-const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
-const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
-const API_JWT_SECRET = getApiJwtSecret();
 const SOCKET_OFFLINE_DELAY_MS = Number(
   process.env.SOCKET_OFFLINE_DELAY_MS || 5000
 );
@@ -43,66 +43,17 @@ const USER_STATUSES = new Set(['online', 'offline']);
 const EMOJI_REACTION_PATTERN =
   /^(?=.*(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Regional_Indicator}))(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f))+$/u;
 
-const client = jwksClient({
-  jwksUri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,
-});
+const getSocketSessionId = (socket) =>
+  getCookie({ headers: socket.handshake.headers || {} }, SESSION_COOKIE);
 
-function getKey(header, callback) {
-  if (!header.kid) {
-    return callback(new Error('No KID specified'));
-  }
-
-  client.getSigningKey(header.kid, (err, key) => {
-    if (err) return callback(err);
-    const signingKey = key.getPublicKey();
-    callback(null, signingKey);
-  });
-}
-
-const verifySocketToken = (token) =>
-  new Promise((resolve, reject) => {
-    const decodedHeader = jwt.decode(token, { complete: true });
-
-    if (decodedHeader?.header?.alg === 'RS256') {
-      jwt.verify(
-        token,
-        getKey,
-        {
-          audience: AUTH0_AUDIENCE,
-          issuer: `https://${AUTH0_DOMAIN}/`,
-          algorithms: ['RS256'],
-        },
-        (err, decoded) => {
-          if (err) return reject(err);
-          resolve(decoded);
-        }
-      );
-      return;
-    }
-
-    try {
-      const decoded = jwt.verify(token, API_JWT_SECRET, {
-        algorithms: ['HS256'],
-      });
-      if (decoded.tokenUse !== 'api') {
-        reject(new Error('Invalid token use'));
-        return;
-      }
-      resolve(decoded);
-    } catch (error) {
-      reject(error);
-    }
-  });
-
-const formatCommentSocketPayload = (comment, accessToken) => ({
+const formatCommentSocketPayload = (comment) => ({
   ...comment.toJSON(),
   securePhotoUrl: comment.imageUrl
     ? attachSecureUrl(
         API_BASE_URL,
         comment.imageUrl.startsWith(`${process.env.NODE_ENV}/`)
           ? comment.imageUrl
-          : `${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`,
-        accessToken
+          : `${process.env.NODE_ENV}/${normalizeS3Key(comment.imageUrl)}`
       )
     : null,
 });
@@ -388,7 +339,7 @@ const SocketServer = (server, app) => {
     cors: {
       origin: allowSocketOrigin,
       methods: ['GET', 'HEAD', 'PUT', 'PATCH', 'POST', 'DELETE'],
-      allowedHeaders: ['Content-Type', 'Authorization', 'x-duga-session-id'],
+      allowedHeaders: ['Content-Type', 'x-csrf-token'],
       credentials: true,
     },
   });
@@ -407,13 +358,21 @@ const SocketServer = (server, app) => {
       });
     });
   });
+  app.set('revokeUserSession', (userId, revokedSessionId) => {
+    const sessions = userSessionSockets.get(userId);
+    if (!sessions) return;
+
+    const socketIds = sessions.get(revokedSessionId);
+    if (!socketIds) return;
+
+    socketIds.forEach((socketId) => {
+      io.to(socketId).emit('session-revoked');
+      io.sockets.sockets.get(socketId)?.disconnect(true);
+    });
+  });
 
   io.use(async (socket, next) => {
-    const token = socket.handshake.auth?.token;
-    const sessionId = socket.handshake.auth?.sessionId;
-    if (!token) {
-      return next(new Error('Missing token'));
-    }
+    const sessionId = getSocketSessionId(socket);
     if (!sessionId) {
       return next(new Error('Missing app session'));
     }
@@ -422,29 +381,39 @@ const SocketServer = (server, app) => {
     }
 
     try {
-      const decoded = await verifySocketToken(token);
-      if (!decoded?.sub) {
-        return next(new Error('Unauthorized'));
+      const appSession = await AppSession.findOne({
+        where: {
+          sessionIdHash: hashSessionId(sessionId),
+          revokedAt: null,
+          expiresAt: { [Sequelize.Op.gt]: new Date() },
+        },
+      });
+
+      if (!appSession?.auth0Id) {
+        return next(new Error('Session revoked'));
       }
 
-      const user = await User.findOne({ where: { auth0Id: decoded.sub } });
+      const user = await User.findOne({
+        where: { auth0Id: appSession.auth0Id },
+      });
       if (!user) {
         return next(new Error('Unauthorized'));
       }
 
-      if (
-        !user.activeSessionIdHash ||
-        user.activeSessionIdHash !== hashSessionId(sessionId)
-      ) {
-        return next(new Error('Session revoked'));
-      }
-
-      socket.user = decoded;
+      socket.user = {
+        sub: appSession.auth0Id,
+        user: {
+          id: user.id,
+          email: user.email,
+          auth0Id: user.auth0Id,
+        },
+      };
       socket.appUser = user;
+      socket.appSession = appSession;
       socket.appSessionId = sessionId;
       next();
     } catch (err) {
-      console.error('❌ JWT verification failed:', err.message);
+      console.error('❌ Socket session verification failed:', err.message);
       return next(new Error('Unauthorized'));
     }
   });
@@ -531,10 +500,7 @@ const SocketServer = (server, app) => {
         }
 
         const commentPayload = {
-          data: formatCommentSocketPayload(
-            comment,
-            socket.handshake.auth?.token
-          ),
+          data: formatCommentSocketPayload(comment),
         };
 
         const { photoOwnerId } = await emitToUploadCommentRecipients({
@@ -775,10 +741,7 @@ const SocketServer = (server, app) => {
           comment,
           event: 'update-comment',
           payload: {
-            data: formatCommentSocketPayload(
-              comment,
-              socket.handshake.auth?.token
-            ),
+            data: formatCommentSocketPayload(comment),
           },
         });
       } catch (error) {
@@ -1068,11 +1031,7 @@ const SocketServer = (server, app) => {
           createdAt: savedMessage.createdAt,
           messagePhotoUrl: finalMessagePhotoUrl,
           securePhotoUrl: finalMessagePhotoUrl
-            ? attachSecureUrl(
-                API_BASE_URL,
-                finalMessagePhotoUrl,
-                socket.handshake.auth?.token
-              )
+            ? attachSecureUrl(API_BASE_URL, finalMessagePhotoUrl)
             : null,
           reactions: [],
           reactionCount: 0,

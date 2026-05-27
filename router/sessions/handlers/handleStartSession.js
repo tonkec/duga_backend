@@ -1,9 +1,10 @@
-const { User } = require('../../../models');
-const { signApiToken } = require('../../../middleware/apiJwt');
+const { AppSession, Sequelize, User } = require('../../../models');
 const {
-  getSessionId,
+  generateCsrfToken,
+  generateSessionId,
+  getSessionExpiry,
   hashSessionId,
-  isValidSessionId,
+  setSessionCookies,
   SESSION_CONFLICT_CODE,
 } = require('../../../utils/appSession');
 const {
@@ -16,12 +17,12 @@ const START_SESSION_RATE_LIMIT_MS = Number(
 );
 
 const handleStartSession = async (req, res) => {
-  const sessionId = getSessionId(req);
-  if (!sessionId) {
-    return res.status(400).json({ ok: false, errors: ['missing_session_id'] });
-  }
-  if (!isValidSessionId(sessionId)) {
-    return res.status(400).json({ ok: false, errors: ['invalid_session_id'] });
+  const auth0Id = req.auth?.sub;
+  const email = req.auth?.email;
+  const emailVerified = req.auth?.email_verified;
+
+  if (!auth0Id) {
+    return res.status(401).json({ ok: false, errors: ['missing_auth0_sub'] });
   }
 
   try {
@@ -39,13 +40,17 @@ const handleStartSession = async (req, res) => {
       });
     }
 
-    const userId = req.auth?.user?.id;
-    const user = await User.findByPk(userId);
+    const user =
+      req.currentUser || (await User.findOne({ where: { auth0Id } }));
     if (!user) {
       return res.status(404).json({ ok: false, errors: ['user_not_found'] });
     }
 
+    const sessionId = generateSessionId();
+    const csrfToken = generateCsrfToken();
     const nextSessionHash = hashSessionId(sessionId);
+    const now = new Date();
+    const expiresAt = getSessionExpiry(now);
     const shouldReplaceExistingSession = req.body?.force !== false;
     const hasDifferentActiveSession =
       user.activeSessionIdHash && user.activeSessionIdHash !== nextSessionHash;
@@ -58,19 +63,62 @@ const handleStartSession = async (req, res) => {
       });
     }
 
-    await user.update({
+    if (AppSession?.update) {
+      await AppSession.update(
+        {
+          revokedAt: now,
+          rotatedAt: now,
+        },
+        {
+          where: {
+            userId: user.id,
+            revokedAt: null,
+            ...(Sequelize?.Op ? { expiresAt: { [Sequelize.Op.gt]: now } } : {}),
+          },
+        }
+      );
+    }
+
+    if (AppSession?.create) {
+      await AppSession.create({
+        userId: user.id,
+        auth0Id,
+        sessionIdHash: nextSessionHash,
+        csrfTokenHash: hashSessionId(csrfToken),
+        userAgent: req.get?.('user-agent') || null,
+        ipAddress: req.ip || req.headers?.['x-forwarded-for'] || null,
+        expiresAt,
+        rotationVersion: 0,
+        lastSeenAt: now,
+      });
+    }
+
+    const userUpdate = {
       activeSessionIdHash: nextSessionHash,
-      activeSessionStartedAt: new Date(),
-    });
+      activeSessionStartedAt: now,
+    };
+    if (email && user.email !== email) {
+      userUpdate.email = email;
+    }
+    if (typeof emailVerified === 'boolean') {
+      userUpdate.isVerified = emailVerified;
+    }
+
+    await user.update(userUpdate);
 
     const revokeUserSessionsExcept = req.app.get('revokeUserSessionsExcept');
     if (typeof revokeUserSessionsExcept === 'function') {
       revokeUserSessionsExcept(user.id, sessionId);
     }
 
+    setSessionCookies(res, { sessionId, csrfToken });
+
     return res.json({
       ok: true,
-      token: signApiToken(user),
+      session: {
+        authenticated: true,
+        expiresAt: expiresAt.toISOString(),
+      },
     });
   } catch (error) {
     console.error('Error starting session:', error);

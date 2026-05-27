@@ -95,6 +95,10 @@ module.exports = (sequelize, DataTypes) => {
         as: 'profileViewsMade',
         foreignKey: 'viewerId',
       });
+      this.hasMany(models.AppSession, {
+        as: 'appSessions',
+        foreignKey: 'userId',
+      });
     }
   }
   User.init(

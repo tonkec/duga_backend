@@ -18,7 +18,11 @@ jest.mock('express-jwt', () => ({
       authHeader === 'Bearer valid-auth0-token' ||
       authHeader?.startsWith('Bearer eyJ')
     ) {
-      req.auth = { sub: 'auth0|user-1' };
+      req.auth = {
+        sub: 'auth0|user-1',
+        email: 'user-1@example.com',
+        email_verified: true,
+      };
       return next();
     }
 
@@ -27,6 +31,11 @@ jest.mock('express-jwt', () => ({
 }));
 
 jest.mock('../models', () => ({
+  AppSession: {
+    create: jest.fn(),
+    findOne: jest.fn(),
+    update: jest.fn(),
+  },
   AuthRateLimit: {
     create: jest.fn(),
     findOne: jest.fn(),
@@ -37,13 +46,14 @@ jest.mock('../models', () => ({
   },
 }));
 
-const { AuthRateLimit, User } = require('../models');
+const { AppSession, AuthRateLimit, User } = require('../models');
 const sessionsRouter = require('../router/sessions');
 const {
   authenticatedAppSession,
 } = require('../middleware/authenticatedAppSession');
 const {
   SESSION_HEADER,
+  SESSION_COOKIE,
   hashSessionId,
   SESSION_CONFLICT_CODE,
   SESSION_REVOKED_CODE,
@@ -104,6 +114,9 @@ describe('auth and session routes', () => {
     jest.clearAllMocks();
     AuthRateLimit.findOne.mockResolvedValue(null);
     AuthRateLimit.create.mockResolvedValue({});
+    AppSession.create.mockResolvedValue({});
+    AppSession.findOne.mockResolvedValue(null);
+    AppSession.update.mockResolvedValue([0]);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -122,32 +135,40 @@ describe('auth and session routes', () => {
     const response = await request(app)
       .post('/sessions/start')
       .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID);
+      .set('User-Agent', 'jest');
 
     expect(response.status).toBe(200);
-    expect(response.body.ok).toBe(true);
-    expect(response.body.token).toEqual(expect.any(String));
-    expect(
-      jwt.verify(response.body.token, process.env.API_JWT_SECRET, {
-        algorithms: ['HS256'],
-      })
-    ).toMatchObject({
-      sub: 'auth0|user-1',
-      tokenUse: 'api',
-      user: { id: 'user-1' },
+    expect(response.body).toMatchObject({
+      ok: true,
+      session: { authenticated: true, expiresAt: expect.any(String) },
     });
+    expect(response.body.token).toBeUndefined();
+    expect(response.headers['set-cookie'].join(';')).toContain('duga_session=');
+    expect(response.headers['set-cookie'].join(';')).toContain('duga_csrf=');
+    expect(AppSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userId: 'user-1',
+        auth0Id: 'auth0|user-1',
+        sessionIdHash: expect.any(String),
+        csrfTokenHash: expect.any(String),
+        userAgent: 'jest',
+        expiresAt: expect.any(Date),
+        rotationVersion: 0,
+      })
+    );
     expect(user.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
+        activeSessionIdHash: expect.any(String),
+        isVerified: true,
       })
     );
     expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
       'user-1',
-      VALID_SESSION_ID
+      expect.any(String)
     );
   });
 
-  it('requires a session id before issuing an API token', async () => {
+  it('generates the app session server-side', async () => {
     const user = buildUser({ activeSessionIdHash: null });
 
     User.findOne.mockResolvedValue(user);
@@ -157,31 +178,13 @@ describe('auth and session routes', () => {
       .post('/sessions/start')
       .set('Authorization', 'Bearer valid-auth0-token');
 
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      ok: false,
-      errors: ['missing_session_id'],
-    });
-    expect(user.update).not.toHaveBeenCalled();
-  });
-
-  it('rejects low-entropy session ids before issuing an API token', async () => {
-    const user = buildUser({ activeSessionIdHash: null });
-
-    User.findOne.mockResolvedValue(user);
-    User.findByPk.mockResolvedValue(user);
-
-    const response = await request(app)
-      .post('/sessions/start')
-      .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, 'session-1');
-
-    expect(response.status).toBe(400);
-    expect(response.body).toEqual({
-      ok: false,
-      errors: ['invalid_session_id'],
-    });
-    expect(user.update).not.toHaveBeenCalled();
+    expect(response.status).toBe(200);
+    expect(AppSession.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionIdHash: expect.any(String),
+      })
+    );
+    expect(user.update).toHaveBeenCalled();
   });
 
   it('does not start a session when the Auth0 user is unknown locally', async () => {
@@ -189,8 +192,7 @@ describe('auth and session routes', () => {
 
     const response = await request(app)
       .post('/sessions/start')
-      .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID);
+      .set('Authorization', 'Bearer valid-auth0-token');
 
     expect(response.status).toBe(401);
     expect(response.body).toEqual({ error: 'Unauthorized: user not found' });
@@ -209,8 +211,7 @@ describe('auth and session routes', () => {
 
     const response = await request(app)
       .post('/sessions/start')
-      .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID);
+      .set('Authorization', 'Bearer valid-auth0-token');
 
     expect(response.status).toBe(429);
     expect(response.headers['retry-after']).toBe('10');
@@ -225,8 +226,7 @@ describe('auth and session routes', () => {
   it('rejects invalid/expired token when starting a session', async () => {
     const response = await request(app)
       .post('/sessions/start')
-      .set('Authorization', 'Bearer expired-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID);
+      .set('Authorization', 'Bearer expired-auth0-token');
 
     expect(response.status).toBe(401);
     expect(User.findOne).not.toHaveBeenCalled();
@@ -245,6 +245,34 @@ describe('auth and session routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ok: true, userId: 'user-1' });
+  });
+
+  it('accepts the HttpOnly app session cookie for protected routes', async () => {
+    const user = buildUser();
+    const appSession = {
+      userId: user.id,
+      auth0Id: user.auth0Id,
+      update: jest.fn().mockResolvedValue(undefined),
+    };
+
+    AppSession.findOne.mockResolvedValue(appSession);
+    User.findByPk.mockResolvedValue(user);
+
+    const response = await request(app)
+      .get('/protected')
+      .set('Cookie', `${SESSION_COOKIE}=${VALID_SESSION_ID}`);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true, userId: 'user-1' });
+    expect(AppSession.findOne).toHaveBeenCalledWith({
+      where: expect.objectContaining({
+        sessionIdHash: hashSessionId(VALID_SESSION_ID),
+        revokedAt: null,
+      }),
+    });
+    expect(appSession.update).toHaveBeenCalledWith({
+      lastSeenAt: expect.any(Date),
+    });
   });
 
   it('rejects API JWTs with the wrong token use', async () => {
@@ -390,19 +418,18 @@ describe('auth and session routes', () => {
 
     const response = await request(app)
       .post('/sessions/start')
-      .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID);
+      .set('Authorization', 'Bearer valid-auth0-token');
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(user.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
+        activeSessionIdHash: expect.any(String),
       })
     );
     expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
       'user-1',
-      VALID_SESSION_ID
+      expect.any(String)
     );
   });
 
@@ -417,7 +444,6 @@ describe('auth and session routes', () => {
     const response = await request(app)
       .post('/sessions/start')
       .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID)
       .send({ force: false });
 
     expect(response.status).toBe(409);
@@ -442,19 +468,18 @@ describe('auth and session routes', () => {
     const response = await request(app)
       .post('/sessions/start')
       .set('Authorization', 'Bearer valid-auth0-token')
-      .set(SESSION_HEADER, VALID_SESSION_ID)
       .send({ force: true });
 
     expect(response.status).toBe(200);
     expect(response.body.ok).toBe(true);
     expect(user.update).toHaveBeenCalledWith(
       expect.objectContaining({
-        activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
+        activeSessionIdHash: expect.any(String),
       })
     );
     expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
       'user-1',
-      VALID_SESSION_ID
+      expect.any(String)
     );
   });
 
