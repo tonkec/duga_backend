@@ -1,9 +1,15 @@
+require('./utils/safeConsole');
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const { redactForLogs } = require('./utils/logRedaction');
+const { allowHttpCorsOrigin } = require('./utils/originAllowlist');
 
 const logUnhandledError = (label, error) => {
-  console.error(`[${new Date().toISOString()}] ${label}:`, error);
+  console.error(
+    `[${new Date().toISOString()}] ${label}:`,
+    redactForLogs(error)
+  );
 };
 
 process.on('uncaughtException', (error) => {
@@ -45,14 +51,14 @@ if (process.env.NODE_ENV === 'development') {
   const swaggerDocs = swaggerJSDoc(swaggerOptions);
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 }
-app.use(cors());
+app.use(cors({ origin: allowHttpCorsOrigin, credentials: true }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(router);
 app.use(express.static(__dirname + '/public'));
 app.use(express.static(__dirname + '/uploads'));
 app.use((err, req, res, next) => {
-  logUnhandledError(`${req.method} ${req.originalUrl}`, err);
+  logUnhandledError(`${req.method} ${req.path}`, err);
 
   if (res.headersSent) {
     return next(err);

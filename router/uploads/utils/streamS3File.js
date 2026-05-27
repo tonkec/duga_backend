@@ -3,6 +3,23 @@ const Upload = require('./../../../models').Upload;
 const PhotoComment = require('./../../../models').PhotoComment;
 const Message = require('./../../../models').Message;
 const removeSpacesAndDashes = require('./../../../utils/removeSpacesAndDashes');
+const {
+  SVG_CONTENT_TYPE,
+  applySvgResponseHeaders,
+  isSvgKey,
+} = require('../../../utils/svgSecurity');
+
+const getContentType = (file, key) => {
+  if (file?.filetype === SVG_CONTENT_TYPE || isSvgKey(key)) {
+    return SVG_CONTENT_TYPE;
+  }
+
+  if (file?.filetype?.startsWith('image/')) {
+    return file.filetype;
+  }
+
+  return 'image/png';
+};
 
 const streamS3File = async (key, res) => {
   console.log('🔍 Requested key:', key);
@@ -57,7 +74,14 @@ const streamS3File = async (key, res) => {
     res.status(404).json({ message: 'Image not found on S3' });
   });
 
-  res.setHeader('Content-Type', 'image/png');
+  const contentType = getContentType(file, normalizedKey);
+  if (contentType === SVG_CONTENT_TYPE) {
+    applySvgResponseHeaders(res, normalizedKey);
+  } else {
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+  }
+
   s3Stream.pipe(res);
 };
 

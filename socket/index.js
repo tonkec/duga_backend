@@ -22,6 +22,8 @@ const { API_BASE_URL } = require('../consts/apiBaseUrl');
 const { attachSecureUrl } = require('../utils/secureUploadUrl');
 const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
 const { hashSessionId } = require('../utils/appSession');
+const { getApiJwtSecret } = require('../utils/apiJwtConfig');
+const { allowSocketOrigin } = require('../utils/originAllowlist');
 const {
   buildMentionRows,
   getMentionUserIdsOutsideChat,
@@ -31,20 +33,13 @@ const {
 
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const AUTH0_AUDIENCE = process.env.AUTH0_AUDIENCE;
-const API_JWT_SECRET =
-  process.env.API_JWT_SECRET ||
-  process.env.JWT_SECRET ||
-  'duga-api-test-secret';
+const API_JWT_SECRET = getApiJwtSecret();
 const SOCKET_OFFLINE_DELAY_MS = Number(
   process.env.SOCKET_OFFLINE_DELAY_MS || 5000
 );
 const USER_STATUSES = new Set(['online', 'offline']);
 const EMOJI_REACTION_PATTERN =
   /^(?=.*(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Regional_Indicator}))(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation}|\p{Emoji_Modifier}|\p{Regional_Indicator}|\u200d|\ufe0f))+$/u;
-
-const allowSocketOrigin = (origin, callback) => {
-  callback(null, origin || true);
-};
 
 const client = jwksClient({
   jwksUri: `https://${AUTH0_DOMAIN}/.well-known/jwks.json`,

@@ -198,12 +198,10 @@ describe('uploads and images routes', () => {
     expect(authenticatedResponse.body.files[0]).toMatchObject({
       id: 101,
       key: 'test/messages/message-photo.jpg',
-      secureUrl: expect.stringContaining(
-        'http://localhost:3000/uploads/files/test%2Fmessages%2Fmessage-photo.jpg?access_token='
-      ),
-      thumbnailUrl: expect.stringContaining(
-        'http://localhost:3000/uploads/files/test%2Fmessages%2Fthumbnail-message-photo.jpg?access_token='
-      ),
+      secureUrl:
+        'http://localhost:3000/uploads/files/test%2Fmessages%2Fmessage-photo.jpg',
+      thumbnailUrl:
+        'http://localhost:3000/uploads/files/test%2Fmessages%2Fthumbnail-message-photo.jpg',
     });
   });
 

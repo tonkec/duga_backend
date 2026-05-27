@@ -6,9 +6,6 @@ const getBearerToken = (req) => {
       return parts[1];
     }
   }
-  if (req.query?.access_token) {
-    return req.query.access_token;
-  }
   return null;
 };
 

@@ -1,5 +1,6 @@
 const axios = require('axios');
 const { User } = require('../../../models');
+const { redactForLogs } = require('../../../utils/logRedaction');
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
@@ -60,17 +61,14 @@ const sendVerificationEmail = async (req, res) => {
       }
     );
 
-    console.log('✅ Verification email sent:', response.data);
+    console.log('✅ Verification email sent:', redactForLogs(response.data));
     res.json({
       message: 'Verification email sent successfully!',
       data: response.data,
     });
   } catch (error) {
-    console.error(
-      '❌ Error resending email:',
-      error.response?.data || error.message
-    );
-    res.status(500).json({ error: error.response?.data || error.message });
+    console.error('❌ Error resending email:', redactForLogs(error));
+    res.status(500).json({ error: 'Failed to send verification email' });
   }
 };
 

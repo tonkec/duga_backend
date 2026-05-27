@@ -181,6 +181,23 @@ describe('SocketServer', () => {
     );
   });
 
+  it('uses an explicit socket origin allowlist', () => {
+    process.env.ALLOWED_ORIGINS = 'https://app.example.com';
+    const { SocketServer } = loadSocketServer();
+    SocketServer({}, buildApp());
+
+    const socketIo = require('socket.io');
+    const originCallback = socketIo.mock.calls[0][1].cors.origin;
+    const allowedCallback = jest.fn();
+    const deniedCallback = jest.fn();
+
+    originCallback('https://app.example.com', allowedCallback);
+    originCallback('https://evil.example.com', deniedCallback);
+
+    expect(allowedCallback).toHaveBeenCalledWith(null, true);
+    expect(deniedCallback).toHaveBeenCalledWith(expect.any(Error), false);
+  });
+
   it('authenticates HS256 API tokens with an active app session', async () => {
     const { SocketServer, io, models } = loadSocketServer();
     const user = buildUser();

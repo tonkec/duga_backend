@@ -516,8 +516,7 @@ describe('photo comments CRUD routes', () => {
     expect(response.body[0]).toMatchObject({
       id: 202,
       comment: 'Newest',
-      securePhotoUrl:
-        'http://localhost:3000/uploads/files/comment%2Fphoto.jpg?access_token=test-token',
+      securePhotoUrl: 'http://localhost:3000/uploads/files/comment%2Fphoto.jpg',
     });
     expect(response.body[1]).toMatchObject({
       id: 201,

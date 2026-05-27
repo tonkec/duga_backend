@@ -1,11 +1,12 @@
 const jwt = require('jsonwebtoken');
 const getBearerToken = require('../utils/getBearerToken');
+const {
+  getApiJwtExpiresIn,
+  getApiJwtSecret,
+} = require('../utils/apiJwtConfig');
 
-const API_JWT_SECRET =
-  process.env.API_JWT_SECRET ||
-  process.env.JWT_SECRET ||
-  'duga-api-test-secret';
-const API_JWT_EXPIRES_IN = process.env.API_JWT_EXPIRES_IN || '7d';
+const API_JWT_SECRET = getApiJwtSecret();
+const API_JWT_EXPIRES_IN = getApiJwtExpiresIn();
 
 const signApiToken = (user) =>
   jwt.sign(

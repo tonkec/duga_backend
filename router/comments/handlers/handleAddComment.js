@@ -171,6 +171,7 @@ const handleAddComment = async (req, res) => {
           {
             url: s3Key,
             name: cleanedName,
+            filetype: req.file.mimetype,
             userId,
           },
           { transaction }

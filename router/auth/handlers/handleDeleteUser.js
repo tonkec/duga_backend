@@ -14,6 +14,7 @@ const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
 const s3 = require('../../../utils/s3');
 const { BUCKET } = require('../../uploads/s3/rekognitionConfiguration');
+const { redactForLogs } = require('../../../utils/logRedaction');
 
 const getManagementApiToken = async () => {
   try {
@@ -24,15 +25,12 @@ const getManagementApiToken = async () => {
       grant_type: 'client_credentials',
     });
 
-    console.log(
-      '✅ Management API Token Retrieved:',
-      response.data.access_token
-    );
+    console.log('✅ Management API token retrieved');
     return response.data.access_token;
   } catch (error) {
     console.error(
       '❌ Error fetching Management API token:',
-      error.response?.data || error.message
+      redactForLogs(error)
     );
     throw new Error('Failed to get Management API token');
   }
@@ -92,7 +90,10 @@ const deleteAllUserImagesFromS3 = async (userId, uploads = []) => {
 
     console.log(`🧹 Deleted ${objects.length} S3 objects for user ${userId}`);
   } catch (error) {
-    console.error(`❌ Failed to delete user ${userId}'s S3 images:`, error);
+    console.error(
+      `❌ Failed to delete user ${userId}'s S3 images:`,
+      redactForLogs(error)
+    );
     throw error;
   }
 };
@@ -160,7 +161,7 @@ const deleteUser = async (req, res) => {
     res.status(200).json({ message: 'User and Auth0 account deleted.' });
   } catch (err) {
     await t.rollback();
-    console.error('❌ Error deleting user:', err);
+    console.error('❌ Error deleting user:', redactForLogs(err));
     res.status(500).json({ error: 'Failed to delete user' });
   }
 };

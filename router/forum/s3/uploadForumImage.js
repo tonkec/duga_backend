@@ -7,6 +7,11 @@ const allowedMimeTypes = require('../../../consts/allowedFileTypes');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
 const {
+  SVG_CONTENT_TYPE,
+  isSvgFile,
+  sanitizeSvg,
+} = require('../../../utils/svgSecurity');
+const {
   BUCKET,
   EXPLICIT_BLOCK_THRESHOLD,
   SUGGESTIVE_BLOCK_THRESHOLD,
@@ -100,7 +105,9 @@ const uploadForumImage = (target) => [
         return next();
       }
 
-      const normalized = await sharp(file.buffer)
+      const isSvg = isSvgFile(file);
+      const uploadBody = isSvg ? sanitizeSvg(file.buffer) : file.buffer;
+      const normalized = await sharp(uploadBody)
         .rotate()
         .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 90 })
@@ -135,14 +142,16 @@ const uploadForumImage = (target) => [
       const base = removeSpacesAndDashes(
         path.basename(file.originalname, ext).toLowerCase().trim()
       );
-      const key = `${env}/forum/${target}/${req.auth.user.id}/${Date.now()}/${base}.jpg`;
+      const storedExt = isSvg ? '.svg' : '.jpg';
+      const contentType = isSvg ? SVG_CONTENT_TYPE : 'image/jpeg';
+      const key = `${env}/forum/${target}/${req.auth.user.id}/${Date.now()}/${base}${storedExt}`;
 
       await s3
         .putObject({
           Bucket: BUCKET,
           Key: key,
-          Body: normalized,
-          ContentType: 'image/jpeg',
+          Body: isSvg ? uploadBody : normalized,
+          ContentType: contentType,
           ACL: 'private',
         })
         .promise();
@@ -150,7 +159,7 @@ const uploadForumImage = (target) => [
       req.forumImage = {
         key,
         name: `${base}${ext}`,
-        mimetype: 'image/jpeg',
+        mimetype: contentType,
         moderation: labels,
       };
 

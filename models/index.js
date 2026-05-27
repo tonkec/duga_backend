@@ -8,20 +8,9 @@ const basename = path.basename(__filename);
 require('dotenv').config();
 const env = process.env.NODE_ENV || 'development';
 const config = require(__dirname + './../config/database.js')[env];
+const { getDatabaseDialectOptions } = require('../utils/databaseSsl');
 const db = {};
 const { DB_USER, DB_PASSWORD, DB_HOST, DB_DATABASE } = process.env;
-
-const sslOptions =
-  env === 'development'
-    ? {
-        ssl: false,
-      }
-    : {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        },
-      };
 
 const sequelize = new Sequelize({
   database: DB_DATABASE || config.database,
@@ -30,7 +19,7 @@ const sequelize = new Sequelize({
   host: DB_HOST || config.host,
   port: 5432,
   dialect: 'postgres',
-  dialectOptions: sslOptions,
+  dialectOptions: getDatabaseDialectOptions(env),
 });
 
 fs.readdirSync(__dirname)
