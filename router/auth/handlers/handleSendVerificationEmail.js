@@ -4,6 +4,10 @@ const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
 const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
+const VERIFICATION_EMAIL_THROTTLE_MS = Number(
+  process.env.VERIFICATION_EMAIL_THROTTLE_MS ?? 60 * 1000
+);
+const verificationEmailAttempts = new Map();
 
 const getManagementApiToken = async () => {
   const response = await axios.post(`https://${AUTH0_DOMAIN}/oauth/token`, {
@@ -18,19 +22,30 @@ const getManagementApiToken = async () => {
 
 const sendVerificationEmail = async (req, res) => {
   try {
-    const { userId } = req.body;
+    const auth0Id = req.auth?.sub;
 
-    if (!userId) {
-      return res.status(400).json({ error: 'Missing user ID' });
+    if (!auth0Id) {
+      return res.status(401).json({ error: 'Missing Auth0 identity claims' });
     }
 
-    const user = await User.findByPk(userId);
+    const user = await User.findOne({ where: { auth0Id } });
 
     if (!user || !user.auth0Id) {
       return res
         .status(404)
         .json({ error: 'User not found or missing auth0Id' });
     }
+
+    const now = Date.now();
+    const lastAttemptAt = verificationEmailAttempts.get(auth0Id);
+
+    if (lastAttemptAt && now - lastAttemptAt < VERIFICATION_EMAIL_THROTTLE_MS) {
+      return res
+        .status(429)
+        .json({ error: 'Verification email recently sent' });
+    }
+
+    verificationEmailAttempts.set(auth0Id, now);
 
     const token = await getManagementApiToken();
 

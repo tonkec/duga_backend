@@ -9,21 +9,37 @@ const serializeUser = (user) => {
 };
 
 const handleRegister = async (req, res) => {
-  const { auth0Id, email, username } = req.body;
+  const auth0Id = req.auth?.sub;
+  const email = req.auth?.email;
+  const { username } = req.body || {};
 
-  if (!auth0Id || !email || !username) {
+  if (!auth0Id || !email) {
+    return res.status(401).json({ message: 'Missing Auth0 identity claims' });
+  }
+
+  if (!username) {
     return res.status(400).json({ message: 'Missing required fields' });
   }
 
   try {
     const normalizedEmail = email.toLowerCase();
 
-    let user = await User.findOne({ where: { email: normalizedEmail } });
+    let user = await User.findOne({ where: { auth0Id } });
 
     if (user) {
-      if (!user.auth0Id) {
-        await user.update({ auth0Id });
+      return res
+        .status(200)
+        .json({ message: 'User already exists', user: serializeUser(user) });
+    }
+
+    user = await User.findOne({ where: { email: normalizedEmail } });
+
+    if (user) {
+      if (user.auth0Id) {
+        return res.status(409).json({ message: 'Email is already registered' });
       }
+
+      user = await user.update({ auth0Id });
 
       return res
         .status(200)
