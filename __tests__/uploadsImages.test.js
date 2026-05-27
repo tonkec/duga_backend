@@ -5,6 +5,7 @@ process.env.APP_PORT = process.env.APP_PORT || '3000';
 const express = require('express');
 const request = require('supertest');
 const { Op } = require('sequelize');
+const { Readable } = require('stream');
 
 const mockDetectModerationLabelsPromise = jest
   .fn()
@@ -307,6 +308,24 @@ describe('uploads and images routes', () => {
     );
   });
 
+  it('converts S3 response streams before Rekognition moderation', async () => {
+    s3.getObject.mockReturnValueOnce({
+      promise: jest
+        .fn()
+        .mockResolvedValue({ Body: Readable.from([Buffer.from('image')]) }),
+    });
+    Upload.findOne.mockResolvedValue(null);
+    Upload.create.mockResolvedValue({ id: 202 });
+
+    const response = await authenticated(request(app).post('/uploads/photos'));
+
+    expect(response.status).toBe(200);
+    expect(mockDetectModerationLabels).toHaveBeenCalledWith({
+      Image: { Bytes: Buffer.from('moderation-image') },
+      MinConfidence: 60,
+    });
+  });
+
   it('rejects profile photos blocked by Rekognition', async () => {
     mockDetectModerationLabelsPromise.mockResolvedValueOnce({
       ModerationLabels: [
@@ -440,6 +459,18 @@ describe('uploads and images routes', () => {
     );
   });
 
+  it('returns an empty image list when S3 has no objects for the user prefix', async () => {
+    Upload.findAll.mockResolvedValue([]);
+    s3.listObjectsV2.mockReturnValueOnce({
+      promise: jest.fn().mockResolvedValue({}),
+    });
+
+    const response = await authenticated(request(app).get('/uploads/user/51'));
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ images: [] });
+  });
+
   it('scopes latest uploads to accessible uploads', async () => {
     Upload.findAll.mockResolvedValue([]);
 
@@ -498,7 +529,12 @@ describe('uploads and images routes', () => {
 
     expect(response.status).toBe(200);
     expect(Upload.findOne).toHaveBeenCalledWith({
-      where: { url: 'test/user/user-1/photo.jpg', userId: 'user-1' },
+      where: {
+        url: {
+          [Op.in]: expect.arrayContaining(['test/user/user-1/photo.jpg']),
+        },
+        userId: 'user-1',
+      },
     });
     expect(authorizedUpload.destroy).toHaveBeenCalledTimes(1);
     expect(ownedComment.setTaggedUsers).toHaveBeenCalledWith([]);
@@ -533,6 +569,34 @@ describe('uploads and images routes', () => {
     expect(s3.deleteObject).toHaveBeenCalledWith({
       Bucket: 'duga-user-photo',
       Key: 'test/user/user-1/thumbnail-photo.jpg',
+    });
+  });
+
+  it('deletes photos when the client sends a secure file URL', async () => {
+    const authorizedUpload = {
+      id: 301,
+      url: 'test/user/user-1/photo.jpg',
+      userId: 'user-1',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+
+    Upload.findOne.mockResolvedValue(authorizedUpload);
+    Upload.findAll.mockResolvedValue([authorizedUpload]);
+
+    const response = await authenticated(
+      request(app).delete('/uploads/delete-photo')
+    ).send({
+      url: 'http://localhost:3000/uploads/files/test%2Fuser%2Fuser-1%2Fphoto.jpg',
+    });
+
+    expect(response.status).toBe(200);
+    expect(Upload.findOne).toHaveBeenCalledWith({
+      where: {
+        url: {
+          [Op.in]: expect.arrayContaining(['test/user/user-1/photo.jpg']),
+        },
+        userId: 'user-1',
+      },
     });
   });
 });

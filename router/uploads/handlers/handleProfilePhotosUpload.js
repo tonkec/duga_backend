@@ -49,7 +49,28 @@ async function headObjectOrThrow(Key) {
 async function getObjectBytes(Key) {
   const obj = await s3.getObject({ Bucket: BUCKET, Key }).promise();
   if (!obj.Body) throw new Error('Empty S3 object body');
-  return obj.Body; // Buffer (v2)
+
+  if (Buffer.isBuffer(obj.Body)) {
+    return obj.Body;
+  }
+  if (obj.Body instanceof Uint8Array) {
+    return Buffer.from(obj.Body);
+  }
+  if (typeof obj.Body === 'string') {
+    return Buffer.from(obj.Body);
+  }
+  if (typeof obj.Body.transformToByteArray === 'function') {
+    return Buffer.from(await obj.Body.transformToByteArray());
+  }
+  if (typeof obj.Body[Symbol.asyncIterator] === 'function') {
+    const chunks = [];
+    for await (const chunk of obj.Body) {
+      chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+    }
+    return Buffer.concat(chunks);
+  }
+
+  throw new Error('Unsupported S3 object body');
 }
 
 /** Convert anything to sane JPEG for Rekognition. */

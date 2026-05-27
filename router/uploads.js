@@ -1,4 +1,5 @@
 require('dotenv').config();
+const { Op } = require('sequelize');
 const Upload = require('../models').Upload;
 const User = require('../models').User;
 const {
@@ -23,6 +24,48 @@ const MAX_NUMBER_OF_FILES = require('../consts/maxNumberOfFiles');
 const handleGetAllUserUploads = require('./uploads/handlers/handleGetAllUserUploads');
 const LIMIT_FILE_SIZE = require('../consts/limitFileSize');
 const uploadStack = uploadMessageImage(s3); // could be array or single fn
+
+const getUploadDeleteKeyCandidates = (url) => {
+  const env = process.env.NODE_ENV || 'development';
+  const rawValue = String(url || '').trim();
+  if (!rawValue) return [];
+
+  const decodedValue = (() => {
+    try {
+      return decodeURIComponent(rawValue);
+    } catch (error) {
+      return rawValue;
+    }
+  })();
+  const pathValue = (() => {
+    try {
+      return decodeURIComponent(new URL(rawValue).pathname.slice(1));
+    } catch (error) {
+      return decodedValue;
+    }
+  })();
+
+  const withoutFilesPrefix = pathValue
+    .replace(/^\/+/, '')
+    .replace(/^uploads\/files\//, '');
+  const withEnv = withoutFilesPrefix.startsWith(`${env}/`)
+    ? withoutFilesPrefix
+    : `${env}/${withoutFilesPrefix}`;
+  const withoutEnv = withoutFilesPrefix.startsWith(`${env}/`)
+    ? withoutFilesPrefix.slice(env.length + 1)
+    : withoutFilesPrefix;
+
+  return [
+    ...new Set([
+      rawValue,
+      decodedValue,
+      pathValue,
+      withoutFilesPrefix,
+      withEnv,
+      withoutEnv,
+    ]),
+  ].filter(Boolean);
+};
 
 function runUploadStack(stack) {
   const mws = Array.isArray(stack) ? stack : [stack];
@@ -80,8 +123,9 @@ router.delete(
     withAccessCheck(Upload, async (req) => {
       const { url } = req.body;
       if (!url) return null;
+      const candidates = getUploadDeleteKeyCandidates(url);
       return await Upload.findOne({
-        where: { url, userId: req.auth.user.id },
+        where: { url: { [Op.in]: candidates }, userId: req.auth.user.id },
       });
     }),
   ],

@@ -25,7 +25,7 @@ const handleGetAllUserUploads = async (req, res) => {
       ],
     });
     const data = await s3.listObjectsV2(params).promise();
-    const s3Keys = data.Contents.map((obj) => obj.Key);
+    const s3Keys = (data.Contents || []).map((obj) => obj.Key);
 
     const result = uploads
       .filter((upload) => s3Keys.includes(upload.url))
