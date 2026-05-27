@@ -2,6 +2,7 @@ require('./utils/safeConsole');
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
+const helmet = require('helmet');
 const { redactForLogs } = require('./utils/logRedaction');
 const { allowHttpCorsOrigin } = require('./utils/originAllowlist');
 
@@ -25,6 +26,8 @@ const router = require('./router');
 const app = express();
 const http = require('http');
 const port = process.env.PORT || config.appPort;
+
+app.disable('x-powered-by');
 
 if (process.env.NODE_ENV === 'development') {
   const swaggerUi = require('swagger-ui-express');
@@ -51,12 +54,34 @@ if (process.env.NODE_ENV === 'development') {
   const swaggerDocs = swaggerJSDoc(swaggerOptions);
   app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerDocs));
 }
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'none'"],
+        baseUri: ["'none'"],
+        frameAncestors: ["'none'"],
+        formAction: ["'none'"],
+        imgSrc: ["'self'", 'data:'],
+        objectSrc: ["'none'"],
+        scriptSrc: ["'self'"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+      },
+    },
+    crossOriginResourcePolicy: { policy: 'same-origin' },
+    hsts: {
+      maxAge: 15552000,
+      includeSubDomains: true,
+      preload: false,
+    },
+    referrerPolicy: { policy: 'no-referrer' },
+  })
+);
 app.use(cors({ origin: allowHttpCorsOrigin, credentials: true }));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(bodyParser.json());
 app.use(router);
 app.use(express.static(__dirname + '/public'));
-app.use(express.static(__dirname + '/uploads'));
 app.use((err, req, res, next) => {
   logUnhandledError(`${req.method} ${req.path}`, err);
 

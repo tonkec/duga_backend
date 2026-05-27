@@ -80,7 +80,9 @@ router.delete(
     withAccessCheck(Upload, async (req) => {
       const { url } = req.body;
       if (!url) return null;
-      return await Upload.findOne({ where: { url } });
+      return await Upload.findOne({
+        where: { url, userId: req.auth.user.id },
+      });
     }),
   ],
   handleDeletePhotoRequest

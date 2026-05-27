@@ -20,6 +20,8 @@ const usersRouter = require('../router/user');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
 
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
+
 const buildApp = () => {
   const app = express();
   const emit = jest.fn();
@@ -40,7 +42,7 @@ const buildUser = (overrides = {}) => ({
   lastName: 'Duga',
   username: 'antonija',
   password: 'hashed-password',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
   ...overrides,
 });
@@ -67,7 +69,7 @@ describe('users and profiles routes', () => {
   const authenticated = (agent) =>
     agent
       .set('Authorization', `Bearer ${apiToken}`)
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, VALID_SESSION_ID);
 
   it('gets current user', async () => {
     User.findByPk.mockResolvedValue({
@@ -105,8 +107,13 @@ describe('users and profiles routes', () => {
   it('gets user by id', async () => {
     User.findByPk.mockResolvedValue({
       id: 'user-2',
-      firstName: 'Duga',
+      publicId: 'public-user-2',
       username: 'duga',
+      avatar: 'avatar.jpg',
+      status: 'offline',
+      email: 'duga@example.com',
+      bio: 'decrypted private bio',
+      spirituality: 'decrypted private profile text',
     });
     ProfileView.create.mockResolvedValue({
       id: 10,
@@ -121,20 +128,19 @@ describe('users and profiles routes', () => {
     expect(User.findByPk).toHaveBeenCalledWith(
       'user-2',
       expect.objectContaining({
-        attributes: {
-          exclude: [
-            'password',
-            'auth0Id',
-            'activeSessionIdHash',
-            'activeSessionStartedAt',
-          ],
-        },
+        attributes: ['id', 'publicId', 'username', 'avatar', 'status'],
       })
     );
     expect(response.body).toMatchObject({
       id: 'user-2',
+      publicId: 'public-user-2',
       username: 'duga',
+      avatar: 'avatar.jpg',
+      status: 'offline',
     });
+    expect(response.body).not.toHaveProperty('email');
+    expect(response.body).not.toHaveProperty('bio');
+    expect(response.body).not.toHaveProperty('spirituality');
     expect(ProfileView.create).toHaveBeenCalledWith({
       viewerId: 'user-1',
       viewedUserId: 'user-2',
@@ -167,8 +173,9 @@ describe('users and profiles routes', () => {
         return Promise.resolve({
           id: 'user-2',
           publicId,
-          firstName: 'Duga',
           username: 'duga',
+          email: 'duga@example.com',
+          favoriteSong: 'decrypted private song',
         });
       }
       return Promise.resolve(null);
@@ -195,6 +202,8 @@ describe('users and profiles routes', () => {
       publicId,
       username: 'duga',
     });
+    expect(response.body).not.toHaveProperty('email');
+    expect(response.body).not.toHaveProperty('favoriteSong');
     expect(ProfileView.create).toHaveBeenCalledWith({
       viewerId: 'user-1',
       viewedUserId: 'user-2',
@@ -312,6 +321,33 @@ describe('users and profiles routes', () => {
     });
   });
 
+  it('stores profile text as escaped plain text', async () => {
+    const updatedUser = buildUpdatedUser({
+      id: 'user-1',
+      email: 'user-1@example.com',
+      bio: '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;',
+      avatar: 'avatar.jpg',
+    });
+
+    User.update.mockResolvedValue([1, [updatedUser]]);
+
+    const response = await authenticated(
+      request(app).post('/users/update-user')
+    ).send({
+      data: {
+        bio: '<img src=x onerror="alert(1)">',
+      },
+    });
+
+    expect(response.status).toBe(200);
+    expect(User.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        bio: '&lt;img src=x onerror=&quot;alert(1)&quot;&gt;',
+      }),
+      expect.any(Object)
+    );
+  });
+
   it('validates required fields when updating profile', async () => {
     const response = await authenticated(
       request(app).post('/users/update-user')
@@ -328,7 +364,7 @@ describe('users and profiles routes', () => {
       email: 'user-1@example.com',
       firstName: 'Ana',
       auth0Id: 'auth0|user-1',
-      activeSessionIdHash: hashSessionId('session-1'),
+      activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
       password: 'hashed-password',
     });
 
@@ -387,7 +423,7 @@ describe('users and profiles routes', () => {
       firstName: 'Ana',
       password: 'hashed-password',
       auth0Id: 'auth0|user-1',
-      activeSessionIdHash: hashSessionId('session-1'),
+      activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
       activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
     });
 

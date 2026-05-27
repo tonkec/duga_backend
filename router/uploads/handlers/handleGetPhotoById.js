@@ -1,23 +1,25 @@
-const { Upload, User } = require('../../../models');
+const { User } = require('../../../models');
 const addSecureUrlsToList =
   require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
+const { findAccessibleUploadById } = require('../../../utils/uploadAccess');
 
 const handleGetPhotoById = async (req, res) => {
   try {
-    const upload = await Upload.findOne({
-      where: {
-        id: req.params.id,
-      },
-      include: [
-        {
-          model: User,
-          as: 'taggedUsers',
-          attributes: ['id', 'publicId', 'username'],
-        },
-      ],
-    });
+    const upload = await findAccessibleUploadById(
+      req.auth.user.id,
+      req.params.id,
+      {
+        include: [
+          {
+            model: User,
+            as: 'taggedUsers',
+            attributes: ['id', 'publicId', 'username'],
+          },
+        ],
+      }
+    );
 
     if (!upload) {
       return res.status(404).send({

@@ -1,13 +1,15 @@
 const { Upload, PhotoComment, User, sequelize } = require('../../../models');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
 const normalizeS3Key = require('../../../utils/normalizeS3Key');
-const AWS = require('aws-sdk');
 const sharp = require('sharp');
 const s3 = require('../../../utils/s3');
+const rekognition = require('../../../utils/rekognition');
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
+const { hasUploadAccess } = require('../../../utils/uploadAccess');
+const { sanitizePlainText } = require('../../../utils/plainText');
 const {
   BUCKET,
   EXPLICIT_BLOCK_THRESHOLD,
@@ -15,8 +17,6 @@ const {
   EXPLICIT_LABELS,
   SUGGESTIVE_LABELS,
 } = require('../../uploads/s3/rekognitionConfiguration');
-
-const rekognition = new AWS.Rekognition();
 
 function normalizeKey(k) {
   const s = String(k || '').trim();
@@ -43,33 +43,14 @@ function decide(labels) {
       : 'allow';
 }
 
-async function waitForObjectExists(
-  Key,
-  { timeoutMs = 4000, intervalMs = 150 } = {}
-) {
-  const deadline = Date.now() + timeoutMs;
-  let lastErr;
-  while (Date.now() < deadline) {
-    try {
-      await s3.headObject({ Bucket: BUCKET, Key }).promise();
-      return true;
-    } catch (e) {
-      lastErr = e;
-      await new Promise((r) => setTimeout(r, intervalMs));
-    }
-  }
-  throw lastErr || new Error('Timeout waiting for S3 object');
-}
+async function getModerationJpegBytes(buffer) {
+  if (!buffer) throw new Error('Empty comment image body');
 
-async function getModerationJpegBytes(Key) {
-  const obj = await s3.getObject({ Bucket: BUCKET, Key }).promise();
-  if (!obj.Body) throw new Error('Empty S3 object body');
-  const jpeg = await sharp(obj.Body)
+  return sharp(buffer)
     .rotate()
     .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
     .jpeg({ quality: 90 })
     .toBuffer();
-  return jpeg;
 }
 
 async function detectModerationByBytes(buffer) {
@@ -81,6 +62,54 @@ async function detectModerationByBytes(buffer) {
     .promise();
   return out.ModerationLabels || [];
 }
+
+const buildCommentImageKey = (file) => {
+  const timestamp = Date.now();
+  const originalName = file.originalname || 'comment-image';
+  const extension = '.jpg';
+  const basename = originalName.replace(/\.[^.]*$/, '');
+  const cleanedFilename = removeSpacesAndDashes(
+    `${basename}${extension}`.toLowerCase().trim()
+  );
+
+  return normalizeKey(
+    `${process.env.NODE_ENV}/comment/${timestamp}/${cleanedFilename}`
+  );
+};
+
+const uploadCommentImageToS3 = async (file) => {
+  const jpegBytes = await getModerationJpegBytes(file.buffer);
+  const labels = await detectModerationByBytes(jpegBytes);
+  const decision = decide(labels);
+  console.log('🔎 moderation labels for comment image:', labels);
+  console.log('🔎 decision:', decision);
+
+  if (decision !== 'allow') {
+    return {
+      rejected: true,
+      labels,
+      decision,
+    };
+  }
+
+  const key = buildCommentImageKey(file);
+
+  await s3
+    .putObject({
+      Bucket: BUCKET,
+      Key: key,
+      Body: jpegBytes,
+      ContentType: 'image/jpeg',
+      ACL: 'private',
+    })
+    .promise();
+
+  return {
+    key,
+    labels,
+    decision,
+  };
+};
 
 const MAX_COMMENT_LENGTH = 1000;
 
@@ -102,6 +131,7 @@ const handleAddComment = async (req, res) => {
         message: `comment must be ${MAX_COMMENT_LENGTH} characters or less`,
       });
     }
+    const sanitizedComment = sanitizePlainText(comment);
 
     let parsedTags = [];
     if (taggedUserIds && typeof taggedUserIds === 'string') {
@@ -127,37 +157,33 @@ const handleAddComment = async (req, res) => {
       return res.status(404).json({ message: 'Upload not found' });
     }
 
-    const s3KeyRaw = req.file?.transforms?.[0]?.key ?? null;
-    const s3Key = s3KeyRaw ? normalizeKey(s3KeyRaw) : null;
+    if (!(await hasUploadAccess(userId, uploadId))) {
+      return res.status(403).json({ message: 'Forbidden' });
+    }
+
+    const bufferedCommentImage = req.file?.buffer ? req.file : null;
+    let s3Key = null;
     let imageUrl = null;
 
-    if (s3Key) {
-      await waitForObjectExists(s3Key);
+    if (bufferedCommentImage) {
+      const uploadResult = await uploadCommentImageToS3(bufferedCommentImage);
 
-      const jpegBytes = await getModerationJpegBytes(s3Key);
-      const labels = await detectModerationByBytes(jpegBytes);
-      const decision = decide(labels);
-      console.log('🔎 moderation labels for comment image:', labels);
-      console.log('🔎 decision:', decision, 'for', s3Key);
-
-      if (decision !== 'allow') {
-        await s3
-          .deleteObject({ Bucket: BUCKET, Key: s3Key })
-          .promise()
-          .catch(() => {});
+      if (uploadResult.rejected) {
         return res.status(422).json({
           message: 'Comment image rejected by moderation',
           errors: [
             {
               reason:
-                decision === 'block-explicit'
+                uploadResult.decision === 'block-explicit'
                   ? `Explicit content ≥ ${EXPLICIT_BLOCK_THRESHOLD * 100}%`
                   : `Suggestive content ≥ ${SUGGESTIVE_BLOCK_THRESHOLD * 100}%`,
-              labels,
+              labels: uploadResult.labels,
             },
           ],
         });
       }
+
+      s3Key = uploadResult.key;
     }
 
     const photoComment = await sequelize.transaction(async (transaction) => {
@@ -171,7 +197,7 @@ const handleAddComment = async (req, res) => {
           {
             url: s3Key,
             name: cleanedName,
-            filetype: req.file.mimetype,
+            filetype: 'image/jpeg',
             userId,
           },
           { transaction }
@@ -184,7 +210,7 @@ const handleAddComment = async (req, res) => {
         {
           userId,
           uploadId,
-          comment,
+          comment: sanitizedComment,
           imageUrl,
         },
         { transaction }

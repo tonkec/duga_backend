@@ -17,7 +17,20 @@ router.get('/', authenticatedAppSession, handleGetAllChats);
 require('./chats/swagger/currentChat.swagger');
 router.get(
   '/current-chat/:id',
-  [...authenticatedAppSession, withAccessCheck(ChatUser)],
+  [
+    ...authenticatedAppSession,
+    withAccessCheck(ChatUser, async (req) => {
+      const chatId = Number(req.params.id);
+      if (!chatId) return null;
+
+      return ChatUser.findOne({
+        where: {
+          chatId,
+          userId: req.auth.user.id,
+        },
+      });
+    }),
+  ],
   handleGetCurrentChat
 );
 

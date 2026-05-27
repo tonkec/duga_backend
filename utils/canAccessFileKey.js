@@ -121,7 +121,7 @@ const canAccessFileKey = async (userId, key) => {
   if (answer) return true;
 
   const message = await findOneByAnyKey(Message, 'messagePhotoUrl', candidates);
-  if (message) {
+  if (message && upload && sameId(upload.userId, message.fromUserId)) {
     return isChatMember(userId, message.chatId);
   }
 

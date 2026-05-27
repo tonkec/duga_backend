@@ -4,6 +4,7 @@ process.env.APP_PORT = process.env.APP_PORT || '3000';
 
 const express = require('express');
 const request = require('supertest');
+const { Op } = require('sequelize');
 
 const mockDetectModerationLabelsPromise = jest
   .fn()
@@ -12,10 +13,8 @@ const mockDetectModerationLabels = jest.fn(() => ({
   promise: mockDetectModerationLabelsPromise,
 }));
 
-jest.mock('aws-sdk', () => ({
-  Rekognition: jest.fn(() => ({
-    detectModerationLabels: mockDetectModerationLabels,
-  })),
+jest.mock('../utils/rekognition', () => ({
+  detectModerationLabels: mockDetectModerationLabels,
 }));
 
 jest.mock('sharp', () => {
@@ -33,6 +32,9 @@ jest.mock('../utils/s3', () => ({
     promise: jest.fn().mockResolvedValue({ Body: Buffer.from('image') }),
   })),
   deleteObject: jest.fn(() => ({ promise: jest.fn().mockResolvedValue({}) })),
+  listObjectsV2: jest.fn(() => ({
+    promise: jest.fn().mockResolvedValue({ Contents: [] }),
+  })),
   putObject: jest.fn(() => ({ promise: jest.fn().mockResolvedValue({}) })),
 }));
 
@@ -115,19 +117,37 @@ jest.mock('../router/uploads/s3/uploadProfileImages', () => {
 jest.mock('../models', () => ({
   Upload: {
     create: jest.fn(),
+    findAll: jest.fn(),
     findOne: jest.fn(),
     update: jest.fn(),
+  },
+  UploadMention: {
+    findAll: jest.fn(),
+  },
+  PhotoComment: {
+    findAll: jest.fn(),
+  },
+  Message: {
+    findAll: jest.fn(),
   },
   User: {
     findOne: jest.fn(),
   },
 }));
 
-const { Upload, User } = require('../models');
+const {
+  Message,
+  PhotoComment,
+  Upload,
+  UploadMention,
+  User,
+} = require('../models');
 const s3 = require('../utils/s3');
 const uploadsRouter = require('../router/uploads');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
+
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 
 const buildApp = () => {
   const app = express();
@@ -142,7 +162,7 @@ const buildUser = (overrides = {}) => ({
   id: 'user-1',
   email: 'user-1@example.com',
   auth0Id: 'auth0|user-1',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
   ...overrides,
 });
@@ -165,6 +185,10 @@ describe('uploads and images routes', () => {
     currentUser = buildUser();
     apiToken = signApiToken(currentUser);
     User.findOne.mockResolvedValue(currentUser);
+    Message.findAll.mockResolvedValue([]);
+    PhotoComment.findAll.mockResolvedValue([]);
+    Upload.findAll.mockResolvedValue([]);
+    UploadMention.findAll.mockResolvedValue([]);
     Upload.update.mockResolvedValue([1]);
 
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
@@ -181,7 +205,7 @@ describe('uploads and images routes', () => {
   const authenticated = (agent) =>
     agent
       .set('Authorization', `Bearer ${apiToken}`)
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, VALID_SESSION_ID);
 
   it('generates upload URL only for authenticated user', async () => {
     Upload.create.mockResolvedValue({ id: 101 });
@@ -381,5 +405,134 @@ describe('uploads and images routes', () => {
     expect(response.status).toBe(404);
     expect(Upload.create).not.toHaveBeenCalled();
     expect(s3.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('hides inaccessible upload metadata by id', async () => {
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(
+      request(app).get('/uploads/photo/101')
+    );
+
+    expect(response.status).toBe(404);
+    expect(Upload.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ id: '101' }),
+      })
+    );
+  });
+
+  it('scopes arbitrary user upload listings to accessible uploads', async () => {
+    Upload.findAll.mockResolvedValue([]);
+
+    const response = await authenticated(
+      request(app).get('/uploads/user/user-2')
+    );
+
+    expect(response.status).toBe(200);
+    expect(Upload.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          userId: 'user-2',
+          [Op.or]: [{ userId: 'user-1' }],
+        }),
+      })
+    );
+  });
+
+  it('scopes latest uploads to accessible uploads', async () => {
+    Upload.findAll.mockResolvedValue([]);
+
+    const response = await authenticated(request(app).get('/uploads/latest'));
+
+    expect(response.status).toBe(200);
+    expect(Upload.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          [Op.or]: [{ userId: 'user-1' }],
+        }),
+      })
+    );
+  });
+
+  it('deletes only records tied to the authorized upload row', async () => {
+    const authorizedUpload = {
+      id: 301,
+      url: 'test/user/user-1/photo.jpg',
+      userId: 'user-1',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    const duplicateUpload = {
+      id: 302,
+      url: 'test/user/user-1/photo.jpg',
+      userId: 'user-2',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    const ownedComment = {
+      userId: 'user-1',
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    const foreignComment = {
+      userId: 'user-2',
+      setTaggedUsers: jest.fn().mockResolvedValue(undefined),
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    const ownedMessage = {
+      fromUserId: 'user-1',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+    const foreignMessage = {
+      fromUserId: 'user-2',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+
+    Upload.findOne.mockResolvedValue(authorizedUpload);
+    Upload.findAll.mockResolvedValue([authorizedUpload, duplicateUpload]);
+    PhotoComment.findAll.mockResolvedValue([ownedComment, foreignComment]);
+    Message.findAll.mockResolvedValue([ownedMessage, foreignMessage]);
+
+    const response = await authenticated(
+      request(app).delete('/uploads/delete-photo')
+    ).send({ url: 'test/user/user-1/photo.jpg' });
+
+    expect(response.status).toBe(200);
+    expect(Upload.findOne).toHaveBeenCalledWith({
+      where: { url: 'test/user/user-1/photo.jpg', userId: 'user-1' },
+    });
+    expect(authorizedUpload.destroy).toHaveBeenCalledTimes(1);
+    expect(ownedComment.setTaggedUsers).toHaveBeenCalledWith([]);
+    expect(ownedComment.destroy).toHaveBeenCalledTimes(1);
+    expect(ownedMessage.destroy).toHaveBeenCalledTimes(1);
+    expect(duplicateUpload.destroy).not.toHaveBeenCalled();
+    expect(foreignComment.destroy).not.toHaveBeenCalled();
+    expect(foreignMessage.destroy).not.toHaveBeenCalled();
+    expect(s3.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('deletes S3 objects only when no other rows reference the key', async () => {
+    const authorizedUpload = {
+      id: 301,
+      url: 'test/user/user-1/photo.jpg',
+      userId: 'user-1',
+      destroy: jest.fn().mockResolvedValue(undefined),
+    };
+
+    Upload.findOne.mockResolvedValue(authorizedUpload);
+    Upload.findAll.mockResolvedValue([authorizedUpload]);
+
+    const response = await authenticated(
+      request(app).delete('/uploads/delete-photo')
+    ).send({ url: 'test/user/user-1/photo.jpg' });
+
+    expect(response.status).toBe(200);
+    expect(s3.deleteObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/photo.jpg',
+    });
+    expect(s3.deleteObject).toHaveBeenCalledWith({
+      Bucket: 'duga-user-photo',
+      Key: 'test/user/user-1/thumbnail-photo.jpg',
+    });
   });
 });

@@ -143,7 +143,8 @@ describe('canAccessFileKey', () => {
   });
 
   it('allows message images only to chat members', async () => {
-    Message.findOne.mockResolvedValue({ id: 50, chatId: 99 });
+    Upload.findOne.mockResolvedValue({ id: 10, userId: 3 });
+    Message.findOne.mockResolvedValue({ id: 50, chatId: 99, fromUserId: 3 });
     ChatUser.findOne.mockResolvedValueOnce({ chatId: 99, userId: 1 });
 
     await expect(canAccessFileKey(1, 'test/messages/photo.jpg')).resolves.toBe(
@@ -155,6 +156,16 @@ describe('canAccessFileKey', () => {
     await expect(canAccessFileKey(2, 'test/messages/photo.jpg')).resolves.toBe(
       false
     );
+  });
+
+  it('denies message images without a matching sender upload record', async () => {
+    Message.findOne.mockResolvedValue({ id: 50, chatId: 99, fromUserId: 3 });
+    ChatUser.findOne.mockResolvedValue({ chatId: 99, userId: 1 });
+
+    await expect(canAccessFileKey(1, 'test/messages/photo.jpg')).resolves.toBe(
+      false
+    );
+    expect(ChatUser.findOne).not.toHaveBeenCalled();
   });
 
   it('allows direct chat-scoped keys only to chat members', async () => {

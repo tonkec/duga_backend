@@ -2,6 +2,7 @@ const { User } = require('../models');
 const {
   getSessionId,
   hashSessionId,
+  isValidSessionId,
   SESSION_REVOKED_CODE,
 } = require('../utils/appSession');
 
@@ -18,6 +19,9 @@ const requireActiveSession = async (req, res, next) => {
     const sessionId = getSessionId(req);
     if (!sessionId) {
       return sendRevoked(res, 'Missing app session');
+    }
+    if (!isValidSessionId(sessionId)) {
+      return sendRevoked(res, 'Invalid app session');
     }
 
     const user =

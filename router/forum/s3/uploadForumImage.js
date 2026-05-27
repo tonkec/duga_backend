@@ -1,8 +1,8 @@
 const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
-const AWS = require('aws-sdk');
 const s3 = require('../../../utils/s3');
+const rekognition = require('../../../utils/rekognition');
 const allowedMimeTypes = require('../../../consts/allowedFileTypes');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
@@ -14,7 +14,6 @@ const {
   SUGGESTIVE_LABELS,
 } = require('../../uploads/s3/rekognitionConfiguration');
 
-const rekognition = new AWS.Rekognition();
 const FORUM_IMAGE_FIELDS = [
   { name: 'image', maxCount: 1 },
   { name: 'questionImage', maxCount: 1 },

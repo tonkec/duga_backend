@@ -5,7 +5,9 @@ const MessageMention = require('../models').MessageMention;
 const MessageReaction = require('../models').MessageReaction;
 const User = require('../models').User;
 const PhotoComment = require('../models').PhotoComment;
+const Chat = require('../models').Chat;
 const ChatUser = require('../models').ChatUser;
+const UploadMention = require('../models').UploadMention;
 const users = new Map();
 const userSockets = new Map();
 const pendingOfflineTimers = new Map();
@@ -14,16 +16,16 @@ const PhotoLikes = require('../models').PhotoLikes;
 const socketCanAccess = require('../utils/socketAccess');
 const getSocketUser = require('../utils/socketAccess').getSocketUser;
 const normalizeS3Key = require('../utils/normalizeS3Key');
-const Upload = require('../models').Upload;
 
 const jwt = require('jsonwebtoken');
 const jwksClient = require('jwks-rsa');
 const { API_BASE_URL } = require('../consts/apiBaseUrl');
 const { attachSecureUrl } = require('../utils/secureUploadUrl');
-const removeSpacesAndDashes = require('../utils/removeSpacesAndDashes');
-const { hashSessionId } = require('../utils/appSession');
+const { hashSessionId, isValidSessionId } = require('../utils/appSession');
 const { getApiJwtSecret } = require('../utils/apiJwtConfig');
 const { allowSocketOrigin } = require('../utils/originAllowlist');
+const { resolveMessagePhotoUrl } = require('../utils/resolveMessagePhotoUrl');
+const { sanitizePlainText } = require('../utils/plainText');
 const {
   buildMentionRows,
   getMentionUserIdsOutsideChat,
@@ -112,6 +114,143 @@ const parseCommentSocketPayload = (data) => {
     commentId: parseInt(payload?.id ?? payload?.commentId, 10),
     uploadId: payload?.uploadId != null ? parseInt(payload.uploadId, 10) : null,
   };
+};
+
+const parsePositiveInteger = (value) => {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+};
+
+const addNumericUserId = (recipientIds, userId) => {
+  const parsedUserId = parsePositiveInteger(userId);
+  if (parsedUserId) {
+    recipientIds.add(parsedUserId);
+  }
+};
+
+const getOnlineSocketIdsForUser = (userId) => {
+  const parsedUserId = parsePositiveInteger(userId);
+  if (!parsedUserId) return [];
+
+  const onlineUser =
+    users.get(parsedUserId) || users.get(String(parsedUserId)) || null;
+
+  return onlineUser?.sockets || [];
+};
+
+const getSocketChatMembership = async (socket, rawChatId) => {
+  const user = socket.appUser || (await getSocketUser(socket));
+  const chatId = parsePositiveInteger(rawChatId);
+
+  if (!user || !chatId) {
+    return { user, chatId, membership: null, error: 'Invalid chat payload' };
+  }
+
+  const membership = await ChatUser.findOne({
+    where: { chatId, userId: user.id },
+  });
+
+  if (!membership) {
+    return { user, chatId, membership: null, error: 'Forbidden' };
+  }
+
+  return { user, chatId, membership, error: null };
+};
+
+const getChatMemberIds = async (chatId) => {
+  const memberships = await ChatUser.findAll({
+    where: { chatId },
+    attributes: ['userId'],
+  });
+
+  return memberships
+    .map(({ userId }) => parsePositiveInteger(userId))
+    .filter(Boolean);
+};
+
+const emitToChatMembers = async ({
+  io,
+  chatId,
+  event,
+  payload,
+  excludeUserIds = [],
+}) => {
+  const memberIds = await getChatMemberIds(chatId);
+  const excluded = new Set(excludeUserIds.map(Number));
+  const emittedSocketIds = new Set();
+
+  memberIds.forEach((memberId) => {
+    if (excluded.has(memberId)) return;
+
+    getOnlineSocketIdsForUser(memberId).forEach((socketId) => {
+      if (emittedSocketIds.has(socketId)) return;
+      emittedSocketIds.add(socketId);
+      io.to(socketId).emit(event, payload);
+    });
+  });
+
+  return memberIds;
+};
+
+const canDeleteChatFromSocket = async ({ chatId, membership }) => {
+  const chat = await Chat.findByPk(chatId, { attributes: ['id', 'type'] });
+  if (!chat) return false;
+
+  return chat.type !== 'group' || membership.role === 'admin';
+};
+
+const getUploadCommentRecipients = async (uploadId, comment) => {
+  const recipientIds = new Set();
+  addNumericUserId(recipientIds, comment?.userId);
+
+  const [upload] = await sequelize.query(
+    `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
+    {
+      replacements: { uploadId },
+      type: sequelize.QueryTypes.SELECT,
+    }
+  );
+
+  const photoOwnerId = upload?.userId;
+  addNumericUserId(recipientIds, photoOwnerId);
+
+  const uploadMentions = await UploadMention.findAll({
+    where: { uploadId },
+    attributes: ['userId'],
+  });
+
+  uploadMentions.forEach((mention) => {
+    addNumericUserId(recipientIds, mention.userId);
+  });
+
+  return {
+    photoOwnerId,
+    recipientIds: Array.from(recipientIds),
+  };
+};
+
+const emitToUploadCommentRecipients = async ({
+  io,
+  uploadId,
+  comment,
+  event,
+  payload,
+}) => {
+  const { photoOwnerId, recipientIds } = await getUploadCommentRecipients(
+    uploadId,
+    comment
+  );
+  const emittedSocketIds = new Set();
+
+  recipientIds.forEach((recipientId) => {
+    getOnlineSocketIdsForUser(recipientId).forEach((socketId) => {
+      if (emittedSocketIds.has(socketId)) return;
+      emittedSocketIds.add(socketId);
+      io.to(socketId).emit(event, payload);
+    });
+  });
+
+  return { photoOwnerId, recipientIds };
 };
 
 const validateReactionEmoji = (emoji) => {
@@ -278,6 +417,9 @@ const SocketServer = (server, app) => {
     if (!sessionId) {
       return next(new Error('Missing app session'));
     }
+    if (!isValidSessionId(sessionId)) {
+      return next(new Error('Invalid app session'));
+    }
 
     try {
       const decoded = await verifySocketToken(token);
@@ -388,22 +530,20 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        io.emit('receive-comment', {
+        const commentPayload = {
           data: formatCommentSocketPayload(
             comment,
             socket.handshake.auth?.token
           ),
+        };
+
+        const { photoOwnerId } = await emitToUploadCommentRecipients({
+          io,
+          uploadId: parsedUploadId,
+          comment,
+          event: 'receive-comment',
+          payload: commentPayload,
         });
-
-        const [results] = await sequelize.query(
-          `SELECT "userId" FROM "Uploads" WHERE id = :uploadId`,
-          {
-            replacements: { uploadId: parsedUploadId },
-            type: sequelize.QueryTypes.SELECT,
-          }
-        );
-
-        const photoOwnerId = results?.userId;
 
         if (
           photoOwnerId &&
@@ -436,49 +576,49 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on('markAsRead', async (data) => {
-      const { userId, chatId } = data;
+    socket.on('markAsRead', async (data = {}) => {
+      const user = socket.appUser || (await getSocketUser(socket));
+      const chatId = Number(data.chatId);
+
       try {
-        if (!userId || !chatId) {
-          console.error('❌ Missing userId or chatId in markAsRead');
+        if (!user || !chatId) {
+          console.error('❌ Missing user or chatId in markAsRead');
           return;
         }
 
-        const [lastNotification] = await sequelize.query(
-          `SELECT * FROM "Notifications" WHERE "chatId" = :chatId
-          ORDER BY "createdAt" DESC
-          LIMIT 1`,
-          {
-            replacements: { chatId },
-            type: sequelize.QueryTypes.SELECT,
-          }
-        );
+        const membership = await ChatUser.findOne({
+          where: { chatId, userId: user.id },
+        });
 
-        if (lastNotification.length === 0) {
-          console.error('❌ No unread notifications found for chatId:', chatId);
+        if (!membership) {
+          console.error('❌ User cannot access chat notifications:', chatId);
           return;
         }
 
-        const notificationId = lastNotification.id;
+        const notification = await Notification.findOne({
+          where: {
+            userId: user.id,
+            chatId,
+            isRead: false,
+          },
+          order: [['createdAt', 'DESC']],
+        });
 
-        if (!notificationId) {
-          console.error('❌ No notificationId found for chatId:', chatId);
-          return;
-        }
-
-        console.log('🔍 Notification ID to mark as read:', notificationId);
-
-        const notification = await Notification.findByPk(notificationId);
         if (!notification) {
-          console.error('❌ Notification not found:', notificationId);
+          console.error('❌ No unread notification found for user/chat:', {
+            userId: user.id,
+            chatId,
+          });
           return;
         }
+
+        console.log('🔍 Notification ID to mark as read:', notification.id);
 
         notification.isRead = true;
         await notification.save();
 
-        if (users.has(userId)) {
-          users.get(userId).sockets.forEach((sockId) => {
+        if (users.has(user.id)) {
+          users.get(user.id).sockets.forEach((sockId) => {
             io.to(sockId).emit('markAsRead', notification);
           });
         }
@@ -566,10 +706,16 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        io.emit('remove-comment', {
-          data: {
-            id: comment.id,
-            uploadId: comment.uploadId,
+        await emitToUploadCommentRecipients({
+          io,
+          uploadId: parseInt(comment.uploadId, 10),
+          comment,
+          event: 'remove-comment',
+          payload: {
+            data: {
+              id: comment.id,
+              uploadId: comment.uploadId,
+            },
           },
         });
       } catch (error) {
@@ -623,11 +769,17 @@ const SocketServer = (server, app) => {
           return;
         }
 
-        io.emit('update-comment', {
-          data: formatCommentSocketPayload(
-            comment,
-            socket.handshake.auth?.token
-          ),
+        await emitToUploadCommentRecipients({
+          io,
+          uploadId: parseInt(comment.uploadId, 10),
+          comment,
+          event: 'update-comment',
+          payload: {
+            data: formatCommentSocketPayload(
+              comment,
+              socket.handshake.auth?.token
+            ),
+          },
         });
       } catch (error) {
         console.error('🔥 Error in edit-comment:', error);
@@ -785,8 +937,29 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on('deleteChat', ({ chatId }) => {
-      io.emit('chatDeleted', { chatId });
+    socket.on('deleteChat', async ({ chatId }) => {
+      try {
+        const access = await getSocketChatMembership(socket, chatId);
+        if (access.error) {
+          console.error('❌ Forbidden deleteChat');
+          return;
+        }
+
+        const canDelete = await canDeleteChatFromSocket(access);
+        if (!canDelete) {
+          console.error('❌ Forbidden deleteChat');
+          return;
+        }
+
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'chatDeleted',
+          payload: { chatId: access.chatId },
+        });
+      } catch (error) {
+        console.error('🔥 Error in deleteChat:', error);
+      }
     });
 
     socket.on('message', async (message) => {
@@ -843,38 +1016,28 @@ const SocketServer = (server, app) => {
 
         // --- 1) Validate referenced image (if any) ---
         let finalMessagePhotoUrl = null;
-
-        if (message.type === 'gif') {
-          finalMessagePhotoUrl = message.messagePhotoUrl;
-        } else if (message.messagePhotoUrl) {
-          const envPrefix = `${process.env.NODE_ENV}/`;
-          const candidateKey = message.messagePhotoUrl.startsWith(envPrefix)
-            ? message.messagePhotoUrl
-            : `${envPrefix}${message.messagePhotoUrl}`;
-
-          const upload = await Upload.findOne({
-            where: {
-              url: removeSpacesAndDashes(candidateKey.toLowerCase()),
-              userId: sender.id,
-            },
+        try {
+          finalMessagePhotoUrl = await resolveMessagePhotoUrl({
+            messagePhotoUrl: message.messagePhotoUrl,
+            type: message.type,
+            userId: sender.id,
           });
-
-          if (!upload) {
-            socket.emit('message_rejected', {
-              reason: 'Image rejected by moderation. Message not sent.',
-              key: candidateKey,
-            });
-            return;
-          }
-
-          finalMessagePhotoUrl = upload.url;
+        } catch (error) {
+          socket.emit('message_rejected', {
+            reason: error.message || 'Image rejected. Message not sent.',
+            key: message.messagePhotoUrl,
+          });
+          return;
         }
         // --- 2) Create the message (text-only or with allowed image) ---
         const msgPayload = {
           type: message.type || 'text',
           fromUserId: sender.id,
           chatId,
-          message: message.message || null,
+          message:
+            typeof message.message === 'string'
+              ? sanitizePlainText(message.message)
+              : null,
           messagePhotoUrl: finalMessagePhotoUrl,
         };
 
@@ -1072,108 +1235,143 @@ const SocketServer = (server, app) => {
       }
     });
 
-    socket.on('typing', (data) => {
-      data.toUserId.forEach((id) => {
-        if (users.has(id)) {
-          users.get(id).sockets.forEach((socket) => {
-            io.to(socket).emit('typing', data);
-          });
-        }
-      });
-    });
-
-    socket.on('stop-typing', (data) => {
-      data.toUserId.forEach((id) => {
-        if (users.has(id)) {
-          users.get(id).sockets.forEach((socket) => {
-            io.to(socket).emit('stop-typing', data);
-          });
-        }
-      });
-    });
-
-    socket.on('add-friend', (chats) => {
+    socket.on('typing', async (data = {}) => {
       try {
-        let online = 'offline';
-        if (users.has(chats[1].Users[0].id)) {
-          online = 'online';
-          chats[0].Users[0].status = 'online';
-          users.get(chats[1].Users[0].id).sockets.forEach((socket) => {
-            io.to(socket).emit('new-chat', chats[0]);
-          });
+        const access = await getSocketChatMembership(socket, data.chatId);
+        if (access.error) {
+          console.error('❌ Forbidden typing');
+          return;
         }
 
-        if (users.has(chats[0].Users[0].id)) {
-          chats[1].Users[0].status = online;
-          users.get(chats[0].Users[0].id).sockets.forEach((socket) => {
-            io.to(socket).emit('new-chat', chats[1]);
-          });
-        }
-      } catch (e) {}
-    });
-
-    socket.on('add-user-to-group', ({ chat, newChatter }) => {
-      if (users.has(newChatter.id)) {
-        newChatter.status = 'online';
-      }
-
-      // old users
-      chat.Users.forEach((user, index) => {
-        if (users.has(user.id)) {
-          chat.Users[index].status = 'online';
-          users.get(user.id).sockets.forEach((socket) => {
-            try {
-              io.to(socket).emit('added-user-to-group', {
-                chat,
-                chatters: [newChatter],
-              });
-            } catch (e) {}
-          });
-        }
-      });
-
-      if (users.has(newChatter.id)) {
-        users.get(newChatter.id).sockets.forEach((socket) => {
-          try {
-            io.to(socket).emit('added-user-to-group', {
-              chat,
-              chatters: chat.Users,
-            });
-          } catch (e) {}
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'typing',
+          payload: { chatId: access.chatId, userId: access.user.id },
+          excludeUserIds: [access.user.id],
         });
+      } catch (error) {
+        console.error('🔥 Error in typing:', error);
       }
     });
 
-    socket.on('leave-current-chat', (data) => {
-      const { chatId, userId, currentUserId, notifyUsers } = data;
-
-      notifyUsers.forEach((id) => {
-        if (users.has(id)) {
-          users.get(id).sockets.forEach((socket) => {
-            try {
-              io.to(socket).emit('remove-user-from-chat', {
-                chatId,
-                userId,
-                currentUserId,
-              });
-            } catch (e) {}
-          });
+    socket.on('stop-typing', async (data = {}) => {
+      try {
+        const access = await getSocketChatMembership(socket, data.chatId);
+        if (access.error) {
+          console.error('❌ Forbidden stop-typing');
+          return;
         }
-      });
+
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'stop-typing',
+          payload: { chatId: access.chatId, userId: access.user.id },
+          excludeUserIds: [access.user.id],
+        });
+      } catch (error) {
+        console.error('🔥 Error in stop-typing:', error);
+      }
     });
 
-    socket.on('delete-chat', (data) => {
-      const { chatId, notifyUsers } = data;
-
-      notifyUsers.forEach((id) => {
-        if (users.has(id)) {
-          users.get(id).sockets.forEach((socket) => {
-            try {
-              io.to(socket).emit('delete-chat', parseInt(chatId));
-            } catch (e) {}
-          });
+    socket.on('add-friend', async (data = {}) => {
+      try {
+        const chatId = data.chatId ?? data?.id ?? data?.[0]?.id;
+        const access = await getSocketChatMembership(socket, chatId);
+        if (access.error) {
+          console.error('❌ Forbidden add-friend');
+          return;
         }
-      });
+
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'new-chat',
+          payload: { chatId: access.chatId },
+        });
+      } catch (error) {
+        console.error('🔥 Error in add-friend:', error);
+      }
+    });
+
+    socket.on('add-user-to-group', async (data = {}) => {
+      try {
+        const chatId = data.chatId ?? data?.chat?.id;
+        const newUserId = parsePositiveInteger(
+          data.newUserId ?? data?.newChatter?.id
+        );
+        const access = await getSocketChatMembership(socket, chatId);
+
+        if (access.error || access.membership.role !== 'admin' || !newUserId) {
+          console.error('❌ Forbidden add-user-to-group');
+          return;
+        }
+
+        const memberIds = await getChatMemberIds(access.chatId);
+        if (!memberIds.includes(newUserId)) {
+          console.error('❌ New user is not a chat member');
+          return;
+        }
+
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'added-user-to-group',
+          payload: { chatId: access.chatId, newUserId },
+        });
+      } catch (error) {
+        console.error('🔥 Error in add-user-to-group:', error);
+      }
+    });
+
+    socket.on('leave-current-chat', async (data = {}) => {
+      try {
+        const access = await getSocketChatMembership(socket, data.chatId);
+        if (access.error) {
+          console.error('❌ Forbidden leave-current-chat');
+          return;
+        }
+
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'remove-user-from-chat',
+          payload: {
+            chatId: access.chatId,
+            userId: access.user.id,
+            currentUserId: access.user.id,
+          },
+          excludeUserIds: [access.user.id],
+        });
+      } catch (error) {
+        console.error('🔥 Error in leave-current-chat:', error);
+      }
+    });
+
+    socket.on('delete-chat', async (data = {}) => {
+      try {
+        const access = await getSocketChatMembership(socket, data.chatId);
+        if (access.error) {
+          console.error('❌ Forbidden delete-chat');
+          return;
+        }
+
+        const canDelete = await canDeleteChatFromSocket(access);
+        if (!canDelete) {
+          console.error('❌ Forbidden delete-chat');
+          return;
+        }
+
+        await emitToChatMembers({
+          io,
+          chatId: access.chatId,
+          event: 'delete-chat',
+          payload: access.chatId,
+        });
+      } catch (error) {
+        console.error('🔥 Error in delete-chat:', error);
+      }
     });
 
     socket.on('disconnect', async () => {
@@ -1236,19 +1434,27 @@ const SocketServer = (server, app) => {
 };
 
 const getChatters = async (userId) => {
+  const parsedUserId = Number(userId);
+  if (!Number.isInteger(parsedUserId) || parsedUserId <= 0) {
+    return [];
+  }
+
   try {
-    const [results] = await sequelize.query(`
+    const [results] = await sequelize.query(
+      `
       select "cu"."userId" from "ChatUsers" as cu
       inner join (
           select "c"."id" from "Chats" as c
           where exists (
               select "u"."id" from "Users" as u
               inner join "ChatUsers" on u.id = "ChatUsers"."userId"
-              where u.id = ${parseInt(userId)} and c.id = "ChatUsers"."chatId"
+              where u.id = :userId and c.id = "ChatUsers"."chatId"
           )
       ) as cjoin on cjoin.id = "cu"."chatId"
-      where "cu"."userId" != ${parseInt(userId)}
-  `);
+      where "cu"."userId" != :userId
+  `,
+      { replacements: { userId: parsedUserId } }
+    );
 
     return results.length > 0 ? results.map((el) => el.userId) : [];
   } catch (e) {

@@ -24,6 +24,10 @@ jest.mock('../models', () => ({
   },
   Upload: {
     findByPk: jest.fn(),
+    findOne: jest.fn(),
+  },
+  UploadMention: {
+    findAll: jest.fn(),
   },
   User: {
     findOne: jest.fn(),
@@ -36,6 +40,7 @@ const {
   Notification,
   PhotoLikes,
   Upload,
+  UploadMention,
   User,
 } = require('../models');
 const likesRouter = require('../router/photolikes');
@@ -43,6 +48,8 @@ const messagesRouter = require('../router/messages');
 const notificationsRouter = require('../router/notifications');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
+
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 
 const buildApp = () => {
   const app = express();
@@ -63,7 +70,7 @@ const buildUser = (overrides = {}) => ({
   email: 'user-1@example.com',
   auth0Id: 'auth0|user-1',
   username: 'antonija',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
   ...overrides,
 });
@@ -81,6 +88,7 @@ describe('notification routes and side effects', () => {
     currentUser = buildUser();
     apiToken = signApiToken(currentUser);
     User.findOne.mockResolvedValue(currentUser);
+    UploadMention.findAll.mockResolvedValue([]);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -91,7 +99,7 @@ describe('notification routes and side effects', () => {
   const authenticated = (agent) =>
     agent
       .set('Authorization', `Bearer ${apiToken}`)
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, VALID_SESSION_ID);
 
   it('creates notification after message', async () => {
     const savedMessage = {
@@ -132,7 +140,7 @@ describe('notification routes and side effects', () => {
     PhotoLikes.findOne.mockResolvedValue(null);
     PhotoLikes.create.mockResolvedValue({ id: 10, userId: 1, photoId: 101 });
     PhotoLikes.findAll.mockResolvedValue([{ id: 10, userId: 1, photoId: 101 }]);
-    Upload.findByPk.mockResolvedValue({ id: 101, userId: 2 });
+    Upload.findOne.mockResolvedValue({ id: 101, userId: 2 });
     Notification.create.mockResolvedValue({ id: 901, userId: 2, type: 'like' });
 
     const response = await authenticated(
@@ -169,7 +177,7 @@ describe('notification routes and side effects', () => {
     PhotoLikes.findOne.mockResolvedValue(null);
     PhotoLikes.create.mockResolvedValue({ id: 10, userId: 1, photoId: 101 });
     PhotoLikes.findAll.mockResolvedValue([{ id: 10, userId: 1, photoId: 101 }]);
-    Upload.findByPk.mockResolvedValue({ id: 101, userId: 1 });
+    Upload.findOne.mockResolvedValue({ id: 101, userId: 1 });
 
     const likeResponse = await authenticated(
       request(app).post('/likes/upvote/101')

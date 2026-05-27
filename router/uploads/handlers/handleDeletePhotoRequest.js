@@ -11,7 +11,7 @@ const handleDeletePhotoRequest = async (req, res) => {
   }
 
   try {
-    const deletedModels = await deletePhotoAndAssociations(url);
+    const deletedModels = await deletePhotoAndAssociations(req.resource);
 
     if (deletedModels.length === 0) {
       return res

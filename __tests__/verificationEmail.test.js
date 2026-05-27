@@ -32,6 +32,10 @@ jest.mock('../models', () => ({
   sequelize: {
     transaction: jest.fn(),
   },
+  AuthRateLimit: {
+    create: jest.fn(),
+    findOne: jest.fn(),
+  },
   User: {
     findOne: jest.fn(),
     findByPk: jest.fn(),
@@ -47,12 +51,13 @@ jest.mock('../models', () => ({
 const express = require('express');
 const request = require('supertest');
 const axios = require('axios');
-const { User } = require('../models');
+const { AuthRateLimit, User } = require('../models');
 const authRouter = require('../router/auth');
 const handleSendVerificationEmail = require('../router/auth/handlers/handleSendVerificationEmail');
 
 const buildResponse = () => {
   const res = {};
+  res.set = jest.fn(() => res);
   res.status = jest.fn(() => res);
   res.json = jest.fn(() => res);
   return res;
@@ -73,6 +78,8 @@ describe('send verification email', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    AuthRateLimit.findOne.mockResolvedValue(null);
+    AuthRateLimit.create.mockResolvedValue({});
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
@@ -96,6 +103,7 @@ describe('send verification email', () => {
     const req = {
       auth: { sub: 'auth0|token-user' },
       body: { userId: 'attacker-controlled-user-id' },
+      headers: { 'x-forwarded-for': '203.0.113.10' },
     };
     const res = buildResponse();
 
@@ -113,6 +121,18 @@ describe('send verification email', () => {
       where: { auth0Id: 'auth0|token-user' },
     });
     expect(User.findByPk).not.toHaveBeenCalled();
+    expect(AuthRateLimit.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'verification_email',
+        key: 'user:auth0|token-user',
+      })
+    );
+    expect(AuthRateLimit.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        action: 'verification_email',
+        key: 'ip:203.0.113.10',
+      })
+    );
     expect(axios.post).toHaveBeenLastCalledWith(
       'https://auth.example.com/api/v2/jobs/verification-email',
       { user_id: 'auth0|token-user' },
@@ -128,6 +148,7 @@ describe('send verification email', () => {
     const req = {
       auth: { sub: 'auth0|throttled-user' },
       body: {},
+      headers: { 'x-forwarded-for': '203.0.113.20' },
     };
     const res = buildResponse();
     const throttledRes = buildResponse();
@@ -140,10 +161,19 @@ describe('send verification email', () => {
       .mockResolvedValueOnce({ data: { access_token: 'management-token' } })
       .mockResolvedValueOnce({ data: { id: 'verification-job' } });
 
+    AuthRateLimit.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce({
+        expiresAt: new Date(Date.now() + 60_000),
+      })
+      .mockResolvedValueOnce(null);
+
     await handleSendVerificationEmail(req, res);
     await handleSendVerificationEmail(req, throttledRes);
 
     expect(throttledRes.status).toHaveBeenCalledWith(429);
+    expect(throttledRes.set).toHaveBeenCalledWith('Retry-After', '60');
     expect(throttledRes.json).toHaveBeenCalledWith({
       error: 'Verification email recently sent',
     });

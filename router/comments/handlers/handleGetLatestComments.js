@@ -1,14 +1,24 @@
-const { PhotoComment, User } = require('../../../models');
+const { PhotoComment, Upload, User } = require('../../../models');
 const { addSecureUrlsToList } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
+const { buildUploadAccessWhere } = require('../../../utils/uploadAccess');
 
 const handleGetLatestComments = async (req, res) => {
   try {
+    const uploadAccessWhere = await buildUploadAccessWhere(req.auth.user.id);
+
     const photoComments = await PhotoComment.findAll({
       limit: 5,
       order: [['createdAt', 'DESC']],
       include: [
+        {
+          model: Upload,
+          as: 'upload',
+          attributes: [],
+          where: uploadAccessWhere,
+          required: true,
+        },
         {
           model: User,
           as: 'user',

@@ -20,9 +20,16 @@ jest.mock('../models', () => ({
   MessageMention: {
     bulkCreate: jest.fn(),
   },
+  MessageRead: {
+    findOne: jest.fn(),
+    upsert: jest.fn(),
+  },
   MessageReaction: {},
   Notification: {
     create: jest.fn(),
+  },
+  Upload: {
+    findOne: jest.fn(),
   },
   User: {
     findAll: jest.fn(),
@@ -34,13 +41,17 @@ const {
   ChatUser,
   Message,
   MessageMention,
+  MessageRead,
   Notification,
+  Upload,
   User,
 } = require('../models');
 const chatsRouter = require('../router/chat');
 const messagesRouter = require('../router/messages');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
+
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 
 const buildApp = () => {
   const app = express();
@@ -60,7 +71,7 @@ const buildUser = (overrides = {}) => ({
   email: 'user-1@example.com',
   auth0Id: 'auth0|user-1',
   username: 'antonija',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
   ...overrides,
 });
@@ -79,6 +90,8 @@ describe('message routes', () => {
     currentUser = buildUser();
     apiToken = signApiToken(currentUser);
     User.findOne.mockResolvedValue(currentUser);
+    MessageRead.findOne.mockResolvedValue(null);
+    MessageRead.upsert.mockResolvedValue([null, true]);
 
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -92,7 +105,7 @@ describe('message routes', () => {
   const authenticated = (agent) =>
     agent
       .set('Authorization', `Bearer ${apiToken}`)
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, VALID_SESSION_ID);
 
   it('sends message as chat member', async () => {
     const savedMessage = {
@@ -151,6 +164,31 @@ describe('message routes', () => {
     expect(Message.create).not.toHaveBeenCalled();
   });
 
+  it('rejects invalid message type', async () => {
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      type: 'system',
+      message: 'Hello',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({ error: 'Invalid message type' });
+    expect(Message.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects oversized message body', async () => {
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      message: 'A'.repeat(5001),
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: 'Message must be 5000 characters or less',
+    });
+    expect(Message.create).not.toHaveBeenCalled();
+  });
+
   it('saves message with correct senderId/chatId', async () => {
     ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
     ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
@@ -176,6 +214,93 @@ describe('message routes', () => {
       message: 'Hello',
       messagePhotoUrl: null,
     });
+  });
+
+  it('stores chat message text as escaped plain text', async () => {
+    ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
+    ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
+    Message.create.mockResolvedValue({
+      id: 501,
+      chatId: 101,
+      fromUserId: 1,
+      type: 'text',
+      message: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
+      messagePhotoUrl: null,
+    });
+
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      message: '<script>alert("xss")</script>',
+    });
+
+    expect(response.status).toBe(201);
+    expect(Message.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt;',
+      })
+    );
+  });
+
+  it('saves message photo only when the upload belongs to the sender', async () => {
+    const savedMessage = {
+      id: 502,
+      chatId: 101,
+      fromUserId: 1,
+      type: 'image',
+      message: null,
+      messagePhotoUrl: 'test/chat/101/123/photo.jpg',
+    };
+
+    ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
+    ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
+    Upload.findOne.mockResolvedValue({
+      id: 700,
+      url: 'test/chat/101/123/photo.jpg',
+      userId: 1,
+    });
+    Message.create.mockResolvedValue(savedMessage);
+
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      type: 'image',
+      messagePhotoUrl: 'chat/101/123/photo.jpg',
+    });
+
+    expect(response.status).toBe(201);
+    expect(Upload.findOne).toHaveBeenCalledWith({
+      where: {
+        url: expect.arrayContaining([
+          'chat/101/123/photo.jpg',
+          'test/chat/101/123/photo.jpg',
+        ]),
+        userId: 1,
+      },
+    });
+    expect(Message.create).toHaveBeenCalledWith({
+      chatId: 101,
+      fromUserId: 1,
+      type: 'image',
+      message: null,
+      messagePhotoUrl: 'test/chat/101/123/photo.jpg',
+    });
+  });
+
+  it('rejects message photo keys the sender cannot access', async () => {
+    ChatUser.findOne.mockResolvedValue({ chatId: 101, userId: 1 });
+    ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(request(app).post('/messages')).send({
+      chatId: 101,
+      type: 'image',
+      messagePhotoUrl: 'test/user/2/private.jpg',
+    });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      error: 'Invalid or inaccessible messagePhotoUrl',
+    });
+    expect(Message.create).not.toHaveBeenCalled();
   });
 
   it('saves mentions in one-on-one chat messages', async () => {
@@ -329,15 +454,22 @@ describe('message routes', () => {
   });
 
   it('marks messages as read', async () => {
+    const readAt = new Date('2026-05-27T07:20:00.000Z');
     const message = {
       id: 501,
       chatId: 101,
-      is_read: false,
-      save: jest.fn().mockResolvedValue(undefined),
     };
 
     Message.findOne.mockResolvedValue(message);
     ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
+    MessageRead.upsert.mockResolvedValue([
+      {
+        messageId: 501,
+        userId: 1,
+        readAt,
+      },
+      true,
+    ]);
 
     const response = await authenticated(
       request(app).post('/messages/read-message')
@@ -346,8 +478,43 @@ describe('message routes', () => {
     });
 
     expect(response.status).toBe(200);
-    expect(message.is_read).toBe(true);
-    expect(message.save).toHaveBeenCalledTimes(1);
+    expect(MessageRead.upsert).toHaveBeenCalledWith(
+      {
+        messageId: 501,
+        userId: 1,
+        readAt: expect.any(Date),
+      },
+      {
+        returning: true,
+      }
+    );
+    expect(response.body).toMatchObject({
+      messageId: 501,
+      userId: 1,
+      is_read: true,
+      readAt: readAt.toISOString(),
+    });
+  });
+
+  it('returns per-user read status for messages', async () => {
+    const readAt = new Date('2026-05-27T07:25:00.000Z');
+    Message.findOne.mockResolvedValue({ id: 501, chatId: 101 });
+    ChatUser.findAll.mockResolvedValue([{ userId: 1 }]);
+    MessageRead.findOne.mockResolvedValue({ readAt });
+
+    const response = await authenticated(
+      request(app).get('/messages/is-read?id=501')
+    );
+
+    expect(response.status).toBe(200);
+    expect(MessageRead.findOne).toHaveBeenCalledWith({
+      where: { messageId: 501, userId: 1 },
+      attributes: ['readAt'],
+    });
+    expect(response.body).toEqual({
+      is_read: true,
+      readAt: readAt.toISOString(),
+    });
   });
 
   it('deletes message if owner/admin', async () => {

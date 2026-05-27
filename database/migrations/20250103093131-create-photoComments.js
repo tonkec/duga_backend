@@ -2,51 +2,13 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    await queryInterface.createTable('photoComments', {
-      id: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        autoIncrement: true,
-        primaryKey: true,
-      },
-      userId: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'Users',
-          key: 'id',
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
-      },
-      uploadId: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'Uploads',
-          key: 'id',
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
-      },
-      comment: {
-        type: Sequelize.STRING,
-        allowNull: false,
-      },
-      createdAt: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.fn('NOW'),
-      },
-      updatedAt: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.fn('NOW'),
-      },
-    });
+    // Intentionally left as a no-op. The canonical table is created by
+    // 20250103094036-create-PhotoComments.js using Sequelize's expected
+    // "PhotoComments" casing. Creating "photoComments" here caused
+    // case-sensitive schema drift in Postgres.
   },
 
   down: async (queryInterface, Sequelize) => {
-    await queryInterface.dropTable('photoComments');
+    // No-op for the same reason as up: never drop a differently-cased table.
   },
 };

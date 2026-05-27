@@ -1,6 +1,10 @@
 const axios = require('axios');
 const { User } = require('../../../models');
 const { redactForLogs } = require('../../../utils/logRedaction');
+const {
+  buildRateLimitKeys,
+  consumeAuthRateLimit,
+} = require('../../../utils/authRateLimit');
 const AUTH0_DOMAIN = process.env.AUTH0_DOMAIN;
 const CLIENT_ID = process.env.AUTH0_CLIENT_ID;
 const CLIENT_SECRET = process.env.AUTH0_CLIENT_SECRET;
@@ -8,7 +12,6 @@ const MANAGEMENT_API_AUDIENCE = `https://${AUTH0_DOMAIN}/api/v2/`;
 const VERIFICATION_EMAIL_THROTTLE_MS = Number(
   process.env.VERIFICATION_EMAIL_THROTTLE_MS ?? 60 * 1000
 );
-const verificationEmailAttempts = new Map();
 
 const getManagementApiToken = async () => {
   const response = await axios.post(`https://${AUTH0_DOMAIN}/oauth/token`, {
@@ -37,16 +40,18 @@ const sendVerificationEmail = async (req, res) => {
         .json({ error: 'User not found or missing auth0Id' });
     }
 
-    const now = Date.now();
-    const lastAttemptAt = verificationEmailAttempts.get(auth0Id);
+    const rateLimit = await consumeAuthRateLimit({
+      action: 'verification_email',
+      keys: buildRateLimitKeys(req, user.auth0Id),
+      windowMs: VERIFICATION_EMAIL_THROTTLE_MS,
+    });
 
-    if (lastAttemptAt && now - lastAttemptAt < VERIFICATION_EMAIL_THROTTLE_MS) {
+    if (rateLimit.limited) {
+      res.set?.('Retry-After', String(rateLimit.retryAfterSeconds));
       return res
         .status(429)
         .json({ error: 'Verification email recently sent' });
     }
-
-    verificationEmailAttempts.set(auth0Id, now);
 
     const token = await getManagementApiToken();
 

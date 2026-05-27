@@ -11,6 +11,13 @@ const {
   hasInvalidMentionUserIds,
   normalizeMentionUserIds,
 } = require('../../../utils/messageMentions');
+const {
+  resolveMessagePhotoUrl,
+} = require('../../../utils/resolveMessagePhotoUrl');
+const { sanitizePlainText } = require('../../../utils/plainText');
+
+const ALLOWED_MESSAGE_TYPES = new Set(['text', 'image', 'gif']);
+const MAX_MESSAGE_LENGTH = 5000;
 
 const handleCreateMessage = async (req, res) => {
   try {
@@ -24,9 +31,29 @@ const handleCreateMessage = async (req, res) => {
     } = req.body;
     const parsedChatId = Number(chatId);
     const mentionUserIds = normalizeMentionUserIds(mentions);
+    const normalizedType = typeof type === 'string' ? type.trim() : type;
+    const normalizedMessage =
+      typeof message === 'string' ? message.trim() : message;
 
     if (!parsedChatId) {
       return res.status(400).json({ error: 'Invalid or missing chatId' });
+    }
+
+    if (!ALLOWED_MESSAGE_TYPES.has(normalizedType)) {
+      return res.status(400).json({ error: 'Invalid message type' });
+    }
+
+    if (message !== undefined && typeof message !== 'string') {
+      return res.status(400).json({ error: 'Message must be a string' });
+    }
+
+    if (
+      typeof normalizedMessage === 'string' &&
+      normalizedMessage.length > MAX_MESSAGE_LENGTH
+    ) {
+      return res.status(400).json({
+        error: `Message must be ${MAX_MESSAGE_LENGTH} characters or less`,
+      });
     }
 
     if (!mentionUserIds || hasInvalidMentionUserIds(mentionUserIds)) {
@@ -34,9 +61,9 @@ const handleCreateMessage = async (req, res) => {
     }
 
     if (
-      (!message ||
-        typeof message !== 'string' ||
-        message.trim().length === 0) &&
+      (!normalizedMessage ||
+        typeof normalizedMessage !== 'string' ||
+        normalizedMessage.length === 0) &&
       !messagePhotoUrl
     ) {
       return res.status(400).json({ error: 'Message cannot be empty' });
@@ -69,12 +96,18 @@ const handleCreateMessage = async (req, res) => {
       return res.status(400).json({ error: 'Mentions must be chat members' });
     }
 
+    const finalMessagePhotoUrl = await resolveMessagePhotoUrl({
+      messagePhotoUrl,
+      type: normalizedType,
+      userId,
+    });
+
     const savedMessage = await Message.create({
       chatId: parsedChatId,
       fromUserId: userId,
-      type,
-      message: message || null,
-      messagePhotoUrl,
+      type: normalizedType,
+      message: normalizedMessage ? sanitizePlainText(normalizedMessage) : null,
+      messagePhotoUrl: finalMessagePhotoUrl,
     });
 
     if (mentionUserIds.length > 0) {
@@ -127,6 +160,10 @@ const handleCreateMessage = async (req, res) => {
 
     return res.status(201).json({ data: payload });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+
     console.error('❌ Error creating message:', error);
     return res
       .status(500)

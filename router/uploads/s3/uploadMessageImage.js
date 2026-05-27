@@ -2,7 +2,8 @@ const multer = require('multer');
 const sharp = require('sharp');
 const path = require('path');
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
-const AWS = require('aws-sdk'); // v2
+const rekognition = require('../../../utils/rekognition');
+const { ChatUser } = require('../../../models');
 const { MAX_NUMBER_OF_FILES } = require('../../../consts/maxNumberOfFiles');
 const {
   BUCKET,
@@ -13,8 +14,28 @@ const {
   SUGGESTIVE_LABELS,
 } = require('../s3/rekognitionConfiguration');
 const LIMIT_FILE_SIZE = require('../../../consts/limitFileSize');
-// Build Rekognition v2 from the SAME AWS config/creds as your S3 client
-const rekognition = new AWS.Rekognition();
+
+const getAuthorizedChatId = async (req, res) => {
+  const chatId = Number(req.body?.chatId);
+  const userId = req.auth?.user?.id;
+
+  if (!Number.isInteger(chatId) || chatId <= 0) {
+    res.status(400).json({ message: 'Invalid or missing chatId' });
+    return null;
+  }
+
+  const membership = await ChatUser.findOne({
+    where: { chatId, userId },
+    attributes: ['id'],
+  });
+
+  if (!membership) {
+    res.status(403).json({ message: 'Forbidden' });
+    return null;
+  }
+
+  return chatId;
+};
 
 const uploadMessageImage = (s3) => {
   if (!s3 || typeof s3.putObject !== 'function') {
@@ -46,11 +67,14 @@ const uploadMessageImage = (s3) => {
       req.rejectedFiles = [];
       if (!req.files?.length) return next();
 
-      const body = JSON.parse(JSON.stringify(req.body));
+      const chatId = await getAuthorizedChatId(req, res);
+      if (!chatId) return;
+
       const env = process.env.NODE_ENV || 'development';
+      const timestamp = Date.now();
 
       const allowed = [];
-      for (const file of req.files) {
+      for (const [index, file] of req.files.entries()) {
         const normalized = await sharp(file.buffer)
           .resize(1200, 1200, { fit: 'inside', withoutEnlargement: true })
           .toFormat('jpeg')
@@ -106,13 +130,12 @@ const uploadMessageImage = (s3) => {
           continue;
         }
 
-        const ext = path.extname(file.originalname).toLowerCase() || '.jpg';
+        const ext = '.jpg';
         const base = removeSpacesAndDashes(
-          path.basename(file.originalname, ext)
+          path.basename(file.originalname, path.extname(file.originalname))
         ).toLowerCase();
 
-        // keep your existing env prefix (or drop env if you’ve standardized without it)
-        const key = `${env}/chat/${body.chatId}/${body.timestamp}/${base}${ext}`;
+        const key = `${env}/chat/${chatId}/${timestamp}/${index}-${base}${ext}`;
 
         await s3
           .putObject({

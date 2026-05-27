@@ -1,13 +1,16 @@
-const { PhotoComment, User, Upload } = require('../../../models');
+const { PhotoComment, User } = require('../../../models');
 const addSecureUrlsToList =
   require('../../../utils/secureUploadUrl').addSecureUrlsToList;
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
+const { findAccessibleUploadById } = require('../../../utils/uploadAccess');
 
 const handleGetComments = async (req, res) => {
   try {
     const uploadId = req.params.uploadId;
-    const upload = await Upload.findByPk(uploadId);
+    const upload = await findAccessibleUploadById(req.auth.user.id, uploadId, {
+      attributes: ['id'],
+    });
 
     if (!upload) {
       return res.status(404).json({ message: 'Upload not found' });

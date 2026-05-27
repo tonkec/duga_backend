@@ -13,6 +13,7 @@ jest.mock('../models', () => ({
   ChatUser: {
     bulkCreate: jest.fn(),
     destroy: jest.fn(),
+    findAll: jest.fn(),
     findOne: jest.fn(),
   },
   Message: {
@@ -34,6 +35,8 @@ const chatsRouter = require('../router/chat');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
 
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
+
 const buildApp = () => {
   const app = express();
 
@@ -49,7 +52,7 @@ const buildUser = (overrides = {}) => ({
   auth0Id: 'auth0|user-1',
   username: 'antonija',
   avatar: 'avatar-1.jpg',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
   ...overrides,
 });
@@ -91,7 +94,7 @@ describe('chat routes', () => {
   const authenticated = (agent) =>
     agent
       .set('Authorization', `Bearer ${apiToken}`)
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, VALID_SESSION_ID);
 
   it('creates chat between users', async () => {
     const partner = buildUser({
@@ -145,6 +148,45 @@ describe('chat routes', () => {
         Messages: [],
       },
     ]);
+  });
+
+  it('gets current chat only when requester belongs to that chat id', async () => {
+    const membership = { id: 999, chatId: 101, userId: 1 };
+    const chatUsers = [
+      { id: 999, chatId: 101, userId: 1 },
+      { id: 1000, chatId: 101, userId: 2 },
+    ];
+
+    ChatUser.findOne.mockResolvedValue(membership);
+    ChatUser.findAll.mockResolvedValue(chatUsers);
+
+    const response = await authenticated(
+      request(app).get('/chats/current-chat/101')
+    );
+
+    expect(response.status).toBe(200);
+    expect(ChatUser.findOne).toHaveBeenCalledWith({
+      where: { chatId: 101, userId: 1 },
+    });
+    expect(ChatUser.findAll).toHaveBeenCalledWith({
+      where: { chatId: '101' },
+    });
+    expect(response.body).toEqual(chatUsers);
+  });
+
+  it('does not authorize current chat by an unrelated ChatUser primary key', async () => {
+    ChatUser.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(
+      request(app).get('/chats/current-chat/999')
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: 'Resource not found' });
+    expect(ChatUser.findOne).toHaveBeenCalledWith({
+      where: { chatId: 999, userId: 1 },
+    });
+    expect(ChatUser.findAll).not.toHaveBeenCalled();
   });
 
   it('creates group chat between users', async () => {

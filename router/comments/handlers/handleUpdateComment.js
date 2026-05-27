@@ -1,4 +1,5 @@
 const { PhotoComment, User } = require('../../../models');
+const { sanitizePlainText } = require('../../../utils/plainText');
 
 const MAX_COMMENT_LENGTH = 1000;
 
@@ -17,7 +18,7 @@ const handleUpdateComment = async (req, res) => {
       });
     }
 
-    photoComment.comment = comment;
+    photoComment.comment = sanitizePlainText(comment);
     await photoComment.save();
 
     if (Array.isArray(taggedUserIds)) {

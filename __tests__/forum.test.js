@@ -285,6 +285,35 @@ describe('forum routes', () => {
     });
   });
 
+  it('stores forum question text as escaped plain text', async () => {
+    const io = buildIoMock();
+    app = buildApp(io);
+    Question.create.mockResolvedValue({ id: 10 });
+    Question.findByPk.mockResolvedValue({
+      id: 10,
+      userId: 1,
+      title: '&lt;b&gt;How does Sequelize work?&lt;/b&gt;',
+      body: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt; Need help here.',
+    });
+
+    const response = await request(app)
+      .post('/forum/questions')
+      .set(authHeaders)
+      .send({
+        title: '<b>How does Sequelize work?</b>',
+        body: '<script>alert("xss")</script> Need help here.',
+        categoryId: 2,
+      });
+
+    expect(response.status).toBe(201);
+    expect(Question.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: '&lt;b&gt;How does Sequelize work?&lt;/b&gt;',
+        body: '&lt;script&gt;alert(&quot;xss&quot;)&lt;/script&gt; Need help here.',
+      })
+    );
+  });
+
   it('validates question input', async () => {
     const response = await request(app)
       .post('/forum/questions')
@@ -582,6 +611,19 @@ describe('forum routes', () => {
       body: 'Use a belongsTo association.',
     });
     expect(response.body.data.id).toBe(22);
+  });
+
+  it('rejects oversized answer bodies', async () => {
+    const response = await request(app)
+      .post('/forum/questions/10/answers')
+      .set(authHeaders)
+      .send({ body: 'A'.repeat(5001) });
+
+    expect(response.status).toBe(400);
+    expect(response.body).toEqual({
+      errors: ['body must be 5000 characters or less'],
+    });
+    expect(Answer.create).not.toHaveBeenCalled();
   });
 
   it('notifies the question owner when another user answers', async () => {

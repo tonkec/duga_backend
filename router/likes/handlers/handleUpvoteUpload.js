@@ -1,4 +1,5 @@
-const { Notification, PhotoLikes, Upload } = require('../../../models');
+const { Notification, PhotoLikes } = require('../../../models');
+const { findAccessibleUploadById } = require('../../../utils/uploadAccess');
 
 const isUniqueLikeConstraintError = (error) =>
   error?.name === 'SequelizeUniqueConstraintError';
@@ -7,6 +8,12 @@ const handleUpvoteUpload = async (req, res) => {
   try {
     const uploadId = parseInt(req.params.id);
     const userId = req.auth.user.id;
+    const upload = await findAccessibleUploadById(userId, uploadId);
+
+    if (!upload) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
     const likeWhere = {
       userId,
       photoId: uploadId,
@@ -42,7 +49,6 @@ const handleUpvoteUpload = async (req, res) => {
       throw error;
     }
 
-    const upload = await Upload.findByPk(uploadId);
     if (upload?.userId && Number(upload.userId) !== Number(userId)) {
       await Notification.create({
         userId: upload.userId,

@@ -1,8 +1,29 @@
 'use strict';
+
+const TABLE_NAME = 'UserFollowers';
+
+const hasTable = async (queryInterface) => {
+  const tables = await queryInterface.showAllTables();
+  return tables.some((table) => {
+    const tableName = typeof table === 'object' ? table.tableName : table;
+    return tableName === TABLE_NAME;
+  });
+};
+
 /** @type {import('sequelize-cli').Migration} */
 module.exports = {
-  async up(queryInterface, Sequelize) {
-    await queryInterface.createTable('UserFollowers', {
+  async up(queryInterface) {
+    if (await hasTable(queryInterface)) {
+      await queryInterface.dropTable(TABLE_NAME);
+    }
+  },
+
+  async down(queryInterface, Sequelize) {
+    if (await hasTable(queryInterface)) {
+      return;
+    }
+
+    await queryInterface.createTable(TABLE_NAME, {
       id: {
         allowNull: false,
         autoIncrement: true,
@@ -11,7 +32,6 @@ module.exports = {
       },
       userId: {
         type: Sequelize.INTEGER,
-        foreignKey: true,
         references: {
           model: 'Users',
           key: 'id',
@@ -21,7 +41,6 @@ module.exports = {
       },
       followerId: {
         type: Sequelize.INTEGER,
-        foreignKey: true,
         references: {
           model: 'Users',
           key: 'id',
@@ -38,8 +57,5 @@ module.exports = {
         type: Sequelize.DATE,
       },
     });
-  },
-  async down(queryInterface, Sequelize) {
-    await queryInterface.dropTable('UserFollowers');
   },
 };

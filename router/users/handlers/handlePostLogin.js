@@ -12,12 +12,6 @@ const handlePostLogin = async (req, res) => {
     return res.status(400).json({ ok: false, errors: ['invalid_username'] });
   }
 
-  // check uniqueness
-  const existing = await User.findOne({ where: { username } });
-  if (existing && existing.auth0_user_id !== sub) {
-    return res.status(400).json({ ok: false, errors: ['username_taken'] });
-  }
-
   if (!Number.isInteger(age) || age < 18) {
     return res.status(400).json({ ok: false, errors: ['must_be_18_plus'] });
   }
@@ -29,6 +23,12 @@ const handlePostLogin = async (req, res) => {
   }
 
   try {
+    // check uniqueness
+    const existing = await User.findOne({ where: { username } });
+    if (existing && existing.auth0Id !== sub) {
+      return res.status(400).json({ ok: false, errors: ['username_taken'] });
+    }
+
     const user = await User.findOne({ where: { auth0Id: sub } });
     if (!user) {
       return res.status(404).json({ ok: false, errors: ['user_not_found'] });
@@ -47,7 +47,6 @@ const handlePostLogin = async (req, res) => {
       user: {
         id: user.id,
         publicId: user.publicId,
-        auth0_user_id: user.auth0_user_id,
         username: user.username,
         age: user.age,
         acceptPrivacy: user.accept_privacy,

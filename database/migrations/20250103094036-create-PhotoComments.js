@@ -1,7 +1,23 @@
 'use strict';
 
+const hasTable = (tables, tableName) =>
+  tables.some((table) => {
+    const name = typeof table === 'string' ? table : table.tableName;
+    return name === tableName;
+  });
+
 module.exports = {
   up: async (queryInterface, Sequelize) => {
+    const tables = await queryInterface.showAllTables();
+    if (hasTable(tables, 'PhotoComments')) {
+      return;
+    }
+
+    if (hasTable(tables, 'photoComments')) {
+      await queryInterface.renameTable('photoComments', 'PhotoComments');
+      return;
+    }
+
     await queryInterface.createTable('PhotoComments', {
       id: {
         type: Sequelize.INTEGER,

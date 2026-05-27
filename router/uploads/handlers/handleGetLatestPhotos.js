@@ -4,17 +4,18 @@ const addSecureUrlsToList =
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
 const { Op } = require('sequelize');
+const { buildUploadAccessWhere } = require('../../../utils/uploadAccess');
 
 const handleGetLatestPhotos = async (req, res) => {
   try {
     const env = process.env.NODE_ENV || 'development';
 
     const uploads = await Upload.findAll({
-      where: {
+      where: await buildUploadAccessWhere(req.auth.user.id, {
         url: {
           [Op.like]: `${env}/user/%`,
         },
-      },
+      }),
       include: [
         {
           model: User,

@@ -14,16 +14,28 @@ jest.mock('../models', () => ({
   },
   Upload: {
     findByPk: jest.fn(),
+    findOne: jest.fn(),
+  },
+  UploadMention: {
+    findAll: jest.fn(),
   },
   User: {
     findOne: jest.fn(),
   },
 }));
 
-const { Notification, PhotoLikes, Upload, User } = require('../models');
+const {
+  Notification,
+  PhotoLikes,
+  Upload,
+  UploadMention,
+  User,
+} = require('../models');
 const likesRouter = require('../router/photolikes');
 const { signApiToken } = require('../middleware/apiJwt');
 const { SESSION_HEADER, hashSessionId } = require('../utils/appSession');
+
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 
 const buildApp = () => {
   const app = express();
@@ -39,7 +51,7 @@ const buildUser = (overrides = {}) => ({
   id: 'user-1',
   email: 'user-1@example.com',
   auth0Id: 'auth0|user-1',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   activeSessionStartedAt: new Date('2026-05-23T00:00:00.000Z'),
   ...overrides,
 });
@@ -57,6 +69,8 @@ describe('photo likes routes', () => {
     currentUser = buildUser();
     apiToken = signApiToken(currentUser);
     User.findOne.mockResolvedValue(currentUser);
+    Upload.findOne.mockResolvedValue({ id: 101, userId: 'user-1' });
+    UploadMention.findAll.mockResolvedValue([]);
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
   });
 
@@ -67,7 +81,7 @@ describe('photo likes routes', () => {
   const authenticated = (agent) =>
     agent
       .set('Authorization', `Bearer ${apiToken}`)
-      .set(SESSION_HEADER, 'session-1');
+      .set(SESSION_HEADER, VALID_SESSION_ID);
 
   it('likes a user photo', async () => {
     const likes = [{ id: 1, userId: 'user-1', photoId: 101 }];
@@ -79,7 +93,10 @@ describe('photo likes routes', () => {
       photoId: 101,
     });
     PhotoLikes.findAll.mockResolvedValue(likes);
-    Upload.findByPk.mockResolvedValue({ id: 101, userId: 'user-2' });
+    Upload.findOne.mockResolvedValue({ id: 101, userId: 'user-2' });
+    UploadMention.findAll.mockResolvedValue([
+      { uploadId: 101, userId: 'user-1' },
+    ]);
     Notification.create.mockResolvedValue({
       id: 900,
       userId: 'user-2',
@@ -140,7 +157,7 @@ describe('photo likes routes', () => {
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual(likes);
-    expect(Upload.findByPk).not.toHaveBeenCalled();
+    expect(Upload.findOne).toHaveBeenCalled();
     expect(Notification.create).not.toHaveBeenCalled();
     expect(app.get('io').emit).not.toHaveBeenCalled();
   });
@@ -219,6 +236,30 @@ describe('photo likes routes', () => {
       ],
     });
     expect(response.body).toEqual(photoLikes);
+  });
+
+  it('rejects likes for inaccessible photos', async () => {
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(
+      request(app).post('/likes/upvote/101')
+    );
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ message: 'Upload not found' });
+    expect(PhotoLikes.findOne).not.toHaveBeenCalled();
+    expect(PhotoLikes.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects like enumeration for inaccessible photos', async () => {
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await authenticated(
+      request(app).get('/likes/all-likes/101')
+    );
+
+    expect(response.status).toBe(404);
+    expect(PhotoLikes.findAll).not.toHaveBeenCalled();
   });
 
   it('rejects unauthenticated photo likes', async () => {

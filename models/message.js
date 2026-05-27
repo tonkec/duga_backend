@@ -20,6 +20,11 @@ module.exports = (sequelize, DataTypes) => {
         foreignKey: 'messageId',
         onDelete: 'CASCADE',
       });
+      this.hasMany(models.MessageRead, {
+        as: 'readReceipts',
+        foreignKey: 'messageId',
+        onDelete: 'CASCADE',
+      });
       this.belongsToMany(models.User, {
         through: models.MessageMention,
         as: 'mentionedUsers',
@@ -33,11 +38,6 @@ module.exports = (sequelize, DataTypes) => {
       chatId: DataTypes.INTEGER,
       fromUserId: DataTypes.INTEGER,
       type: DataTypes.STRING,
-      is_read: {
-        type: DataTypes.BOOLEAN,
-        defaultValue: false,
-        allowNull: false,
-      },
       message: {
         type: DataTypes.TEXT,
         get() {

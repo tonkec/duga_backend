@@ -15,6 +15,9 @@ jest.mock('../models', () => ({
     findByPk: jest.fn(),
     findOne: jest.fn(),
   },
+  UploadMention: {
+    findAll: jest.fn(),
+  },
   User: {
     findOne: jest.fn(),
   },
@@ -65,18 +68,27 @@ jest.mock('../middleware/accessCheck', () => {
     };
 });
 
-jest.mock('../router/comments/s3/uploadCommentImage', () => ({
-  single: jest.fn(() => (req, res, next) => next()),
-}));
+jest.mock('../router/comments/s3/uploadCommentImage', () => {
+  const middleware = jest.fn((req, res, next) => next());
+
+  return {
+    __middleware: middleware,
+    single: jest.fn(() => middleware),
+  };
+});
 
 jest.mock('../utils/s3', () => ({
+  putObject: jest.fn(() => ({
+    promise: jest.fn().mockResolvedValue(undefined),
+  })),
   deleteObject: jest.fn(() => ({
     promise: jest.fn().mockResolvedValue(undefined),
   })),
 }));
 
-const { PhotoComment, Upload, sequelize } = require('../models');
+const { PhotoComment, Upload, UploadMention, sequelize } = require('../models');
 const s3 = require('../utils/s3');
+const uploadCommentImage = require('../router/comments/s3/uploadCommentImage');
 const commentsRouter = require('../router/photocomments');
 
 const buildApp = () => {
@@ -102,6 +114,11 @@ describe('photo comments CRUD routes', () => {
     sequelize.transaction.mockImplementation((callback) =>
       callback({ id: 'transaction' })
     );
+    uploadCommentImage.__middleware.mockImplementation((req, res, next) =>
+      next()
+    );
+    Upload.findOne.mockResolvedValue({ id: 'upload-1', userId: 'user-1' });
+    UploadMention.findAll.mockResolvedValue([]);
 
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation(() => {});
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {});
@@ -342,7 +359,10 @@ describe('photo comments CRUD routes', () => {
   });
 
   it('prevents SQL injection / unsafe input by storing comment text as data', async () => {
-    const unsafeComment = "Nice photo'); DROP TABLE PhotoComments; --";
+    const unsafeComment =
+      "<img src=x onerror=\"alert('xss')\"> Nice photo'); DROP TABLE PhotoComments; --";
+    const sanitizedComment =
+      '&lt;img src=x onerror=&quot;alert(&#39;xss&#39;)&quot;&gt; Nice photo&#39;); DROP TABLE PhotoComments; --';
     const createdComment = {
       id: 105,
       setTaggedUsers: jest.fn().mockResolvedValue(undefined),
@@ -352,7 +372,7 @@ describe('photo comments CRUD routes', () => {
         id: 105,
         userId: 'user-1',
         uploadId: 'upload-1',
-        comment: unsafeComment,
+        comment: sanitizedComment,
         imageUrl: null,
         user: { id: 'user-1', username: 'antonija' },
         taggedUsers: [],
@@ -373,10 +393,10 @@ describe('photo comments CRUD routes', () => {
 
     expect(response.status).toBe(201);
     expect(PhotoComment.create).toHaveBeenCalledWith(
-      expect.objectContaining({ comment: unsafeComment }),
+      expect.objectContaining({ comment: sanitizedComment }),
       { transaction: { id: 'transaction' } }
     );
-    expect(response.body.data.comment).toBe(unsafeComment);
+    expect(response.body.data.comment).toBe(sanitizedComment);
   });
 
   it('validates comment length when creating a comment', async () => {
@@ -480,7 +500,7 @@ describe('photo comments CRUD routes', () => {
   });
 
   it('returns comments for specific post/profile', async () => {
-    Upload.findByPk.mockResolvedValue({ id: 'upload-1' });
+    Upload.findOne.mockResolvedValue({ id: 'upload-1', userId: 'user-1' });
     PhotoComment.findAll.mockResolvedValue([
       {
         toJSON: () => ({
@@ -505,7 +525,12 @@ describe('photo comments CRUD routes', () => {
       .set(authHeaders);
 
     expect(response.status).toBe(200);
-    expect(Upload.findByPk).toHaveBeenCalledWith('upload-1');
+    expect(Upload.findOne).toHaveBeenCalledWith(
+      expect.objectContaining({
+        attributes: ['id'],
+        where: expect.objectContaining({ id: 'upload-1' }),
+      })
+    );
     expect(PhotoComment.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { uploadId: 'upload-1' },
@@ -613,7 +638,7 @@ describe('photo comments CRUD routes', () => {
   });
 
   it('returns 404 if parent entity does not exist when reading comments', async () => {
-    Upload.findByPk.mockResolvedValue(null);
+    Upload.findOne.mockResolvedValue(null);
 
     const response = await request(app)
       .get('/comments/get-comments/missing-upload')
@@ -622,6 +647,107 @@ describe('photo comments CRUD routes', () => {
     expect(response.status).toBe(404);
     expect(response.body).toMatchObject({ message: 'Upload not found' });
     expect(PhotoComment.findAll).not.toHaveBeenCalled();
+  });
+
+  it('rejects comment creation for inaccessible uploads', async () => {
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1', userId: 'user-2' });
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({
+        uploadId: 'upload-1',
+        comment: 'Great photo',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ message: 'Forbidden' });
+    expect(PhotoComment.create).not.toHaveBeenCalled();
+  });
+
+  it('does not upload comment images before upload access is authorized', async () => {
+    uploadCommentImage.__middleware.mockImplementation((req, res, next) => {
+      req.file = {
+        buffer: Buffer.from('fake-image-bytes'),
+        originalname: 'comment.png',
+        mimetype: 'image/png',
+      };
+      next();
+    });
+    Upload.findByPk.mockResolvedValue({ id: 'upload-1', userId: 'user-2' });
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await request(app)
+      .post('/comments/add-comment')
+      .set(authHeaders)
+      .send({
+        uploadId: 'upload-1',
+        comment: 'Blocked image comment',
+      });
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ message: 'Forbidden' });
+    expect(s3.putObject).not.toHaveBeenCalled();
+    expect(Upload.create).not.toHaveBeenCalled();
+    expect(PhotoComment.create).not.toHaveBeenCalled();
+  });
+
+  it('rejects comment enumeration for inaccessible uploads', async () => {
+    Upload.findOne.mockResolvedValue(null);
+
+    const response = await request(app)
+      .get('/comments/get-comments/upload-1')
+      .set(authHeaders);
+
+    expect(response.status).toBe(404);
+    expect(response.body).toMatchObject({ message: 'Upload not found' });
+    expect(PhotoComment.findAll).not.toHaveBeenCalled();
+  });
+
+  it('scopes latest comments to uploads accessible by the current user', async () => {
+    UploadMention.findAll.mockResolvedValue([{ uploadId: 'tagged-upload' }]);
+    PhotoComment.findAll.mockResolvedValue([
+      {
+        toJSON: () => ({
+          id: 204,
+          uploadId: 'tagged-upload',
+          comment: 'Accessible latest comment',
+          imageUrl: null,
+        }),
+      },
+    ]);
+
+    const response = await request(app)
+      .get('/comments/latest')
+      .set(authHeaders);
+
+    expect(response.status).toBe(200);
+    expect(UploadMention.findAll).toHaveBeenCalledWith({
+      where: { userId: 'user-1' },
+      attributes: ['uploadId'],
+    });
+    expect(PhotoComment.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        limit: 5,
+        order: [['createdAt', 'DESC']],
+        include: expect.arrayContaining([
+          expect.objectContaining({
+            model: Upload,
+            as: 'upload',
+            attributes: [],
+            required: true,
+            where: expect.any(Object),
+          }),
+        ]),
+      })
+    );
+    expect(response.body).toHaveLength(1);
+    expect(response.body[0]).toMatchObject({
+      id: 204,
+      uploadId: 'tagged-upload',
+      comment: 'Accessible latest comment',
+    });
   });
 
   it('allows owner to update comment', async () => {

@@ -15,7 +15,7 @@
  *         description: Internal user ID or publicId UUID
  *     responses:
  *       200:
- *         description: User object. Includes publicId.
+ *         description: Public user object. Excludes email and private profile fields.
  *       404:
  *         description: User not found
  */

@@ -1,24 +1,45 @@
 const { User } = require('../../../models');
 
+const USERNAME_PATTERN = /^[a-zA-Z0-9._-]{3,30}$/;
+const SAFE_USER_FIELDS = ['id', 'publicId', 'email', 'username'];
+
 const serializeUser = (user) => {
   const data = user.toJSON();
-  delete data.auth0Id;
-  delete data.activeSessionIdHash;
-  delete data.activeSessionStartedAt;
-  return data;
+  return SAFE_USER_FIELDS.reduce((safeUser, field) => {
+    if (
+      Object.prototype.hasOwnProperty.call(data, field) &&
+      data[field] !== undefined
+    ) {
+      safeUser[field] = data[field];
+    }
+
+    return safeUser;
+  }, {});
 };
 
 const handleRegister = async (req, res) => {
   const auth0Id = req.auth?.sub;
   const email = req.auth?.email;
   const { username } = req.body || {};
+  const normalizedUsername =
+    typeof username === 'string' ? username.trim() : username;
 
   if (!auth0Id || !email) {
     return res.status(401).json({ message: 'Missing Auth0 identity claims' });
   }
 
-  if (!username) {
+  if (!normalizedUsername) {
     return res.status(400).json({ message: 'Missing required fields' });
+  }
+
+  if (
+    typeof normalizedUsername !== 'string' ||
+    !USERNAME_PATTERN.test(normalizedUsername)
+  ) {
+    return res.status(400).json({
+      message:
+        'Username must be 3-30 characters and contain only letters, numbers, dots, underscores, or hyphens',
+    });
   }
 
   try {
@@ -49,7 +70,7 @@ const handleRegister = async (req, res) => {
     user = await User.create({
       auth0Id,
       email: normalizedEmail,
-      username,
+      username: normalizedUsername,
     });
 
     console.log('User created');

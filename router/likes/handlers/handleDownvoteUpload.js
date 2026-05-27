@@ -1,4 +1,5 @@
 const { PhotoLikes } = require('../../../models');
+const { hasUploadAccess } = require('../../../utils/uploadAccess');
 
 const handleDownvoteUpload = async (req, res) => {
   const uploadId = parseInt(req.params.id);
@@ -9,6 +10,10 @@ const handleDownvoteUpload = async (req, res) => {
   }
 
   try {
+    if (!(await hasUploadAccess(userId, uploadId))) {
+      return res.status(404).json({ message: 'Upload not found' });
+    }
+
     const photoLike = await PhotoLikes.findOne({
       where: { userId, photoId: uploadId },
     });

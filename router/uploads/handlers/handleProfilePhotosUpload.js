@@ -1,5 +1,5 @@
-const AWS = require('aws-sdk'); // v2
 const s3 = require('../../../utils/s3');
+const rekognition = require('../../../utils/rekognition');
 const sharp = require('sharp');
 const Upload = require('../../../models').Upload;
 const removeSpacesAndDashes = require('../../../utils/removeSpacesAndDashes');
@@ -10,8 +10,6 @@ const {
   EXPLICIT_LABELS,
   SUGGESTIVE_LABELS,
 } = require('../s3/rekognitionConfiguration');
-// Rekognition client (region/creds come from AWS.config)
-const rekognition = new AWS.Rekognition();
 
 const getTaggedUserIds = (description = {}) => {
   const taggedUserIds =

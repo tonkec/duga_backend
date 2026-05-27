@@ -2,53 +2,12 @@
 
 module.exports = {
   up: async (queryInterface, Sequelize) => {
-    // This migration will drop the photoComments table
-    await queryInterface.dropTable('photoComments');
+    // Intentionally left as a no-op. This migration used to drop the
+    // lower-case "photoComments" table, which is dangerous on case-sensitive
+    // databases if that table contains data from a prior deploy.
   },
 
   down: async (queryInterface, Sequelize) => {
-    // If you want to re-create the table in case of rollback
-    await queryInterface.createTable('photoComments', {
-      id: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        autoIncrement: true,
-        primaryKey: true,
-      },
-      userId: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'Users', // Assumes a Users table exists
-          key: 'id',
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
-      },
-      uploadId: {
-        type: Sequelize.INTEGER,
-        allowNull: false,
-        references: {
-          model: 'Uploads', // Assumes an Uploads table exists
-          key: 'id',
-        },
-        onUpdate: 'CASCADE',
-        onDelete: 'CASCADE',
-      },
-      comment: {
-        type: Sequelize.STRING,
-        allowNull: false,
-      },
-      createdAt: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.fn('NOW'),
-      },
-      updatedAt: {
-        type: Sequelize.DATE,
-        allowNull: false,
-        defaultValue: Sequelize.fn('NOW'),
-      },
-    });
+    // No-op for the same reason as up: do not recreate the wrong-case table.
   },
 };

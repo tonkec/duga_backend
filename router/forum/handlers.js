@@ -17,6 +17,7 @@ const { attachSecureUrl } = require('../../utils/secureUploadUrl');
 const getBearerToken = require('../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../consts/apiBaseUrl');
 const { BUCKET } = require('../uploads/s3/rekognitionConfiguration');
+const { sanitizePlainText } = require('../../utils/plainText');
 
 const USER_ATTRIBUTES = [
   'id',
@@ -74,6 +75,8 @@ const getAuthenticatedUserId = (req) => req.user?.id || req.auth?.user?.id;
 
 const hasField = (body, field) =>
   Object.prototype.hasOwnProperty.call(body, field);
+
+const MAX_ANSWER_BODY_LENGTH = 5000;
 
 const toPlainObject = (item) => item?.toJSON?.() || item;
 
@@ -259,6 +262,10 @@ const validateAnswerInput = (body) => {
     return ['body must be at least 2 characters'];
   }
 
+  if (body.body.trim().length > MAX_ANSWER_BODY_LENGTH) {
+    return [`body must be ${MAX_ANSWER_BODY_LENGTH} characters or less`];
+  }
+
   return [];
 };
 
@@ -356,8 +363,8 @@ const handleCreateQuestion = async (req, res) => {
     const imageUrl = await persistForumImage(req);
     const questionPayload = {
       userId: getAuthenticatedUserId(req),
-      title: req.body.title.trim(),
-      body: req.body.body.trim(),
+      title: sanitizePlainText(req.body.title),
+      body: sanitizePlainText(req.body.body),
       categoryId: normalizeCategoryId(req.body.categoryId) ?? null,
     };
     if (imageUrl) questionPayload.imageUrl = imageUrl;
@@ -386,8 +393,12 @@ const handleUpdateQuestion = async (req, res) => {
     }
 
     const question = req.resource;
-    if (hasField(req.body, 'title')) question.title = req.body.title.trim();
-    if (hasField(req.body, 'body')) question.body = req.body.body.trim();
+    if (hasField(req.body, 'title')) {
+      question.title = sanitizePlainText(req.body.title);
+    }
+    if (hasField(req.body, 'body')) {
+      question.body = sanitizePlainText(req.body.body);
+    }
     if (hasField(req.body, 'categoryId')) {
       question.categoryId = normalizeCategoryId(req.body.categoryId);
     }
@@ -482,7 +493,7 @@ const handleCreateAnswer = async (req, res) => {
     const answerPayload = {
       questionId: question.id,
       userId: getAuthenticatedUserId(req),
-      body: req.body.body.trim(),
+      body: sanitizePlainText(req.body.body),
     };
     if (imageUrl) answerPayload.imageUrl = imageUrl;
 
@@ -525,7 +536,7 @@ const handleUpdateAnswer = async (req, res) => {
     }
 
     const answer = req.resource;
-    answer.body = req.body.body.trim();
+    answer.body = sanitizePlainText(req.body.body);
     if (req.forumImage) {
       await deleteForumImage(answer.imageUrl);
       answer.imageUrl = await persistForumImage(req);
@@ -668,7 +679,7 @@ const handleCreateAnswerReply = async (req, res) => {
     const reply = await AnswerReply.create({
       answerId,
       userId,
-      body: req.body.body.trim(),
+      body: sanitizePlainText(req.body.body),
     });
     const fullReply = await AnswerReply.findByPk(reply.id, {
       include: ANSWER_REPLY_INCLUDE,
@@ -707,7 +718,7 @@ const handleUpdateAnswerReply = async (req, res) => {
     }
 
     const reply = req.resource;
-    reply.body = req.body.body.trim();
+    reply.body = sanitizePlainText(req.body.body);
     await reply.save();
 
     const [answer, fullReply] = await Promise.all([

@@ -3,6 +3,7 @@ const s3 = require('../../../utils/s3');
 const { attachSecureUrl } = require('../../../utils/secureUploadUrl');
 const getBearerToken = require('../../../utils/getBearerToken');
 const { API_BASE_URL } = require('../../../consts/apiBaseUrl');
+const { buildUploadAccessWhere } = require('../../../utils/uploadAccess');
 
 const handleGetAllUserUploads = async (req, res) => {
   try {
@@ -14,7 +15,7 @@ const handleGetAllUserUploads = async (req, res) => {
     };
 
     const uploads = await Upload.findAll({
-      where: { userId },
+      where: await buildUploadAccessWhere(req.auth.user.id, { userId }),
       include: [
         {
           model: User,

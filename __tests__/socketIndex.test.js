@@ -6,6 +6,10 @@ process.env.NODE_ENV = 'test';
 const jwt = require('jsonwebtoken');
 const { hashSessionId } = require('../utils/appSession');
 
+const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
+const OLD_SESSION_ID = 'oldsession0123456789abcdefghijklmnopqrstuvwxyzAB';
+const ACTIVE_SESSION_ID = 'activesession0123456789abcdefghijklmnopqrstuvwxyz';
+
 const buildApp = () => {
   const settings = {};
 
@@ -20,7 +24,7 @@ const buildApp = () => {
 const buildSocket = ({
   id = 'socket-1',
   token = 'token',
-  sessionId = 'session-1',
+  sessionId = VALID_SESSION_ID,
   appUser = null,
 } = {}) => {
   const handlers = {};
@@ -46,7 +50,7 @@ const buildUser = (overrides = {}) => ({
   id: 1,
   auth0Id: 'auth0|user-1',
   username: 'antonija',
-  activeSessionIdHash: hashSessionId('session-1'),
+  activeSessionIdHash: hashSessionId(VALID_SESSION_ID),
   toJSON: jest.fn(() => ({ id: 1, username: 'antonija' })),
   ...overrides,
 });
@@ -108,18 +112,26 @@ const loadSocketServer = () => {
     PhotoComment: {
       findByPk: jest.fn(),
     },
+    Chat: {
+      findByPk: jest.fn(),
+    },
     ChatUser: {
       findAll: jest.fn().mockResolvedValue([]),
+      findOne: jest.fn(),
     },
     Notification: {
       create: jest.fn(),
       findByPk: jest.fn(),
+      findOne: jest.fn(),
     },
     PhotoLikes: {
       findOne: jest.fn(),
     },
     Upload: {
       findOne: jest.fn(),
+    },
+    UploadMention: {
+      findAll: jest.fn().mockResolvedValue([]),
     },
   };
 
@@ -134,6 +146,7 @@ const loadSocketServer = () => {
     attachSecureUrl: jest.fn(
       (baseUrl, key, token) => `${baseUrl}/${key}?token=${token}`
     ),
+    extractKeyFromUrl: jest.fn((url) => url),
   }));
 
   return {
@@ -206,7 +219,7 @@ describe('SocketServer', () => {
       process.env.API_JWT_SECRET,
       { algorithm: 'HS256' }
     );
-    const socket = buildSocket({ token, sessionId: 'session-1' });
+    const socket = buildSocket({ token, sessionId: VALID_SESSION_ID });
     const next = jest.fn();
 
     models.User.findOne.mockResolvedValue(user);
@@ -220,7 +233,7 @@ describe('SocketServer', () => {
     });
     expect(socket.user).toMatchObject({ sub: user.auth0Id, tokenUse: 'api' });
     expect(socket.appUser).toBe(user);
-    expect(socket.appSessionId).toBe('session-1');
+    expect(socket.appSessionId).toBe(VALID_SESSION_ID);
   });
 
   it('revokes sockets for other sessions of the same user', async () => {
@@ -229,12 +242,12 @@ describe('SocketServer', () => {
     const user = buildUser();
     const oldSocket = buildSocket({
       id: 'socket-old',
-      sessionId: 'session-old',
+      sessionId: OLD_SESSION_ID,
       appUser: user,
     });
     const activeSocket = buildSocket({
       id: 'socket-active',
-      sessionId: 'session-active',
+      sessionId: ACTIVE_SESSION_ID,
       appUser: user,
     });
 
@@ -250,7 +263,7 @@ describe('SocketServer', () => {
     io.connectionHandler(activeSocket);
     await activeSocket.handlers.join();
 
-    app.settings.revokeUserSessionsExcept(user.id, 'session-active');
+    app.settings.revokeUserSessionsExcept(user.id, ACTIVE_SESSION_ID);
 
     expect(io.targetEmits).toContainEqual({
       target: oldSocket.id,
@@ -277,6 +290,64 @@ describe('SocketServer', () => {
       { status: 'online' },
       { where: { id: user.id } }
     );
+    expect(models.sequelize.query).toHaveBeenCalledWith(
+      expect.stringContaining('where u.id = :userId'),
+      { replacements: { userId: user.id } }
+    );
+  });
+
+  it('marks only the authenticated socket user notification as read', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser({ id: 1 });
+    const socket = buildSocket({ id: 'socket-user-1', appUser: user });
+    const notification = {
+      id: 701,
+      userId: 1,
+      chatId: 77,
+      isRead: false,
+      save: jest.fn().mockResolvedValue(undefined),
+    };
+
+    models.ChatUser.findAll.mockResolvedValue([{ chatId: 77, userId: 1 }]);
+    models.ChatUser.findOne.mockResolvedValue({ chatId: 77, userId: 1 });
+    models.Notification.findOne.mockResolvedValue(notification);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+    await socket.handlers.join();
+    await socket.handlers.markAsRead({ userId: 2, chatId: 77 });
+
+    expect(models.ChatUser.findOne).toHaveBeenCalledWith({
+      where: { chatId: 77, userId: 1 },
+    });
+    expect(models.Notification.findOne).toHaveBeenCalledWith({
+      where: { userId: 1, chatId: 77, isRead: false },
+      order: [['createdAt', 'DESC']],
+    });
+    expect(notification.isRead).toBe(true);
+    expect(notification.save).toHaveBeenCalledTimes(1);
+    expect(io.targetEmits).toContainEqual({
+      target: 'socket-user-1',
+      event: 'markAsRead',
+      payload: notification,
+    });
+  });
+
+  it('rejects markAsRead when the socket user is not in the chat', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser({ id: 1 });
+    const socket = buildSocket({ appUser: user });
+
+    models.ChatUser.findOne.mockResolvedValue(null);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+    await socket.handlers.markAsRead({ userId: 1, chatId: 77 });
+
+    expect(models.ChatUser.findOne).toHaveBeenCalledWith({
+      where: { chatId: 77, userId: 1 },
+    });
+    expect(models.Notification.findOne).not.toHaveBeenCalled();
   });
 
   it('persists explicit status changes and acknowledges the socket event', async () => {
@@ -368,9 +439,13 @@ describe('SocketServer', () => {
     models.User.findOne.mockResolvedValue(user);
     models.PhotoComment.findByPk.mockResolvedValue(comment);
     models.sequelize.query.mockResolvedValue([{ userId: user.id }]);
+    models.UploadMention.findAll.mockResolvedValue([]);
 
     SocketServer({}, buildApp());
     io.connectionHandler(socket);
+    await socket.handlers.join();
+    io.emit.mockClear();
+    io.targetEmits.length = 0;
 
     await socket.handlers['send-comment']({
       data: {
@@ -379,19 +454,303 @@ describe('SocketServer', () => {
       },
     });
 
-    expect(io.emit).toHaveBeenCalledWith('receive-comment', {
-      data: {
-        id: comment.id,
-        uploadId: comment.uploadId,
-        userId: user.id,
-        comment: 'Great photo',
-        imageUrl: null,
-        user: { id: user.id, username: user.username },
-        taggedUsers: [],
-        securePhotoUrl: null,
+    expect(io.emit).not.toHaveBeenCalledWith(
+      'receive-comment',
+      expect.anything()
+    );
+    expect(io.targetEmits).toContainEqual({
+      target: socket.id,
+      event: 'receive-comment',
+      payload: {
+        data: {
+          id: comment.id,
+          uploadId: comment.uploadId,
+          userId: user.id,
+          comment: 'Great photo',
+          imageUrl: null,
+          user: { id: user.id, username: user.username },
+          taggedUsers: [],
+          securePhotoUrl: null,
+        },
       },
     });
+    expect(models.UploadMention.findAll).toHaveBeenCalledWith({
+      where: { uploadId: comment.uploadId },
+      attributes: ['userId'],
+    });
     expect(models.Notification.create).not.toHaveBeenCalled();
+  });
+
+  it('does not emit receive-comment when socket user cannot access the comment', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    socket.user = { sub: user.auth0Id };
+    models.User.findOne.mockResolvedValue(user);
+    models.PhotoComment.findByPk.mockResolvedValue({
+      id: 101,
+      uploadId: 5,
+      userId: 2,
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['send-comment']({
+      data: { id: 101, uploadId: 5 },
+    });
+
+    expect(io.emit).not.toHaveBeenCalledWith(
+      'receive-comment',
+      expect.anything()
+    );
+    expect(models.Notification.create).not.toHaveBeenCalled();
+  });
+
+  it('sends typing events only to server-derived chat members', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const sender = buildUser({ id: 1, auth0Id: 'auth0|user-1' });
+    const chatMember = buildUser({ id: 2, auth0Id: 'auth0|user-2' });
+    const nonMember = buildUser({ id: 999, auth0Id: 'auth0|user-999' });
+    const senderSocket = buildSocket({
+      id: 'socket-sender',
+      appUser: sender,
+    });
+    const memberSocket = buildSocket({
+      id: 'socket-member',
+      appUser: chatMember,
+    });
+    const nonMemberSocket = buildSocket({
+      id: 'socket-non-member',
+      appUser: nonMember,
+    });
+
+    models.ChatUser.findAll.mockImplementation(({ where }) => {
+      if (where?.chatId === 77) {
+        return Promise.resolve([{ userId: 1 }, { userId: 2 }]);
+      }
+      return Promise.resolve([{ chatId: 77 }]);
+    });
+    models.ChatUser.findOne.mockResolvedValue({
+      chatId: 77,
+      userId: sender.id,
+      role: 'member',
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(senderSocket);
+    io.connectionHandler(memberSocket);
+    io.connectionHandler(nonMemberSocket);
+    await senderSocket.handlers.join();
+    await memberSocket.handlers.join();
+    await nonMemberSocket.handlers.join();
+    io.targetEmits.length = 0;
+
+    await senderSocket.handlers.typing({ chatId: 77, toUserId: [999] });
+
+    expect(io.targetEmits).toContainEqual({
+      target: memberSocket.id,
+      event: 'typing',
+      payload: { chatId: 77, userId: sender.id },
+    });
+    expect(io.targetEmits).not.toContainEqual(
+      expect.objectContaining({ target: nonMemberSocket.id })
+    );
+  });
+
+  it('does not allow non-admin group members to spoof chat deletion', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    models.ChatUser.findOne.mockResolvedValue({
+      chatId: 77,
+      userId: user.id,
+      role: 'member',
+    });
+    models.Chat.findByPk.mockResolvedValue({ id: 77, type: 'group' });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['delete-chat']({ chatId: 77, notifyUsers: [2, 3] });
+
+    expect(io.targetEmits).toEqual([]);
+  });
+
+  it('derives add-user-to-group recipients from chat membership', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const admin = buildUser({ id: 1, auth0Id: 'auth0|admin' });
+    const member = buildUser({ id: 2, auth0Id: 'auth0|member' });
+    const addedUser = buildUser({ id: 3, auth0Id: 'auth0|added' });
+    const nonMember = buildUser({ id: 999, auth0Id: 'auth0|non-member' });
+    const adminSocket = buildSocket({ id: 'socket-admin', appUser: admin });
+    const memberSocket = buildSocket({ id: 'socket-member', appUser: member });
+    const addedSocket = buildSocket({ id: 'socket-added', appUser: addedUser });
+    const nonMemberSocket = buildSocket({
+      id: 'socket-non-member',
+      appUser: nonMember,
+    });
+
+    models.ChatUser.findAll.mockImplementation(({ where }) => {
+      if (where?.chatId === 88) {
+        return Promise.resolve([{ userId: 1 }, { userId: 2 }, { userId: 3 }]);
+      }
+      return Promise.resolve([{ chatId: 88 }]);
+    });
+    models.ChatUser.findOne.mockResolvedValue({
+      chatId: 88,
+      userId: admin.id,
+      role: 'admin',
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(adminSocket);
+    io.connectionHandler(memberSocket);
+    io.connectionHandler(addedSocket);
+    io.connectionHandler(nonMemberSocket);
+    await adminSocket.handlers.join();
+    await memberSocket.handlers.join();
+    await addedSocket.handlers.join();
+    await nonMemberSocket.handlers.join();
+    io.targetEmits.length = 0;
+
+    await adminSocket.handlers['add-user-to-group']({
+      chat: { id: 88, Users: [{ id: 999 }] },
+      newChatter: { id: 3 },
+    });
+
+    expect(io.targetEmits).toEqual(
+      expect.arrayContaining([
+        {
+          target: adminSocket.id,
+          event: 'added-user-to-group',
+          payload: { chatId: 88, newUserId: 3 },
+        },
+        {
+          target: memberSocket.id,
+          event: 'added-user-to-group',
+          payload: { chatId: 88, newUserId: 3 },
+        },
+        {
+          target: addedSocket.id,
+          event: 'added-user-to-group',
+          payload: { chatId: 88, newUserId: 3 },
+        },
+      ])
+    );
+    expect(io.targetEmits).not.toContainEqual(
+      expect.objectContaining({ target: nonMemberSocket.id })
+    );
+  });
+
+  it('does not emit delete-comment for inaccessible comments', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    socket.user = { sub: user.auth0Id };
+    models.User.findOne.mockResolvedValue(user);
+    models.PhotoComment.findByPk.mockResolvedValue({
+      id: 101,
+      uploadId: 5,
+      userId: 2,
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['delete-comment']({
+      data: { id: 101, uploadId: 5 },
+    });
+
+    expect(io.emit).not.toHaveBeenCalledWith(
+      'remove-comment',
+      expect.anything()
+    );
+  });
+
+  it('does not emit edit-comment for inaccessible comments', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    socket.user = { sub: user.auth0Id };
+    models.User.findOne.mockResolvedValue(user);
+    models.PhotoComment.findByPk.mockResolvedValue({
+      id: 101,
+      uploadId: 5,
+      userId: 2,
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['edit-comment']({
+      data: { id: 101, uploadId: 5 },
+    });
+
+    expect(io.emit).not.toHaveBeenCalledWith(
+      'update-comment',
+      expect.anything()
+    );
+  });
+
+  it('does not emit upvote-upload when the like record is not owned by the socket user', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    socket.user = { sub: user.auth0Id };
+    models.User.findOne.mockResolvedValue(user);
+    models.PhotoLikes.findOne.mockResolvedValue({
+      id: 301,
+      photoId: 5,
+      userId: 2,
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['upvote-upload']([{ photoId: 5 }]);
+
+    expect(models.sequelize.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('FROM "PhotoLikes"'),
+      expect.anything()
+    );
+    expect(io.emit).not.toHaveBeenCalledWith(
+      'upvote-upload',
+      expect.anything()
+    );
+  });
+
+  it('does not emit downvote-upload when the like record is not owned by the socket user', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    socket.user = { sub: user.auth0Id };
+    models.User.findOne.mockResolvedValue(user);
+    models.PhotoLikes.findOne.mockResolvedValue({
+      id: 301,
+      photoId: 5,
+      userId: 2,
+    });
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['downvote-upload']({ uploadId: 5 });
+
+    expect(models.sequelize.query).not.toHaveBeenCalledWith(
+      expect.stringContaining('FROM "PhotoLikes"'),
+      expect.anything()
+    );
+    expect(io.emit).not.toHaveBeenCalledWith(
+      'downvote-upload',
+      expect.anything()
+    );
   });
 
   it('emits received message events to chat member sockets', async () => {
@@ -622,6 +981,54 @@ describe('SocketServer', () => {
     expect(socket.emit).toHaveBeenCalledWith('message_reaction_error', {
       message: 'You do not have access to this chat',
     });
+  });
+
+  it('rejects remove-message-reaction from users outside the chat', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+    const ack = jest.fn();
+
+    models.Message.findByPk.mockResolvedValue({ id: 501, chatId: 77 });
+    models.ChatUser.findAll.mockResolvedValue([{ chatId: 77, userId: 2 }]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers['remove-message-reaction'](
+      { messageId: 501, emoji: '👍' },
+      ack
+    );
+
+    expect(models.MessageReaction.findOne).not.toHaveBeenCalled();
+    expect(ack).toHaveBeenCalledWith({
+      ok: false,
+      error: 'You do not have access to this chat',
+    });
+    expect(socket.emit).toHaveBeenCalledWith('message_reaction_error', {
+      message: 'You do not have access to this chat',
+    });
+  });
+
+  it('does not broadcast messages from users outside the chat', async () => {
+    const { SocketServer, io, models } = loadSocketServer();
+    const user = buildUser();
+    const socket = buildSocket({ appUser: user });
+
+    models.ChatUser.findAll.mockResolvedValue([{ chatId: 77, userId: 2 }]);
+
+    SocketServer({}, buildApp());
+    io.connectionHandler(socket);
+
+    await socket.handlers.message({ chatId: 77, message: 'Hello' });
+
+    expect(models.Message.create).not.toHaveBeenCalled();
+    expect(socket.emit).toHaveBeenCalledWith('message_error', {
+      message: 'You do not have access to this chat',
+    });
+    expect(io.targetEmits).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ event: 'received' })])
+    );
   });
 
   it('rejects message reactions that are not emoji', async () => {
