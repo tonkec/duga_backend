@@ -10,7 +10,7 @@ const {
 
 const MAX_USERS_LIMIT = 50;
 const USER_ENUMERATION_RATE_LIMIT_MS = Number(
-  process.env.USER_ENUMERATION_RATE_LIMIT_MS ?? 10 * 1000
+  process.env.USER_ENUMERATION_RATE_LIMIT_MS ?? 1000
 );
 
 const parsePositiveInteger = (value) => {
