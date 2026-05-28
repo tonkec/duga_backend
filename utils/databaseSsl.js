@@ -45,7 +45,7 @@ const getDatabaseDialectOptions = (env = process.env.NODE_ENV) => {
   return {
     ssl: {
       require: true,
-      rejectUnauthorized: true,
+      rejectUnauthorized: Boolean(ca),
       ...(ca ? { ca } : {}),
     },
   };

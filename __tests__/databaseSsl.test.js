@@ -36,11 +36,11 @@ describe('database SSL configuration', () => {
     expect(getDatabaseDialectOptions('test')).toEqual({ ssl: false });
   });
 
-  it('uses verified SSL with system trusted CAs outside local environments', () => {
+  it('uses SSL without issuer verification when no CA bundle is configured', () => {
     expect(getDatabaseDialectOptions('production')).toEqual({
       ssl: {
         require: true,
-        rejectUnauthorized: true,
+        rejectUnauthorized: false,
       },
     });
   });
