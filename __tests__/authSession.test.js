@@ -54,6 +54,7 @@ const {
 const {
   SESSION_HEADER,
   SESSION_COOKIE,
+  CSRF_COOKIE,
   hashSessionId,
   SESSION_CONFLICT_CODE,
   SESSION_REVOKED_CODE,
@@ -62,6 +63,7 @@ const { signApiToken } = require('../middleware/apiJwt');
 
 const VALID_SESSION_ID = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFG';
 const OTHER_SESSION_ID = '7654321098abcdefghijklmnopqrstuvwxyzABCDEFG';
+const ORIGINAL_NODE_ENV = process.env.NODE_ENV;
 
 const buildApp = () => {
   const app = express();
@@ -122,6 +124,9 @@ describe('auth and session routes', () => {
 
   afterEach(() => {
     consoleErrorSpy.mockRestore();
+    process.env.NODE_ENV = ORIGINAL_NODE_ENV;
+    delete process.env.DUGA_COOKIE_SAMESITE;
+    delete process.env.DUGA_COOKIE_SECURE;
   });
 
   it('starts session with valid Auth0 token', async () => {
@@ -165,6 +170,34 @@ describe('auth and session routes', () => {
     expect(revokeUserSessionsExcept).toHaveBeenCalledWith(
       'user-1',
       expect.any(String)
+    );
+  });
+
+  it('sets cross-site secure cookies in staging', async () => {
+    process.env.NODE_ENV = 'staging';
+    const user = buildUser({ activeSessionIdHash: null });
+
+    User.findOne.mockResolvedValue(user);
+    User.findByPk.mockResolvedValue(user);
+
+    const response = await request(app)
+      .post('/sessions/start')
+      .set('Authorization', 'Bearer valid-auth0-token');
+
+    expect(response.status).toBe(200);
+    expect(response.headers['set-cookie']).toEqual(
+      expect.arrayContaining([
+        expect.stringMatching(
+          new RegExp(
+            `^${SESSION_COOKIE}=.+; Max-Age=\\d+; Path=/; Expires=.+; HttpOnly; Secure; SameSite=None$`
+          )
+        ),
+        expect.stringMatching(
+          new RegExp(
+            `^${CSRF_COOKIE}=.+; Max-Age=\\d+; Path=/; Expires=.+; Secure; SameSite=None$`
+          )
+        ),
+      ])
     );
   });
 

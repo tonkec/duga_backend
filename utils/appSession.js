@@ -7,6 +7,7 @@ const CSRF_HEADER = 'x-csrf-token';
 const SESSION_REVOKED_CODE = 'SESSION_REVOKED';
 const SESSION_CONFLICT_CODE = 'SESSION_CONFLICT';
 const SESSION_ID_PATTERN = /^[A-Za-z0-9_-]{43,128}$/;
+const CROSS_SITE_COOKIE_ENVIRONMENTS = new Set(['production', 'staging']);
 const SESSION_TTL_MS = Number(
   process.env.DUGA_SESSION_TTL_MS ?? 7 * 24 * 60 * 60 * 1000
 );
@@ -56,11 +57,15 @@ const getCsrfToken = (req) => getCookie(req, CSRF_COOKIE);
 const getSessionExpiry = (from = new Date()) =>
   new Date(from.getTime() + SESSION_TTL_MS);
 
-const getCookieSameSite = () => process.env.DUGA_COOKIE_SAMESITE || 'lax';
+const isCrossSiteCookieEnvironment = () =>
+  CROSS_SITE_COOKIE_ENVIRONMENTS.has(process.env.NODE_ENV);
+
+const getCookieSameSite = () =>
+  process.env.DUGA_COOKIE_SAMESITE ||
+  (isCrossSiteCookieEnvironment() ? 'none' : 'lax');
 
 const shouldUseSecureCookies = () =>
-  process.env.DUGA_COOKIE_SECURE === 'true' ||
-  process.env.NODE_ENV === 'production';
+  process.env.DUGA_COOKIE_SECURE === 'true' || isCrossSiteCookieEnvironment();
 
 const buildCookieOptions = ({ httpOnly, maxAgeMs = SESSION_TTL_MS } = {}) => {
   const options = {
