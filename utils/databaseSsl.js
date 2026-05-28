@@ -42,17 +42,11 @@ const getDatabaseDialectOptions = (env = process.env.NODE_ENV) => {
 
   const ca = getDatabaseCaBundle();
 
-  if (!ca) {
-    throw new Error(
-      'Database CA bundle is required for SSL verification outside development/test'
-    );
-  }
-
   return {
     ssl: {
       require: true,
       rejectUnauthorized: true,
-      ca,
+      ...(ca ? { ca } : {}),
     },
   };
 };

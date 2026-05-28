@@ -36,10 +36,13 @@ describe('database SSL configuration', () => {
     expect(getDatabaseDialectOptions('test')).toEqual({ ssl: false });
   });
 
-  it('fails outside local environments without a CA bundle', () => {
-    expect(() => getDatabaseDialectOptions('production')).toThrow(
-      'Database CA bundle is required for SSL verification outside development/test'
-    );
+  it('uses verified SSL with system trusted CAs outside local environments', () => {
+    expect(getDatabaseDialectOptions('production')).toEqual({
+      ssl: {
+        require: true,
+        rejectUnauthorized: true,
+      },
+    });
   });
 
   it('uses an inline provider CA bundle with certificate verification enabled', () => {
